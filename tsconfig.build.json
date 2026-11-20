@@ -1,9 +1,12 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    // No Node types: src/ may only use what every runtime has (decision 0004). Timers and
-    // queueMicrotask are declared in src/globals.d.ts once the scheduler needs them.
+    // No Node types: src/ may only use what every runtime has (decision 0004), as declared in
+    // src/globals.d.ts.
     "types": [],
+    // So tsc checks src/globals.d.ts itself, which ESLint skips. With no types loaded, this
+    // checks no third-party declarations.
+    "skipLibCheck": false,
     "paths": {},
     "noEmit": false,
     "allowImportingTsExtensions": false,
@@ -13,5 +16,6 @@
     "declarationMap": true,
     "sourceMap": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": []
 }

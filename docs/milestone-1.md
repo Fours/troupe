@@ -34,6 +34,7 @@ Out of scope (later milestones):
 | Item | Milestone |
 | --- | --- |
 | Persistent actors, journals, snapshots | 2 |
+| Wall-clock time for event timestamps (`scheduler.now()` is monotonic, so the journal needs its own clock) | 2 |
 | Message-level tracing events (received, processed, mailbox depth) for the inspector | 3 |
 | Backstage inspector, demo site, benchmarks, npm release | 3 |
 | Serialization, remoting, refs that cross processes, cluster sharding | 4 |
@@ -364,6 +365,7 @@ export interface TestProbe<M> {
 }
 
 export class ManualScheduler implements Scheduler { /* see T1 */ }
+export interface ManualSchedulerOptions { startTime?: number; maxSteps?: number }
 export function seededRandom(seed: number): () => number; // mulberry32
 ```
 
@@ -378,8 +380,8 @@ Do these in order. Each one ends with passing tests.
 
 | Task | Status | Commit |
 | --- | --- | --- |
-| T0. Scaffold the repo | Done | |
-| T1. Scheduler and virtual time | Not started | |
+| T0. Scaffold the repo | Done | 79ce73c |
+| T1. Scheduler and virtual time | Done | |
 | T2. Actor system, mailbox and dispatcher | Not started | |
 | T3. Hierarchy, stopping and death watch | Not started | |
 | T4. Supervision | Not started | |
@@ -401,21 +403,24 @@ Do these in order. Each one ends with passing tests.
 **Done when:**
 
 - [x] `npm run lint && npm run typecheck && npm test && npm run build` passes on an empty suite, locally.
-- [ ] The same passes in CI, once the GitHub remote exists.
+- [x] The same passes in CI, on Node 22, 24 and 26.
 
 ### T1. Scheduler and virtual time
 
 - `src/globals.d.ts`: the runtime globals listed under "Scheduler and runtime"
 - `src/scheduler.ts`: `Scheduler` and `realScheduler()`
 - `src/testkit/manual-scheduler.ts`: `ManualScheduler`, with `now()`, `runSoon`, `setTimer`, `runReady(): number` (runs queued tasks and due timers until none are left, and returns how many ran), `advanceTo(time)` and `pendingTimers()`. `advanceTo` is synchronous, and `kit.advance` builds on it in T6.
-- `src/testkit/random.ts`: `seededRandom(seed)`
+  - Options: `startTime` (default 0), and `maxSteps` (default 100,000). A `runReady` call that runs more than `maxSteps` tasks and timers throws `RangeError`, so a task that re-queues itself forever fails the test instead of hanging it. Each call gets its own budget.
+  - `advanceTo` to an earlier time throws `RangeError`. A negative or `NaN` delay counts as 0, as `setTimeout` treats it. A task that throws comes out of the call that ran it, and the scheduler stays usable.
+- `src/testkit/random.ts`: `seededRandom(seed)`, which throws `TypeError` unless `seed` is a safe integer
+- `src/globals.d.ts` is excluded from the editor and test config, where `@types/node` declares the same globals and `skipLibCheck` would hide a clash. The build config puts it back, and turns `skipLibCheck` off so `tsc` checks the file. ESLint skips it.
 
 **Done when** tests cover:
 
-- [ ] `realScheduler`: `runSoon` tasks run in FIFO order, after the current task. `setTimer` fires, and its cancel function stops it.
-- [ ] `ManualScheduler`: timers fire in due order, and in creation order on a tie. `now()` reads each timer's due time while it runs. Tasks queued by a timer run before the next timer. A timer set during `advanceTo` that falls due within it fires. Cancel works, even after the timer is due but before it runs.
-- [ ] `seededRandom`: the same seed gives the same sequence, different seeds give different ones, and every value is in `[0, 1)`.
-- [ ] `npm run typecheck` still passes with the build config's empty `types`.
+- [x] `realScheduler`: `runSoon` tasks run in FIFO order, after the current task. `setTimer` fires, and its cancel function stops it.
+- [x] `ManualScheduler`: timers fire in due order, and in creation order on a tie. `now()` reads each timer's due time while it runs. Tasks queued by a timer run before the next timer. A timer set during `advanceTo` that falls due within it fires. Cancel works, even after the timer is due but before it runs.
+- [x] `seededRandom`: the same seed gives the same sequence, different seeds give different ones, and every value is in `[0, 1)`.
+- [x] `npm run typecheck` still passes with the build config's empty `types`.
 
 ### T2. Actor system, mailbox and dispatcher
 

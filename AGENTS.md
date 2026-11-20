@@ -43,7 +43,8 @@ Before you say a task is done, run lint, typecheck, test, coverage and build, an
 ```
 src/
   index.ts          public API: export only from here and testkit/index.ts
-  globals.d.ts      the runtime globals src/ may use (0004)
+  scheduler.ts      Scheduler and realScheduler (0003)
+  globals.d.ts      the runtime globals src/ may use (0004); in the build config only
   testkit/          the /testkit entry point: ManualScheduler, seededRandom, createTestKit, TestProbe
 test/               mirrors src/
 examples/           runnable examples, run by Node with type stripping

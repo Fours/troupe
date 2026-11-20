@@ -23,6 +23,13 @@ The system takes a `Scheduler` (`now`, `runSoon`, `setTimer`) and a `random()` f
 
 T1's scheduler tests, and T6's determinism test: the same scenario run twice with the same seed must give identical event logs.
 
+**T1 (2026-11-20):** `ManualScheduler` and `seededRandom` are built and tested.
+- `test/testkit/manual-scheduler.test.ts` pins the ordering rules that replay depends on: due time then creation order, queued tasks before timers, `now()` reading each timer's due time, and cancelling a timer that's due but hasn't run.
+- Reversing the tie-break, ignoring the cancel flag, or running timers before tasks each fails a test.
+- `test/testkit/random.test.ts` pins `seededRandom(1)`'s first three values, so a change to the generator can't silently change recorded seeds.
+
+The record stays Proposed until T6 shows a whole actor system replaying identically.
+
 ## Consequences
 
 - Every test runs on virtual time, and runs instantly.
