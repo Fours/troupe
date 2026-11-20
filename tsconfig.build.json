@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // No Node types: src/ may only use what every runtime has (decision 0004). Timers and
+    // queueMicrotask are declared in src/globals.d.ts once the scheduler needs them.
+    "types": [],
+    "paths": {},
+    "noEmit": false,
+    "allowImportingTsExtensions": false,
+    "rootDir": "src",
+    "outDir": "dist",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true
+  },
+  "include": ["src"]
+}

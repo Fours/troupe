@@ -1,0 +1,27 @@
+# Design decisions
+
+Each file here records one design choice: the choice itself, the alternatives, and the evidence for it. Write them for a reader, not just as notes to yourself. In milestone 3, they become the public write-up.
+
+## How to add one
+
+1. Copy `template.md` to `NNNN-short-title.md`, using the next free number.
+2. Set the status:
+   - **Proposed** means it's planned but not proven yet.
+   - **Accepted** means it's backed by evidence or built.
+   - **Superseded by NNNN** means a later record replaced it. Don't delete old records, and don't rewrite their history.
+3. Add a row to the index below.
+4. Put raw benchmark output in `data/`, named after the record, and link it from the Evidence section. Every set of numbers states the machine, the runtime and its version, and the exact command, so it can be rerun.
+
+When you change a decision, update its record in the same commit as the code.
+
+## Index
+
+| # | Decision | Status | Milestone |
+| --- | --- | --- | --- |
+| [0001](0001-state-and-reducer-actors.md) | Actors are a state plus a reducer | Accepted | 1 |
+| [0002](0002-async-receive-blocks-the-mailbox.md) | An async `receive` holds the mailbox until it settles | Proposed | 1 |
+| [0003](0003-injected-scheduler-and-random.md) | All time, scheduling and chance go through an injected scheduler and random | Proposed | 1 |
+| [0004](0004-runtime-agnostic-core.md) | The core is runtime-agnostic, and the build has no Node types | Accepted | 1 |
+| [0005](0005-one-package-with-subpaths.md) | One npm package with subpath exports | Accepted | 1 |
+| [0006](0006-supervision-chosen-at-spawn.md) | The parent chooses supervision at spawn, and the default is stop | Proposed | 1 |
+| [0007](0007-microtask-wake-macrotask-yield.md) | The dispatcher wakes on a microtask and yields on a macrotask | Proposed | 1 |

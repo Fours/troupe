@@ -1,0 +1,32 @@
+{
+  // Editor and test config: src, tests and examples, with Node types for the tests.
+  // tsconfig.build.json builds src/ without Node types, which keeps the core runtime-agnostic
+  // (decision 0004). `npm run typecheck` runs both.
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "types": ["node"],
+    "noEmit": true,
+    // Node runs examples/ by stripping types, which needs relative imports to end in .ts.
+    "allowImportingTsExtensions": true,
+    // Lets examples and tests import the package by name before dist/ is built.
+    "paths": {
+      "@kylewillett/troupe": ["./src/index.ts"],
+      "@kylewillett/troupe/testkit": ["./src/testkit/index.ts"]
+    }
+  },
+  "include": ["src", "test", "examples", "*.config.ts"]
+}
