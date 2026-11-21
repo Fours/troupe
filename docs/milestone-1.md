@@ -388,7 +388,7 @@ Do these in order. Each one ends with passing tests.
 | T4. Supervision | Done | 5856382 |
 | T5. Ask, timers and pipeToSelf | Done | 3afccd9 |
 | T6. Testkit and determinism | Done | b9392b5 |
-| T7. Box office example and README | Done | |
+| T7. Box office example and README | Done | 74f3a3c |
 
 ### T0. Scaffold the repo
 
@@ -639,12 +639,12 @@ As built:
 
 ## Definition of done
 
-- [ ] T0 to T7 are complete.
-- [ ] `npm run lint`, `typecheck`, `test`, `coverage` and `build` all pass, locally and in CI.
-- [ ] Line coverage is at least 90% for `src/`.
-- [ ] There are no runtime dependencies.
-- [ ] `src/` builds with no Node types and imports no Node built-ins.
-- [ ] The public API is exported only from `src/index.ts` and `src/testkit/index.ts`.
+- [x] T0 to T7 are complete.
+- [x] `npm run lint`, `typecheck`, `test`, `coverage` and `build` all pass, locally and in CI.
+- [x] Line coverage is at least 90% for `src/`.
+- [x] There are no runtime dependencies.
+- [x] `src/` builds with no Node types and imports no Node built-ins.
+- [x] The public API is exported only from `src/index.ts` and `src/testkit/index.ts`.
 
 ## Decision records
 
