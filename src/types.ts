@@ -19,10 +19,66 @@ export interface ActorRef<M> {
    * delivered becomes a dead letter.
    */
   readonly tell: (msg: M) => void;
+  /**
+   * Sends a request and waits for one reply. `build` gets a temporary ref under `/temp` and
+   * returns the message to send, which usually carries that ref as its `replyTo`. The first reply
+   * resolves the promise. Later replies become `askCompleted` dead letters.
+   *
+   * `R` can't be inferred from the protocol, so give it: `ref.ask<number>((replyTo) => ...)`, or
+   * annotate `replyTo` as `ActorRef<number>`.
+   *
+   * Asking an actor that has stopped times out rather than failing fast, because a remote ref
+   * can't know either (decision 0009).
+   * @returns A promise of the first reply. It rejects with `AskTimeoutError` if none arrives in
+   * time, with whatever `build` threw if it throws (and then nothing is sent), and with
+   * `ActorSystemTerminatedError` once the system is terminating.
+   * @throws TypeError for options that can't be used.
+   */
+  readonly ask: <R>(build: (replyTo: ActorRef<R>) => M, opts?: AskOptions) => Promise<R>;
+}
+
+/** Options for one `ask`. */
+export interface AskOptions {
+  /** How long to wait for the reply, in ms. Default: the system's `askTimeoutMs`. */
+  timeoutMs?: number;
 }
 
 /** A ref to an actor of any protocol, for watching, stopping and comparing. */
 export type AnyRef = ActorRef<never>;
+
+/** How a promise settled, as `pipeToSelf` delivers it. */
+export type Result<T> =
+  { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: unknown };
+
+/**
+ * Keyed timers that send the actor a message. They belong to one incarnation: every timer is
+ * cancelled when the actor stops or restarts, and a stale context's timer methods do nothing.
+ */
+export interface Timers<M> {
+  /**
+   * Sends `msg` once, after `delayMs`. Replaces any timer with the same key.
+   * @throws TypeError unless `key` is a string and `delayMs` an integer of at least 0.
+   */
+  startSingle(key: string, msg: M, delayMs: number): void;
+  /**
+   * Sends `msg` every `intervalMs`, measured from each firing, until cancelled. Replaces any timer
+   * with the same key.
+   * @throws TypeError unless `key` is a string and `intervalMs` a positive integer.
+   */
+  startPeriodic(key: string, msg: M, intervalMs: number): void;
+  /**
+   * Cancels the timer with this key, if there is one. Its message is never received, even if it's
+   * already in the mailbox.
+   */
+  cancel(key: string): void;
+  /** Cancels every timer. */
+  cancelAll(): void;
+  /**
+   * True while the timer with this key can still deliver: a periodic one until it's cancelled, a
+   * single one until its message has been received.
+   */
+  isActive(key: string): boolean;
+}
 
 /**
  * What an actor can see and do while it runs. Passed to `initial`, `receive` and `onSignal`. It
@@ -68,6 +124,16 @@ export interface ActorContext<M> {
   child(name: string): AnyRef | undefined;
   /** The children that haven't terminated yet, in spawn order. */
   children(): readonly AnyRef[];
+  /** This incarnation's timers. */
+  readonly timers: Timers<M>;
+  /**
+   * Waits for `promise` without holding the mailbox, then sends the actor `map(result)`. `map`
+   * runs inside the actor when that message is taken, so a mapper that throws is a failure for
+   * supervision. If the actor has stopped by then, the raw `Result` becomes a dead letter. Unlike
+   * timers, a result still arrives after a restart, as a `self.tell` would.
+   * @throws TypeError if `map` isn't a function.
+   */
+  pipeToSelf<T>(promise: PromiseLike<T>, map: (result: Result<T>) => M): void;
 }
 
 /** A lifecycle event, delivered to `onSignal`. */
@@ -130,6 +196,8 @@ export interface ActorSystemOptions {
   random?: () => number;
   /** Where logs go. Default `consoleLogger("warn")`. */
   logger?: Logger;
+  /** How long `ask` waits for a reply when it isn't given `timeoutMs`, in ms. Default 5,000. */
+  askTimeoutMs?: number;
   /** How many messages one actor runs per turn before others get a go. Default 10. */
   throughput?: number;
   /** How many messages run in a row before the dispatcher yields to the event loop. Default 1,000. */
@@ -169,9 +237,10 @@ export type SystemEvent = Timestamped<
       readonly message: unknown;
       /**
        * `mailboxFull`: a bounded mailbox was full. `stopped`: the actor was stopping or had
-       * stopped. `terminated`: the system was terminating.
+       * stopped. `askCompleted`: a reply to an `ask` that had already been answered or had timed
+       * out. `terminated`: the system was terminating.
        */
-      readonly reason: 'mailboxFull' | 'stopped' | 'terminated';
+      readonly reason: 'mailboxFull' | 'stopped' | 'askCompleted' | 'terminated';
     }
 >;
 

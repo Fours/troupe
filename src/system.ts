@@ -1,3 +1,4 @@
+import { Asker } from './ask.js';
 import { Cell, type CellHost, type CellNode, type ParentNode } from './cell.js';
 import { checkInt, checkKeys, describe } from './checks.js';
 import { Dispatcher } from './dispatcher.js';
@@ -21,6 +22,7 @@ const SYSTEM_OPTIONS = new Set([
   'scheduler',
   'random',
   'logger',
+  'askTimeoutMs',
   'throughput',
   'yieldAfter',
 ]);
@@ -33,8 +35,10 @@ const USER_PATH = '/user';
 /** The parts of a system that the testkit needs and the public API hides. */
 export interface SystemHandle {
   readonly system: ActorSystem;
-  /** How many actors are waiting for an async `receive` to settle. */
+  /** How many async handlers and `pipeToSelf` promises are still waiting to settle. */
   busy(): number;
+  /** Makes a ref whose `ask` works like any actor's, for probes. */
+  readonly makeRef: <M>(path: string, tell: (msg: M) => void) => ActorRef<M>;
 }
 
 /**
@@ -55,6 +59,7 @@ export function createSystem(opts: ActorSystemOptions = {}): SystemHandle {
     // eslint-disable-next-line no-restricted-properties
     random = Math.random,
     logger = consoleLogger('warn'),
+    askTimeoutMs = 5000,
     throughput = 10,
     yieldAfter = 1000,
   } = opts;
@@ -72,12 +77,16 @@ export function createSystem(opts: ActorSystemOptions = {}): SystemHandle {
   if (!isLogger(logger)) {
     throw new TypeError('createActorSystem: logger must have debug, info, warn and error methods');
   }
+  checkInt(askTimeoutMs, 'createActorSystem: askTimeoutMs');
   checkInt(throughput, 'createActorSystem: throughput');
   checkInt(yieldAfter, 'createActorSystem: yieldAfter');
 
   const log = safeLogger(logger);
   const now = () => scheduler.now();
   const events = new EventBus(now, log);
+  const setTimer = (task: () => void, delayMs: number) => scheduler.setTimer(task, delayMs);
+  const asker = new Asker({ events, systemName: name, defaultTimeoutMs: askTimeoutMs, setTimer });
+  const makeRef = <M>(path: string, tell: (msg: M) => void) => asker.ref(path, tell);
   const cells = new WeakMap<object, CellNode>();
   let busy = 0;
   let terminating = false;
@@ -106,7 +115,8 @@ export function createSystem(opts: ActorSystemOptions = {}): SystemHandle {
     log,
     now,
     random,
-    setTimer: (task, delayMs) => scheduler.setTimer(task, delayMs),
+    setTimer,
+    makeRef,
     trackBusy: (delta) => {
       busy += delta;
     },
@@ -151,12 +161,14 @@ export function createSystem(opts: ActorSystemOptions = {}): SystemHandle {
     terminate(): Promise<void> {
       if (terminating) return whenTerminated;
       terminating = true;
+      // Pending asks fail now, so an actor awaiting one in an async receive can still stop.
+      asker.terminate();
       if (guardian.childCells.size === 0) resolveTerminated();
       for (const child of [...guardian.childCells.values()]) child.requestStop();
       return whenTerminated;
     },
   });
-  return { system, busy: () => busy };
+  return { system, busy: () => busy, makeRef };
 }
 
 function checkDef(def: unknown): void {

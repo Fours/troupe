@@ -4,9 +4,11 @@ import { describe, expectTypeOf, it } from 'vitest';
 import { actor } from '../src/actor.js';
 import { supervise, type SupervisorStrategy } from '../src/supervision.js';
 import type {
+  ActorContext,
   ActorDef,
   ActorRef,
   AnyRef,
+  Result,
   Signal,
   SpawnOptions,
   SystemEvent,
@@ -39,10 +41,69 @@ describe('ActorRef', () => {
   });
 
   it('only accepts its own messages', () => {
-    const ref: ActorRef<A> = { path: '/user/a', tell: () => {} };
-    // @ts-expect-error B isn't in the protocol
-    ref.tell({ type: 'b' });
-    expectTypeOf(ref.tell).parameter(0).toEqualTypeOf<A>();
+    const ref = {} as ActorRef<A>;
+    // Never called: the type error is the point.
+    const wrong = () => {
+      // @ts-expect-error B isn't in the protocol
+      ref.tell({ type: 'b' });
+    };
+    expectTypeOf(wrong).returns.toBeVoid();
+    expectTypeOf<ActorRef<A>['tell']>().parameter(0).toEqualTypeOf<A>();
+  });
+});
+
+describe('ask', () => {
+  type Get = { type: 'get'; replyTo: ActorRef<number> };
+  type Protocol = Get | { type: 'inc'; by: number };
+  // Never called: the types are the point.
+  const ref = {} as ActorRef<Protocol>;
+
+  it('takes the reply type as an argument, or from an annotated replyTo', () => {
+    const explicit = () => ref.ask<number>((replyTo) => ({ type: 'get', replyTo }));
+    expectTypeOf(explicit).returns.toEqualTypeOf<Promise<number>>();
+    const annotated = () => ref.ask((replyTo: ActorRef<number>) => ({ type: 'get', replyTo }));
+    expectTypeOf(annotated).returns.toEqualTypeOf<Promise<number>>();
+    // The protocol alone gives nothing to infer R from, which is why the docs say to pass it.
+    const bare = () => ref.ask((replyTo) => ({ type: 'get', replyTo }));
+    expectTypeOf(bare).returns.toEqualTypeOf<Promise<unknown>>();
+  });
+
+  it('rejects a reply type the protocol does not expect', () => {
+    // @ts-expect-error a get carries an ActorRef<number>, not an ActorRef<string>
+    const wrong = () => ref.ask<string>((replyTo) => ({ type: 'get', replyTo }));
+    expectTypeOf(wrong).returns.toEqualTypeOf<Promise<string>>();
+    // @ts-expect-error build must return a message of the protocol
+    const notAMessage = () => ref.ask<number>(() => ({ type: 'other' }));
+    expectTypeOf(notAMessage).returns.toEqualTypeOf<Promise<number>>();
+  });
+
+  it('keeps ActorRef contravariant and assignable to AnyRef', () => {
+    expectTypeOf<ActorRef<Protocol>>().toExtend<ActorRef<Get>>();
+    expectTypeOf<ActorRef<Get>>().not.toExtend<ActorRef<Protocol>>();
+    expectTypeOf<ActorRef<Protocol>>().toExtend<AnyRef>();
+  });
+});
+
+describe('timers and pipeToSelf', () => {
+  it("only accept messages of the actor's protocol", () => {
+    const ctx = {} as ActorContext<A>;
+    expectTypeOf<ActorContext<A>['timers']['startSingle']>().parameter(1).toEqualTypeOf<A>();
+    expectTypeOf<ActorContext<A>['timers']['startPeriodic']>().parameter(1).toEqualTypeOf<A>();
+    const pipe = () => {
+      ctx.pipeToSelf(Promise.resolve(1), (result) => {
+        expectTypeOf(result).toEqualTypeOf<Result<number>>();
+        return { type: 'a' };
+      });
+      // @ts-expect-error the mapper must return a message of the protocol
+      ctx.pipeToSelf(Promise.resolve(1), () => ({ type: 'b' }));
+    };
+    expectTypeOf(pipe).returns.toBeVoid();
+  });
+
+  it('narrows a Result on ok', () => {
+    const result = {} as Result<number>;
+    if (result.ok) expectTypeOf(result.value).toEqualTypeOf<number>();
+    else expectTypeOf(result.error).toEqualTypeOf<unknown>();
   });
 });
 
@@ -103,5 +164,12 @@ describe('supervision types', () => {
     type Restarted = Extract<SystemEvent, { type: 'restarted' }>;
     expectTypeOf<Restarted['attempt']>().toEqualTypeOf<number>();
     expectTypeOf<Restarted['delayMs']>().toEqualTypeOf<number>();
+  });
+
+  it('adds askCompleted to the dead-letter reasons', () => {
+    type DeadLetter = Extract<SystemEvent, { type: 'deadLetter' }>;
+    expectTypeOf<DeadLetter['reason']>().toEqualTypeOf<
+      'mailboxFull' | 'stopped' | 'askCompleted' | 'terminated'
+    >();
   });
 });

@@ -76,7 +76,7 @@ const counter = actor<CounterMsg, number>({
 const system = createActorSystem();
 const ref = system.spawn(counter, 'counter');
 ref.tell({ type: 'inc', by: 2 });
-const n = await ref.ask((replyTo) => ({ type: 'get', replyTo })); // 2
+const n = await ref.ask<number>((replyTo) => ({ type: 'get', replyTo })); // 2
 ```
 
 ```ts
@@ -219,7 +219,7 @@ Pitfall for the README: an actor that awaits `ask` to an actor that asks it back
 - `watch(ref)` works on any actor, not only children. Watching twice is the same as watching once. Watching an actor that has already terminated delivers `terminated` straight away. After `unwatch(ref)` returns, no `terminated` for that ref arrives, even one that's already queued.
 - `failure` is set on `terminated` when the actor stopped because supervision stopped it.
 - Parents don't watch their children automatically, and nothing escalates in this milestone (see the open questions).
-- `system.terminate()` stops `/user` the same way, then `/temp`. Its promise resolves after the last `stopped` event.
+- `system.terminate()` rejects every pending `ask` at once ([0009](decisions/0009-ask-is-a-temporary-ref.md)), then stops `/user` the same way. Its promise resolves after the last `stopped` event.
 
 ### Supervision
 
@@ -267,7 +267,8 @@ Every failure publishes a `failed` event and logs at `error`, with the path, the
 export interface AskOptions { timeoutMs?: number } // default: the system's askTimeoutMs
 ```
 
-- `ref.ask(build)` creates a temporary ref under `/temp`, calls `build(tempRef)`, and `tell`s the result to `ref`.
+- `ref.ask(build)` creates a temporary ref under `/temp`, calls `build(tempRef)`, and `tell`s the result to `ref` ([0009](decisions/0009-ask-is-a-temporary-ref.md)).
+- TypeScript can't infer the reply type from the protocol, so write `ref.ask<number>(...)`, or annotate `replyTo`.
 - The first reply resolves the promise. Any later replies become dead letters with reason `askCompleted`.
 - If no reply comes within `timeoutMs`, the promise rejects with `AskTimeoutError`, which carries the target path and the timeout. A reply that arrives after that is a dead letter.
 - Asking a stopped actor makes the message a dead letter and times out. It doesn't fail fast, because a remote ref in milestone 4 won't know either (see the open questions).
@@ -384,8 +385,8 @@ Do these in order. Each one ends with passing tests.
 | T1. Scheduler and virtual time | Done | 88cd10f |
 | T2. Actor system, mailbox and dispatcher | Done | 7dae4cf |
 | T3. Hierarchy, stopping and death watch | Done | 71eab4a |
-| T4. Supervision | Done | |
-| T5. Ask, timers and pipeToSelf | Not started | |
+| T4. Supervision | Done | 5856382 |
+| T5. Ask, timers and pipeToSelf | Done | |
 | T6. Testkit and determinism | Not started | |
 | T7. Box office example and README | Not started | |
 
@@ -538,15 +539,36 @@ As built:
 
 `src/ask.ts`, `src/timers.ts` and `pipeToSelf` in `src/cell.ts`.
 
+As built:
+
+- **The API this task adds:**
+  - `ask` on `ActorRef`, with `AskOptions` and `AskTimeoutError`.
+  - `askTimeoutMs` in `ActorSystemOptions`, and `askCompleted` as a dead-letter reason.
+  - `ctx.timers` (`Timers`), `ctx.pipeToSelf` and `Result`.
+- **Ask** ([0009](decisions/0009-ask-is-a-temporary-ref.md)):
+  - Temporary refs are `/temp/$1`, `/temp/$2` and so on. They aren't actors: they publish no `spawned` or `stopped` events.
+  - Every ref, a probe's included, gets its `ask` from one place, so any ref can be asked.
+  - Bad options throw `TypeError` synchronously.
+  - `terminate()` rejects pending and later asks with `ActorSystemTerminatedError` at once. Waiting for `/user` to stop first would deadlock an actor whose async `receive` awaits an ask.
+- **Timers:**
+  - A key is a string. A single timer's delay is an integer of at least 0, and a periodic interval a positive integer.
+  - Timer and pipe messages sit in the mailbox in private envelopes, so a plain `tell` allocates nothing extra.
+  - Generations count per cell across incarnations.
+  - A cancelled timer's queued message is dropped silently, not dead-lettered, even on stop.
+  - A single timer whose message hits a full mailbox becomes a `mailboxFull` dead letter, and is no longer active.
+- **pipeToSelf:**
+  - A result still arrives after a restart, like a `tell` to self.
+  - Pending pipes count toward the testkit's busy count, so `settle()` waits for them. T6 still owns the "settle waits for pipeToSelf chains" test.
+
 **Done when** tests cover:
 
-- [ ] `ask` resolves with the first reply, and later replies are dead letters with reason `askCompleted`.
-- [ ] `ask` times out with `AskTimeoutError` at exactly `timeoutMs` of virtual time, and the error names the target. A reply after that is a dead letter.
-- [ ] Asking a stopped actor times out. A `build` that throws rejects at once and sends nothing.
-- [ ] A single timer fires once at its delay, and a periodic one fires every interval.
-- [ ] Replacing or cancelling a timer drops its message, even one already in the mailbox.
-- [ ] Timers are cancelled on stop and on restart.
-- [ ] `pipeToSelf` doesn't block the mailbox. A resolved and a rejected promise each arrive as a `Result`. A mapper that throws goes to supervision. A result for a stopped actor is a dead letter.
+- [x] `ask` resolves with the first reply, and later replies are dead letters with reason `askCompleted`.
+- [x] `ask` times out with `AskTimeoutError` at exactly `timeoutMs` of virtual time, and the error names the target. A reply after that is a dead letter.
+- [x] Asking a stopped actor times out. A `build` that throws rejects at once and sends nothing.
+- [x] A single timer fires once at its delay, and a periodic one fires every interval.
+- [x] Replacing or cancelling a timer drops its message, even one already in the mailbox.
+- [x] Timers are cancelled on stop and on restart.
+- [x] `pipeToSelf` doesn't block the mailbox. A resolved and a rejected promise each arrive as a `Result`. A mapper that throws goes to supervision. A result for a stopped actor is a dead letter.
 
 ### T6. Testkit and determinism
 
@@ -590,7 +612,7 @@ Complete `src/testkit/`: `advance`, `events`, `logs`, `shutdown`, the probe's `w
 
 ## Decision records
 
-This milestone sets up records 0001 to 0007 in `docs/decisions/`. 0001, 0004 and 0005 are Accepted. The rest are Proposed, and the tasks named in each one prove them. T4 added 0008. If the design changes during implementation, update the matching record in the same commit.
+This milestone sets up records 0001 to 0007 in `docs/decisions/`. 0001, 0004 and 0005 are Accepted. The rest are Proposed, and the tasks named in each one prove them. T4 added 0008, and T5 added 0009. If the design changes during implementation, update the matching record in the same commit.
 
 ## Open questions
 

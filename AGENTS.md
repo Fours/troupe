@@ -47,6 +47,9 @@ src/
   system.ts         createActorSystem (option checks, spawn) and createSystem (adds testkit internals)
   cell.ts           one actor: state, mailbox and system queue, children, stop and death watch (0002)
   dispatcher.ts     the shared ready queue, throughput turns, and yielding (0007)
+  supervision.ts    supervise, option checks, and the strategy decision (0006, 0008)
+  ask.ts            refs, ask and its temporary refs under /temp (0009)
+  timers.ts         keyed timers, checked by generation when their messages are dequeued
   actor.ts, names.ts, events.ts, logger.ts, errors.ts, queue.ts
   scheduler.ts      Scheduler and realScheduler (0003)
   globals.d.ts      the runtime globals src/ may use (0004); in the build config only

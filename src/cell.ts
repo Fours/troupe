@@ -10,10 +10,35 @@ import {
   type RestartHistory,
   type SupervisorStrategy,
 } from './supervision.js';
-import type { ActorContext, ActorDef, ActorRef, AnyRef, Signal, SpawnOptions } from './types.js';
+import { TimerEnvelope, TimerTable, timersFor } from './timers.js';
+import type {
+  ActorContext,
+  ActorDef,
+  ActorRef,
+  AnyRef,
+  Result,
+  Signal,
+  SpawnOptions,
+} from './types.js';
 
 /** A failure, kept with a flag because `throw undefined` is legal. */
 type Failure = { readonly error: unknown } | undefined;
+
+/** A settled `pipeToSelf` promise in the mailbox. Its mapper runs when it's dequeued. */
+class PipeEnvelope<M> {
+  constructor(
+    readonly result: Result<unknown>,
+    readonly map: (result: Result<unknown>) => M,
+  ) {}
+}
+
+/**
+ * What the user queue holds. Only timer and pipe messages are wrapped, so a plain `tell` doesn't
+ * allocate. A user message can't be an instance of these private classes.
+ */
+type Envelope<M> = M | TimerEnvelope<M> | PipeEnvelope<M>;
+
+type DeadLetterReason = 'mailboxFull' | 'stopped' | 'terminated';
 
 /** What other cells, the guardian and the system see of a cell, whatever its types. */
 export interface CellNode {
@@ -49,8 +74,13 @@ export interface CellHost {
   random(): number;
   /** The system scheduler's `setTimer`. */
   setTimer(task: () => void, delayMs: number): () => void;
-  /** Called with +1 when a cell starts waiting on a promise, and -1 when it stops. */
+  /**
+   * Called with +1 when a cell starts waiting on a promise, from an async handler or
+   * `pipeToSelf`, and -1 when it settles. The testkit's `settle` waits for the count to reach 0.
+   */
   trackBusy(delta: 1 | -1): void;
+  /** Makes a ref with the system's `ask`. */
+  makeRef<M>(path: string, tell: (msg: M) => void): ActorRef<M>;
   /** True once `terminate()` has been called. */
   terminating(): boolean;
   /** Spawns an actor under `parent`, with every check `spawn` makes. */
@@ -95,7 +125,11 @@ interface PendingRestart {
  * It has two queues. The system queue holds stop requests, `terminated` notices and restart
  * steps, and is always read before the user queue, so a stop jumps ahead of queued messages.
  *
- * Stopping goes: dead-letter the user queue, stop every child and wait for them, run `postStop`,
+ * The user queue holds messages, plus timer and `pipeToSelf` messages in envelopes that are
+ * unwrapped when they're dequeued. A timer's envelope is checked against its timer's current
+ * generation then, so a cancelled timer's message is never received.
+ *
+ * Stopping goes: cancel the timers, dead-letter the user queue, stop every child and wait for them, run `postStop`,
  * then terminate, which frees the name, notifies watchers and publishes `stopped`.
  *
  * A failure goes to the strategy the parent chose (decision 0006). A restart makes a new
@@ -116,7 +150,8 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
   readonly #host: CellHost;
   readonly #capacity: number;
   readonly #strategy: SupervisorStrategy;
-  readonly #mailbox = new Queue<M>();
+  readonly #mailbox = new Queue<Envelope<M>>();
+  readonly #timers: TimerTable<M>;
   readonly #system = new Queue<SystemMessage>();
   readonly #log: Logger;
   #ctx: ActorContext<M>;
@@ -157,11 +192,12 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
     this.#strategy = opts.supervision;
     this.parent = parent;
     this.#log = safeLogger(host.log, { path });
-    this.ref = Object.freeze({
-      path,
-      tell: (msg: M) => {
-        this.#tell(msg);
-      },
+    this.ref = host.makeRef(path, (msg: M) => {
+      this.#enqueue(msg);
+    });
+    this.#timers = new TimerTable<M>({
+      setTimer: (task, delayMs) => host.setTimer(task, delayMs),
+      enqueue: (envelope) => this.#enqueue(envelope),
     });
     this.#ctx = this.#makeContext();
   }
@@ -218,10 +254,10 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
           continue;
         }
         if (this.#phase !== 'running' || this.#mailbox.size === 0) break;
-        // Size checked above, so shift() returns a message. M itself may include undefined.
-        const msg = this.#mailbox.shift() as M;
+        // Size checked above, so shift() returns an item. M itself may include undefined.
+        const item = this.#mailbox.shift() as Envelope<M>;
         steps++;
-        this.#invoke(() => this.#def.receive(this.#state as S, msg, this.#ctx), { message: msg });
+        this.#receive(item);
       }
     } finally {
       this.#running = false;
@@ -258,14 +294,65 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
       },
       child: (childName: string) => this.childCells.get(childName)?.ref,
       children: () => [...this.childCells.values()].map((c) => c.ref),
+      timers: timersFor(this.#timers, () => current() && this.#phase === 'running'),
+      pipeToSelf: <T>(promise: PromiseLike<T>, map: (result: Result<T>) => M) => {
+        if (typeof map !== 'function') {
+          throw new TypeError('pipeToSelf: map must be a function');
+        }
+        this.#pipe(promise, map);
+      },
     });
+  }
+
+  /** Unwraps one mailbox item and hands it to `receive`. */
+  #receive(item: Envelope<M>): void {
+    let msg: M;
+    if (item instanceof TimerEnvelope) {
+      // A cancelled or replaced timer's message is dropped here, even if it was already queued.
+      if (!this.#timers.accept(item)) return;
+      msg = item.msg;
+    } else if (item instanceof PipeEnvelope) {
+      try {
+        msg = item.map(item.result);
+      } catch (error) {
+        this.#fail(error, { pipeToSelf: item.result.ok ? 'ok' : 'error' });
+        return;
+      }
+    } else {
+      msg = item;
+    }
+    this.#invoke(() => this.#def.receive(this.#state as S, msg, this.#ctx), { message: msg });
+  }
+
+  /**
+   * Waits for `promise` without making the cell busy, so the mailbox stays open (decision 0002),
+   * then queues the result for its mapper.
+   */
+  #pipe<T>(promise: PromiseLike<T>, map: (result: Result<T>) => M): void {
+    const host = this.#host;
+    host.trackBusy(1);
+    // The envelope only ever passes this result to this mapper, so widening T is safe.
+    const widened = map as (result: Result<unknown>) => M;
+    const deliver = (result: Result<unknown>): void => {
+      host.trackBusy(-1);
+      this.#enqueue(new PipeEnvelope(result, widened));
+    };
+    Promise.resolve(promise).then(
+      (value) => {
+        deliver({ ok: true, value });
+      },
+      (error: unknown) => {
+        deliver({ ok: false, error });
+      },
+    );
   }
 
   #stopping(): boolean {
     return this.#phase === 'stopping' || this.#phase === 'terminated';
   }
 
-  #tell(msg: M): void {
+  /** Queues a message, or makes it a dead letter. Returns false for a dead letter. */
+  #enqueue(item: Envelope<M>): boolean {
     const reason = this.#host.terminating()
       ? 'terminated'
       : this.#stopping()
@@ -274,15 +361,23 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
           ? 'mailboxFull'
           : undefined;
     if (reason !== undefined) {
-      this.#deadLetter(msg, reason);
-      return;
+      this.#deadLetter(item, reason);
+      return false;
     }
     // While restarting, messages queue up and wait for the new incarnation.
-    this.#mailbox.push(msg);
+    this.#mailbox.push(item);
     this.#scheduleIfReady();
+    return true;
   }
 
-  #deadLetter(message: unknown, reason: 'mailboxFull' | 'stopped' | 'terminated'): void {
+  /** Publishes what was sent, never the cell's wrapper: a pipe's raw `Result`, a timer's message. */
+  #deadLetter(item: Envelope<M>, reason: DeadLetterReason): void {
+    const message =
+      item instanceof PipeEnvelope
+        ? item.result
+        : item instanceof TimerEnvelope
+          ? (item.msg as unknown)
+          : item;
     this.#host.events.publish({ type: 'deadLetter', recipient: this.path, message, reason });
   }
 
@@ -432,7 +527,7 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
     this.#phase = 'restarting';
     this.#incarnation++;
     this.#unwatchAll();
-    // T5's timers are cancelled here.
+    this.#timers.cancelAll();
     const restart: PendingRestart = {
       attempt,
       delayMs,
@@ -522,7 +617,13 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
     this.#restart = undefined;
     this.#phase = 'stopping';
     this.#failure = failure;
-    while (this.#mailbox.size > 0) this.#deadLetter(this.#mailbox.shift(), 'stopped');
+    this.#timers.cancelAll();
+    while (this.#mailbox.size > 0) {
+      const item = this.#mailbox.shift() as Envelope<M>;
+      // Its timer was cancelled just above, so its message is never received, not even as a
+      // dead letter.
+      if (!(item instanceof TimerEnvelope)) this.#deadLetter(item, 'stopped');
+    }
     // A restart may already be waiting for the children, and childrenDone will still come.
     if (this.#awaitingChildren || this.#stopChildren()) return;
     this.#postStop();

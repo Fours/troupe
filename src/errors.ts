@@ -16,7 +16,26 @@ export class ActorStoppedError extends Error {
   override readonly name = 'ActorStoppedError';
 }
 
-/** Thrown by `spawn` once `system.terminate()` has been called. */
+/**
+ * Thrown by `spawn` once `system.terminate()` has been called. Also the reason every pending and
+ * later `ask` rejects.
+ */
 export class ActorSystemTerminatedError extends Error {
   override readonly name = 'ActorSystemTerminatedError';
+}
+
+/** The reason an `ask` rejects when no reply arrives within its timeout. */
+export class AskTimeoutError extends Error {
+  override readonly name = 'AskTimeoutError';
+  /** The path of the actor that was asked. */
+  readonly target: string;
+  /** How long the ask waited, in ms. */
+  readonly timeoutMs: number;
+
+  /** @internal `ask` creates these. */
+  constructor(target: string, timeoutMs: number) {
+    super(`ask to ${target} got no reply within ${String(timeoutMs)} ms`);
+    this.target = target;
+    this.timeoutMs = timeoutMs;
+  }
 }

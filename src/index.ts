@@ -4,6 +4,7 @@ export {
   ActorNameError,
   ActorStoppedError,
   ActorSystemTerminatedError,
+  AskTimeoutError,
   NotAChildError,
 } from './errors.js';
 export { consoleLogger, silentLogger, type Logger, type LogLevel } from './logger.js';
@@ -17,8 +18,11 @@ export type {
   ActorSystem,
   ActorSystemOptions,
   AnyRef,
+  AskOptions,
   EventStream,
+  Result,
   Signal,
   SpawnOptions,
   SystemEvent,
+  Timers,
 } from './types.js';

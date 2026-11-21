@@ -91,7 +91,7 @@ export function createTestKit(opts: TestKitOptions = {}): TestKit {
       const full = `probe-${chosen}`;
       if (probeNames.has(full)) throw new ActorNameError(`probe name "${chosen}" is already taken`);
       probeNames.add(full);
-      return new TestProbe<M>(`/temp/${full}`, full);
+      return new TestProbe<M>(`/temp/${full}`, full, handle.makeRef);
     },
     async settle(): Promise<void> {
       for (let ticks = 0; ; ticks++) {

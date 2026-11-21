@@ -26,3 +26,4 @@ When you change a decision, update its record in the same commit as the code.
 | [0006](0006-supervision-chosen-at-spawn.md) | The parent chooses supervision at spawn, and the default is stop | Accepted | 1 |
 | [0007](0007-microtask-wake-macrotask-yield.md) | The dispatcher wakes on a microtask and yields on a macrotask | Accepted | 1 |
 | [0008](0008-restart-is-a-new-incarnation.md) | A restart is a new incarnation behind the same ref | Accepted | 1 |
+| [0009](0009-ask-is-a-temporary-ref.md) | `ask` goes through a temporary ref and never fails fast | Accepted | 1 |

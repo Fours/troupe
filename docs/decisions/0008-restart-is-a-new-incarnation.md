@@ -42,6 +42,8 @@ While a restart is under way, messages queue up and none is processed. A stop du
 
 T5 adds timers and tests that a restart cancels them.
 
+**T5 (2026-11-20):** `test/timers.test.ts`, "cancels every timer on restart": a timer message from the old incarnation that's still queued is never received, even when the new incarnation starts the same key, because generations keep counting across incarnations. Keeping timers on restart, or resetting the generation, each fails it.
+
 ## Consequences
 
 - `initial` is the one place an actor sets itself up, for its first start and every restart. Milestone 2's persistent actors replay their journal there.

@@ -10,14 +10,18 @@ export class TestProbe<M> {
   readonly #name: string;
   readonly #received: M[] = [];
 
-  /** @internal Create probes with `kit.probe()`. */
-  constructor(path: string, name: string) {
+  /**
+   * @internal Create probes with `kit.probe()`.
+   * @param makeRef The system's ref factory, which gives the ref its `ask`.
+   */
+  constructor(
+    path: string,
+    name: string,
+    makeRef: (path: string, tell: (msg: M) => void) => ActorRef<M>,
+  ) {
     this.#name = name;
-    this.ref = Object.freeze({
-      path,
-      tell: (msg: M) => {
-        this.#received.push(msg);
-      },
+    this.ref = makeRef(path, (msg: M) => {
+      this.#received.push(msg);
     });
   }
 
