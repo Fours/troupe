@@ -19,9 +19,9 @@ When you change a decision, update its record in the same commit as the code.
 | # | Decision | Status | Milestone |
 | --- | --- | --- | --- |
 | [0001](0001-state-and-reducer-actors.md) | Actors are a state plus a reducer | Accepted | 1 |
-| [0002](0002-async-receive-blocks-the-mailbox.md) | An async `receive` holds the mailbox until it settles | Proposed | 1 |
+| [0002](0002-async-receive-blocks-the-mailbox.md) | An async `receive` holds the mailbox until it settles | Accepted | 1 |
 | [0003](0003-injected-scheduler-and-random.md) | All time, scheduling and chance go through an injected scheduler and random | Proposed | 1 |
 | [0004](0004-runtime-agnostic-core.md) | The core is runtime-agnostic, and the build has no Node types | Accepted | 1 |
 | [0005](0005-one-package-with-subpaths.md) | One npm package with subpath exports | Accepted | 1 |
 | [0006](0006-supervision-chosen-at-spawn.md) | The parent chooses supervision at spawn, and the default is stop | Proposed | 1 |
-| [0007](0007-microtask-wake-macrotask-yield.md) | The dispatcher wakes on a microtask and yields on a macrotask | Proposed | 1 |
+| [0007](0007-microtask-wake-macrotask-yield.md) | The dispatcher wakes on a microtask and yields on a macrotask | Accepted | 1 |

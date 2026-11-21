@@ -1,3 +1,11 @@
-// The /testkit entry point: virtual time, seeded randomness and (from T2) test probes.
+// The /testkit entry point: virtual time, seeded randomness, test kits and probes.
+export {
+  createTestKit,
+  SettleTimeoutError,
+  type LogEntry,
+  type TestKit,
+  type TestKitOptions,
+} from './kit.js';
 export { ManualScheduler, type ManualSchedulerOptions } from './manual-scheduler.js';
+export { TestProbe } from './probe.js';
 export { seededRandom } from './random.js';

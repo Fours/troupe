@@ -1,6 +1,6 @@
 # 0007. The dispatcher wakes on a microtask and yields on a macrotask
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-20
 - **Milestone:** 1
 
@@ -24,6 +24,12 @@ The dispatcher keeps a FIFO ready queue of actors. When work arrives and it's id
 ## Evidence
 
 T2's test: a real `setTimeout(0)` fires while two actors ping-pong without end. Milestone 3's throughput benchmark will tune the defaults and compare `MessageChannel`.
+
+**T2 (2026-11-20):**
+- `test/dispatcher.real-time.test.ts`: on `realScheduler`, a real `setTimeout(0)` fires mid-rally while two actors ping-pong without end.
+- `test/dispatcher.test.ts`, "yields to timers after yieldAfter messages in a row": on virtual time, with `yieldAfter: 50`, a timer queued before the rally fires after exactly 48 rallies. The first drain spends two steps on the actors' `initial`s.
+- "interleaves busy actors throughput messages at a time": shows the ready queue's fairness, as A A B B A A B B with `throughput: 2`.
+- Breaking the yield fails the virtual-time test. The real-time test hangs instead of failing, because a synchronous loop that never ends blocks the event loop, Vitest's own timeouts included. CI's job timeout would catch it, but the virtual-time test is the one that fails cleanly.
 
 ## Consequences
 

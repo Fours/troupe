@@ -1,6 +1,6 @@
 # 0002. An async `receive` holds the mailbox until it settles
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-20
 - **Milestone:** 1
 
@@ -22,6 +22,15 @@ When `receive` (or `onSignal`) returns a promise, the actor is busy until the pr
 ## Evidence
 
 T2 will prove it: a test where an actor's next message waits for its pending promise, while a second actor's messages run in the meantime.
+
+**T2 (2026-11-20):** `test/dispatcher.test.ts`, "holds the mailbox until the promise settles, while other actors run", settles each promise by hand with a deferred, so the order is exact rather than timed:
+- While `slow-1` is pending, `slow-2` waits, and a second actor handles two messages.
+- Once the gates open, `slow-1` finishes before `slow-2` starts.
+- Letting `run()` ignore the busy flag fails this test and two others.
+
+## Implementation notes
+
+- The cell counts busy actors for the testkit, and `settle()` waits until there are none. So a test that holds a promise open on purpose must drive `kit.scheduler.runReady()` itself until it releases the promise.
 
 ## Consequences
 

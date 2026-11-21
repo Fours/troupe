@@ -43,10 +43,15 @@ Before you say a task is done, run lint, typecheck, test, coverage and build, an
 ```
 src/
   index.ts          public API: export only from here and testkit/index.ts
+  types.ts          public types: ActorDef, ActorRef, ActorContext, ActorSystem, SystemEvent, options
+  system.ts         createActorSystem (option checks, spawn) and createSystem (adds testkit internals)
+  cell.ts           one actor: state, mailbox, lifecycle, one message at a time (0002)
+  dispatcher.ts     the shared ready queue, throughput turns, and yielding (0007)
+  actor.ts, names.ts, events.ts, logger.ts, errors.ts, queue.ts
   scheduler.ts      Scheduler and realScheduler (0003)
   globals.d.ts      the runtime globals src/ may use (0004); in the build config only
   testkit/          the /testkit entry point: ManualScheduler, seededRandom, createTestKit, TestProbe
-test/               mirrors src/
+test/               mirrors src/; helpers/ holds deferred()
 examples/           runnable examples, run by Node with type stripping
 docs/               roadmap, milestone specs, decision records
 ```

@@ -381,8 +381,8 @@ Do these in order. Each one ends with passing tests.
 | Task | Status | Commit |
 | --- | --- | --- |
 | T0. Scaffold the repo | Done | 79ce73c |
-| T1. Scheduler and virtual time | Done | |
-| T2. Actor system, mailbox and dispatcher | Not started | |
+| T1. Scheduler and virtual time | Done | 88cd10f |
+| T2. Actor system, mailbox and dispatcher | Done | |
 | T3. Hierarchy, stopping and death watch | Not started | |
 | T4. Supervision | Not started | |
 | T5. Ask, timers and pipeToSelf | Not started | |
@@ -428,18 +428,37 @@ Do these in order. Each one ends with passing tests.
 - `src/actor.ts` (`actor()`), `src/system.ts` (`createActorSystem`), `src/cell.ts` (one actor's state, mailbox and lifecycle), `src/dispatcher.ts`, `src/names.ts`, `src/events.ts`, `src/logger.ts` and `src/errors.ts`
 - A first `createTestKit()` with `settle()`, plus `TestProbe` with `expectMessage`, `expectNoMessage` and `messages`. T6 completes the kit. Later tasks use it from here on.
 
+As built:
+
+- **The interfaces grow task by task.** Each one holds only what's built so far, with no placeholder methods that throw:
+  - In T2, `ctx` has `self`, `log` and `now()`. `ActorRef` has `path` and `tell`. `ActorSystem` has `name`, `spawn` and `events`. `ActorDef` has `initial` and `receive`.
+  - `SystemEvent` has `spawned`, and `deadLetter` with reason `mailboxFull`.
+  - Later tasks add the rest of this spec's API as they build it.
+- **`spawn` returns at once.** `initial` runs as the actor's first step, before any message, so a failing `initial` never makes `spawn` throw.
+- **Temporary failure handling, until T3 and T4:**
+  - A throw or rejection in `receive` is logged at `error`, and that message is dropped. The state is kept.
+  - A throw in `initial` is logged, and every later message is dropped, each with an `error` log.
+
+  T3 makes both of these stop the actor, which is this spec's default, and T4 adds the strategies.
+- **Brought forward from T6:**
+  - `kit.events`, `kit.logs` and `LogEntry`.
+  - `settle`'s 1,000-tick limit and `SettleTimeoutError`, so a bug can't hang the test run.
+  - The probe's failure messages.
+- **`settle()` waits for every busy actor.** A test that holds a promise open on purpose must drive `kit.scheduler.runReady()` itself until it settles the promise.
+- **New public names:** `LogLevel` and `TestKitOptions`. `TestKitOptions` has `startTime` and `system` for now. `seed` arrives with `random` in T4.
+
 **Done when** tests cover:
 
-- [ ] State is threaded through `receive`, and `initial` runs once, as a value or as a factory.
-- [ ] 1,000 `tell`s from outside are each processed exactly once, in order.
-- [ ] Async `receive`: the next message waits until the promise settles, while another actor's messages run in the meantime.
-- [ ] Fairness: with two busy actors and `throughput: 2`, their messages interleave two at a time.
-- [ ] Yielding, on the real scheduler: a real `setTimeout(0)` fires while two actors ping-pong without end.
-- [ ] Paths, generated names, `ActorNameError` for invalid, reserved and duplicate names, and `ctx.self === ` the spawned ref.
-- [ ] A bounded mailbox drops overflow as a `deadLetter` event with reason `mailboxFull`.
-- [ ] Option validation throws `TypeError` for each bad option, unknown fields included.
-- [ ] Events have increasing `seq` and the scheduler's `at`. A listener that throws doesn't affect actors or other listeners. Unsubscribing works.
-- [ ] Type tests (`expectTypeOf`): `ActorRef` is contravariant in `M`, every ref is assignable to `AnyRef`, and `actor()` infers `M` and `S`.
+- [x] State is threaded through `receive`, and `initial` runs once, as a value or as a factory.
+- [x] 1,000 `tell`s from outside are each processed exactly once, in order.
+- [x] Async `receive`: the next message waits until the promise settles, while another actor's messages run in the meantime.
+- [x] Fairness: with two busy actors and `throughput: 2`, their messages interleave two at a time.
+- [x] Yielding, on the real scheduler: a real `setTimeout(0)` fires while two actors ping-pong without end.
+- [x] Paths, generated names, `ActorNameError` for invalid, reserved and duplicate names, and `ctx.self === ` the spawned ref.
+- [x] A bounded mailbox drops overflow as a `deadLetter` event with reason `mailboxFull`.
+- [x] Option validation throws `TypeError` for each bad option, unknown fields included.
+- [x] Events have increasing `seq` and the scheduler's `at`. A listener that throws doesn't affect actors or other listeners. Unsubscribing works.
+- [x] Type tests (`expectTypeOf`): `ActorRef` is contravariant in `M`, every ref is assignable to `AnyRef`, and `actor()` infers `M` and `S`.
 
 ### T3. Hierarchy, stopping and death watch
 
