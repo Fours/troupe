@@ -1,5 +1,5 @@
 import { Asker } from './ask.js';
-import { Cell, type CellHost, type CellNode, type ParentNode } from './cell.js';
+import { Cell, type CellHost, type CellNode, type ParentNode, type Watcher } from './cell.js';
 import { checkInt, checkKeys, describe } from './checks.js';
 import { Dispatcher } from './dispatcher.js';
 import { ActorSystemTerminatedError, NotAChildError } from './errors.js';
@@ -35,10 +35,21 @@ const USER_PATH = '/user';
 /** The parts of a system that the testkit needs and the public API hides. */
 export interface SystemHandle {
   readonly system: ActorSystem;
-  /** How many async handlers and `pipeToSelf` promises are still waiting to settle. */
+  /**
+   * How many async handlers and `pipeToSelf` promises are still waiting to settle. A piped ask
+   * isn't counted, because the scheduler completes it (decision 0010).
+   */
   busy(): number;
+  /** How many asks are waiting for a reply or their timeout. */
+  pendingAsks(): number;
   /** Makes a ref whose `ask` works like any actor's, for probes. */
   readonly makeRef: <M>(path: string, tell: (msg: M) => void) => ActorRef<M>;
+  /**
+   * Watches `ref` for a probe, as `ctx.watch` does for an actor: `watcher` is told once, when the
+   * actor terminates, or at once if it already has.
+   * @throws TypeError if `ref` isn't an actor of this system.
+   */
+  watch(ref: AnyRef, watcher: Watcher): void;
 }
 
 /**
@@ -117,6 +128,7 @@ export function createSystem(opts: ActorSystemOptions = {}): SystemHandle {
     random,
     setTimer,
     makeRef,
+    onAskSettled: (promise, listener) => asker.onSettled(promise, listener),
     trackBusy: (delta) => {
       busy += delta;
     },
@@ -168,7 +180,18 @@ export function createSystem(opts: ActorSystemOptions = {}): SystemHandle {
       return whenTerminated;
     },
   });
-  return { system, busy: () => busy, makeRef };
+  return {
+    system,
+    busy: () => busy,
+    pendingAsks: () => asker.pending(),
+    makeRef,
+    watch(ref, watcher) {
+      const cell = host.cellOf(ref);
+      if (cell === undefined) throw new TypeError('watch: the ref is not an actor of this system');
+      if (cell.terminated) watcher.notifyTerminated(cell);
+      else cell.watchers.add(watcher);
+    },
+  };
 }
 
 function checkDef(def: unknown): void {

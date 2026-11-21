@@ -190,3 +190,61 @@ describe('pipeToSelf', () => {
     );
   });
 });
+
+describe('pipeToSelf of an ask', () => {
+  type Request = { replyTo: ActorRef<number> };
+
+  function setupAsk() {
+    const { kit, probe, ref } = setup();
+    const target = kit.probe<Request>('target');
+    const ask = (opts?: { timeoutMs: number }) =>
+      target.ref.ask<number>((replyTo) => ({ replyTo }), opts);
+    return { kit, probe, ref, target, ask };
+  }
+
+  it("runs on virtual time, so settle doesn't wait for it", async () => {
+    const { kit, probe, ref, ask } = setupAsk();
+    ref.tell({ type: 'pipe', promise: ask({ timeoutMs: 30 }) });
+    await kit.settle();
+    probe.expectNoMessage();
+    await kit.advance(29);
+    probe.expectNoMessage();
+    await kit.advance(1);
+    expect(probe.expectMessage()).toMatch(/^error AskTimeoutError/);
+  });
+
+  it("queues the reply the moment it's told, ahead of later messages", async () => {
+    const { kit, probe, ref, target, ask } = setupAsk();
+    ref.tell({ type: 'pipe', promise: ask() });
+    await kit.settle();
+    target.expectMessage().replyTo.tell(5);
+    ref.tell({ type: 'report' });
+    await kit.settle();
+    expect(probe.messages()).toEqual(['ok 5', 'sum 0']);
+  });
+
+  it('delivers an ask that settled before it was piped, and one whose build threw', async () => {
+    const { kit, probe, ref, target, ask } = setupAsk();
+    const answered = ask();
+    await kit.settle();
+    target.expectMessage().replyTo.tell(7);
+    const broken = target.ref.ask<number>(() => {
+      throw new Error('build broke');
+    });
+    ref.tell({ type: 'pipe', promise: answered });
+    ref.tell({ type: 'pipe', promise: broken });
+    await kit.settle();
+    expect(probe.messages()).toEqual(['ok 7', 'error Error: build broke']);
+  });
+
+  it('gets the rejection when terminate fails the ask', async () => {
+    const { kit, ref, ask } = setupAsk();
+    ref.tell({ type: 'pipe', promise: ask() });
+    await kit.settle();
+    await kit.shutdown();
+    // The actor is stopping by the time the rejection arrives, so it's a dead letter.
+    expect(kit.events.filter((e) => e.type === 'deadLetter')).toMatchObject([
+      { message: { ok: false, error: { name: 'ActorSystemTerminatedError' } } },
+    ]);
+  });
+});

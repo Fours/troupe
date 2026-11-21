@@ -1,4 +1,13 @@
-import type { ActorRef } from '../types.js';
+import type { Watcher } from '../cell.js';
+import type { ActorRef, AnyRef } from '../types.js';
+
+/** What a probe needs from its system. */
+export interface ProbeHost {
+  /** The system's ref factory, which gives the probe's ref its `ask`. */
+  makeRef<M>(path: string, tell: (msg: M) => void): ActorRef<M>;
+  /** Watches `ref` on the probe's behalf, as `ctx.watch` does. */
+  watch(ref: AnyRef, watcher: Watcher): void;
+}
 
 /**
  * A ref that records what it's sent, for assertions. Its assertions are synchronous, because the
@@ -9,18 +18,21 @@ export class TestProbe<M> {
   readonly ref: ActorRef<M>;
   readonly #name: string;
   readonly #received: M[] = [];
+  readonly #host: ProbeHost;
+  // Refs being watched whose terminated notice hasn't arrived, and notices not yet expected.
+  readonly #watching = new Set<AnyRef>();
+  readonly #terminated = new Set<AnyRef>();
+  readonly #watcher: Watcher = {
+    notifyTerminated: (target) => {
+      if (this.#watching.delete(target.ref)) this.#terminated.add(target.ref);
+    },
+  };
 
-  /**
-   * @internal Create probes with `kit.probe()`.
-   * @param makeRef The system's ref factory, which gives the ref its `ask`.
-   */
-  constructor(
-    path: string,
-    name: string,
-    makeRef: (path: string, tell: (msg: M) => void) => ActorRef<M>,
-  ) {
+  /** @internal Create probes with `kit.probe()`. */
+  constructor(path: string, name: string, host: ProbeHost) {
     this.#name = name;
-    this.ref = makeRef(path, (msg: M) => {
+    this.#host = host;
+    this.ref = host.makeRef(path, (msg: M) => {
       this.#received.push(msg);
     });
   }
@@ -62,6 +74,34 @@ export class TestProbe<M> {
   /** Takes every queued message, oldest first. */
   messages(): M[] {
     return this.#received.splice(0);
+  }
+
+  /**
+   * Watches an actor, for {@link TestProbe.expectTerminated}. Watching twice is the same as once,
+   * and watching an actor that has already terminated records its termination at once.
+   * @throws TypeError if `ref` isn't an actor of this system.
+   */
+  watch(ref: AnyRef): void {
+    if (this.#watching.has(ref) || this.#terminated.has(ref)) return;
+    // Added first, because an actor that has already terminated is reported during the call.
+    this.#watching.add(ref);
+    try {
+      this.#host.watch(ref, this.#watcher);
+    } catch (error) {
+      this.#watching.delete(ref);
+      throw error;
+    }
+  }
+
+  /**
+   * Checks that a watched actor has terminated, and takes its notice, so the probe stops watching
+   * it.
+   * @throws Error naming the probe and the actor, if it hasn't terminated or isn't watched.
+   */
+  expectTerminated(ref: AnyRef): void {
+    if (this.#terminated.delete(ref)) return;
+    const why = this.#watching.has(ref) ? "it hasn't" : "the probe isn't watching it";
+    throw new Error(`${this.#name}: expected ${ref.path} to terminate, but ${why}`);
   }
 }
 

@@ -133,6 +133,14 @@ export class ManualScheduler implements Scheduler {
     this.#now = time;
   }
 
+  /**
+   * The due time of the earliest timer that hasn't run or been cancelled, or `undefined` when none
+   * is scheduled. It can be earlier than `now()` for a timer that's due but hasn't run yet.
+   */
+  nextTimerAt(): number | undefined {
+    return this.#peekLive()?.due;
+  }
+
   /** How many timers are scheduled and not yet run or cancelled. */
   pendingTimers(): number {
     return this.#live;

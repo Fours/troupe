@@ -1,10 +1,16 @@
 import { checkInt, checkKeys } from './checks.js';
 import { ActorSystemTerminatedError, AskTimeoutError } from './errors.js';
 import type { EventBus } from './events.js';
-import type { ActorRef, AskOptions } from './types.js';
+import type { ActorRef, AskOptions, Result } from './types.js';
 
 const ASK_OPTIONS = new Set(['timeoutMs']);
 const TEMP_PATH = '/temp';
+
+/** How an ask came out, once it has, and who wants to know at once (decision 0010). */
+interface Outcome {
+  result: Result<unknown> | undefined;
+  readonly listeners: ((result: Result<unknown>) => void)[];
+}
 
 /** What an {@link Asker} needs from its system. */
 export interface AskerHost {
@@ -26,6 +32,7 @@ export class Asker {
   readonly #host: AskerHost;
   // Rejects each ask that's still waiting, for terminate().
   readonly #pending = new Set<(error: Error) => void>();
+  readonly #outcomes = new WeakMap<object, Outcome>();
   #generated = 0;
   #terminated = false;
 
@@ -53,6 +60,20 @@ export class Asker {
     for (const reject of [...this.#pending]) reject(this.#terminatedError());
   }
 
+  /**
+   * Calls `listener` synchronously when `promise`, an ask's promise, settles, or at once if it
+   * already has. This keeps `pipeToSelf` of an ask on the scheduler, with no promise hop
+   * (decision 0010).
+   * @returns False, doing nothing, if `promise` isn't one this asker made.
+   */
+  onSettled(promise: unknown, listener: (result: Result<unknown>) => void): boolean {
+    const outcome = typeof promise === 'object' && promise !== null && this.#outcomes.get(promise);
+    if (!outcome) return false;
+    if (outcome.result === undefined) outcome.listeners.push(listener);
+    else listener(outcome.result);
+    return true;
+  }
+
   ask<M, R>(
     target: ActorRef<M>,
     build: (replyTo: ActorRef<R>) => M,
@@ -63,7 +84,12 @@ export class Asker {
     if (typeof build !== 'function') throw new TypeError('ask: build must be a function');
     if (this.#terminated) return Promise.reject(this.#terminatedError());
     const { events } = this.#host;
-    return new Promise<R>((resolve, reject) => {
+    const outcome: Outcome = { result: undefined, listeners: [] };
+    const settled = (result: Result<unknown>): void => {
+      outcome.result = result;
+      for (const listener of outcome.listeners.splice(0)) listener(result);
+    };
+    const promise = new Promise<R>((resolve, reject) => {
       const path = `${TEMP_PATH}/$${String(++this.#generated)}`;
       let done = false;
       let cancelTimer = (): void => {};
@@ -75,11 +101,14 @@ export class Asker {
         return true;
       };
       const fail = (error: Error): void => {
-        if (finish()) reject(error);
+        if (!finish()) return;
+        reject(error);
+        settled({ ok: false, error });
       };
       const replyTo = this.ref<R>(path, (reply) => {
         if (finish()) {
           resolve(reply);
+          settled({ ok: true, value: reply });
           return;
         }
         const reason = this.#terminated ? 'terminated' : 'askCompleted';
@@ -92,6 +121,7 @@ export class Asker {
         // Nothing has been sent and no timer set. A reply through a ref that build kept is then
         // an askCompleted dead letter. Throwing from the executor rejects with build's error.
         done = true;
+        settled({ ok: false, error });
         throw error;
       }
       cancelTimer = this.#host.setTimer(() => {
@@ -100,6 +130,13 @@ export class Asker {
       this.#pending.add(fail);
       target.tell(msg);
     });
+    this.#outcomes.set(promise, outcome);
+    return promise;
+  }
+
+  /** How many asks are still waiting for a reply or their timeout. */
+  pending(): number {
+    return this.#pending.size;
   }
 
   #timeout(opts: AskOptions | undefined): number {

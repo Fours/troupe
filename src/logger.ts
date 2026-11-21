@@ -6,9 +6,13 @@ export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
  * logs into your logging library. A logger that throws never affects an actor.
  */
 export interface Logger {
+  /** Fine detail, for following what an actor does step by step. */
   debug(msg: string, fields?: Record<string, unknown>): void;
+  /** Routine news worth keeping. */
   info(msg: string, fields?: Record<string, unknown>): void;
+  /** Something unexpected that didn't fail anything. */
   warn(msg: string, fields?: Record<string, unknown>): void;
+  /** A failure, such as an actor or an event listener that threw. */
   error(msg: string, fields?: Record<string, unknown>): void;
 }
 

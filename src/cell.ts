@@ -40,8 +40,14 @@ type Envelope<M> = M | TimerEnvelope<M> | PipeEnvelope<M>;
 
 type DeadLetterReason = 'mailboxFull' | 'stopped' | 'terminated';
 
+/** Something told when a watched cell terminates: another cell, or a testkit probe. */
+export interface Watcher {
+  /** Tells the watcher that `target` has terminated. It must not throw. */
+  notifyTerminated(target: CellNode): void;
+}
+
 /** What other cells, the guardian and the system see of a cell, whatever its types. */
-export interface CellNode {
+export interface CellNode extends Watcher {
   readonly ref: AnyRef;
   readonly name: string;
   readonly parent: ParentNode;
@@ -49,10 +55,8 @@ export interface CellNode {
   readonly failure: Failure;
   /** Asks the cell to stop after its current message, ahead of its queued messages. */
   requestStop(): void;
-  /** Tells a watcher that `target` has terminated. */
-  notifyTerminated(target: CellNode): void;
   /** Watchers of this cell, kept so it can notify them when it terminates. */
-  readonly watchers: Set<CellNode>;
+  readonly watchers: Set<Watcher>;
 }
 
 /** Something that has children: a cell, or the `/user` guardian. */
@@ -81,6 +85,11 @@ export interface CellHost {
   trackBusy(delta: 1 | -1): void;
   /** Makes a ref with the system's `ask`. */
   makeRef<M>(path: string, tell: (msg: M) => void): ActorRef<M>;
+  /**
+   * Calls `listener` synchronously when `promise` settles, if it's one of the system's asks.
+   * @returns False if it isn't, so the caller must wait on the promise itself.
+   */
+  onAskSettled(promise: unknown, listener: (result: Result<unknown>) => void): boolean;
   /** True once `terminate()` has been called. */
   terminating(): boolean;
   /** Spawns an actor under `parent`, with every check `spawn` makes. */
@@ -144,7 +153,7 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
   readonly parent: ParentNode;
   readonly names = new Names();
   readonly childCells = new Map<string, CellNode>();
-  readonly watchers = new Set<CellNode>();
+  readonly watchers = new Set<Watcher>();
   readonly #watching = new Set<CellNode>();
   readonly #def: ActorDef<M, S>;
   readonly #host: CellHost;
@@ -327,15 +336,27 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
   /**
    * Waits for `promise` without making the cell busy, so the mailbox stays open (decision 0002),
    * then queues the result for its mapper.
+   *
+   * An ask's result is queued the moment the ask settles, with no promise hop, so piping an ask
+   * runs entirely on the scheduler and isn't busy work for `settle` (decision 0010).
    */
   #pipe<T>(promise: PromiseLike<T>, map: (result: Result<T>) => M): void {
     const host = this.#host;
-    host.trackBusy(1);
     // The envelope only ever passes this result to this mapper, so widening T is safe.
     const widened = map as (result: Result<unknown>) => M;
+    const enqueue = (result: Result<unknown>): void => {
+      this.#enqueue(new PipeEnvelope(result, widened));
+    };
+    if (host.onAskSettled(promise, enqueue)) {
+      // The result arrives through the listener. Handle the rejection here too, or a timed-out
+      // ask would be an unhandled rejection.
+      Promise.resolve(promise).then(undefined, () => {});
+      return;
+    }
+    host.trackBusy(1);
     const deliver = (result: Result<unknown>): void => {
       host.trackBusy(-1);
-      this.#enqueue(new PipeEnvelope(result, widened));
+      enqueue(result);
     };
     Promise.resolve(promise).then(
       (value) => {

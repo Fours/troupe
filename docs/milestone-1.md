@@ -370,7 +370,7 @@ export interface ManualSchedulerOptions { startTime?: number; maxSteps?: number 
 export function seededRandom(seed: number): () => number; // mulberry32
 ```
 
-- **`settle()`** runs everything that can happen without time passing: queued tasks, timers that are due, and actors' messages. It keeps going until nothing is left. Async `receive` and `pipeToSelf` use real promises, so while any actor is busy, `settle` waits one real macrotask tick and looks again. It throws `SettleTimeoutError` if the system still isn't idle after 1,000 ticks, for example when an actor awaits a promise that never settles.
+- **`settle()`** runs everything that can happen without time passing: queued tasks, timers that are due, and actors' messages. It keeps going until nothing is left. Async `receive` and `pipeToSelf` use real promises, so while any actor is busy, `settle` waits one real macrotask tick and looks again. A piped ask isn't busy work, because the system delivers it on the scheduler ([0010](decisions/0010-piped-asks-stay-on-the-scheduler.md)). It throws `SettleTimeoutError` if the system still isn't idle after 1,000 ticks, for example when an actor awaits a promise that never settles.
 - **`advance(ms)`** moves virtual time forward. Timers fire in order of due time, then creation order. Before each one fires, the clock is set to its due time, and the kit settles after each. Timers that are scheduled during an `advance` and fall due within it fire too.
 - Probe assertions are synchronous, because the test controls time. Call `await kit.settle()` (or `advance`), then assert. Probes live under `/temp/probe-<name>`.
 - The kit wires in `seededRandom(seed ?? 1)` and a logger that records entries into `kit.logs`. The same test with the same seed produces the same `kit.events`.
@@ -387,7 +387,7 @@ Do these in order. Each one ends with passing tests.
 | T3. Hierarchy, stopping and death watch | Done | 71eab4a |
 | T4. Supervision | Done | 5856382 |
 | T5. Ask, timers and pipeToSelf | Done | 3afccd9 |
-| T6. Testkit and determinism | Not started | |
+| T6. Testkit and determinism | Done | |
 | T7. Box office example and README | Not started | |
 
 ### T0. Scaffold the repo
@@ -574,14 +574,28 @@ As built:
 
 Complete `src/testkit/`: `advance`, `events`, `logs`, `shutdown`, the probe's `watch` and `expectTerminated`, and `SettleTimeoutError`.
 
+As built:
+
+- **The API this task adds:**
+  - `kit.advance(ms)` and `kit.shutdown()`.
+  - `probe.watch(ref)` and `probe.expectTerminated(ref)`.
+  - `ManualScheduler.nextTimerAt()`, the due time of the earliest live timer, which `advance` steps through.
+- **Advance.** It settles, then moves the clock to each due time in turn, runs the timers due then, and settles again, until the next timer is past the target. Timers due at the same moment run together, because `settle` runs every timer that's due. `ms` must be an integer of at least 0, or it rejects with `TypeError`.
+- **Probe watch.** Watching twice is the same as once, and an actor that has already terminated is recorded at once. `expectTerminated` takes the notice, and its errors say whether the actor hasn't terminated or the probe isn't watching it. A ref from outside the system throws `TypeError`, as `ctx.watch` does. Inside, a cell's watchers are now anything with a `notifyTerminated` method, so a probe can watch without being a cell.
+- **Piped asks** ([0010](decisions/0010-piped-asks-stay-on-the-scheduler.md)). The determinism scenario showed that `settle` couldn't finish while a piped ask waited on its timeout. The asker now delivers a piped ask's result synchronously when it settles, so it isn't busy work. When asks are pending, `SettleTimeoutError` suggests `pipeToSelf`.
+- **The public API.** `test/package.test.ts` checks these names, values and types alike:
+  - `@kylewillett/troupe`: `actor`, `createActorSystem`, `supervise`, `realScheduler`, `consoleLogger`, `silentLogger`, `ActorNameError`, `ActorStoppedError`, `ActorSystemTerminatedError`, `AskTimeoutError`, `NotAChildError`, and the types `ActorContext`, `ActorDef`, `ActorRef`, `ActorSystem`, `ActorSystemOptions`, `AnyRef`, `AskOptions`, `EventStream`, `Logger`, `LogLevel`, `Result`, `Scheduler`, `Signal`, `SpawnOptions`, `SupervisorStrategy`, `SystemEvent` and `Timers`.
+  - `@kylewillett/troupe/testkit`: `createTestKit`, `ManualScheduler`, `seededRandom`, `SettleTimeoutError`, `TestProbe`, and the types `LogEntry`, `ManualSchedulerOptions`, `TestKit` and `TestKitOptions`.
+- **TSDoc.** `test/tsdoc.test.ts` checks every export of both entry points, and the public members of exported classes and interfaces. It found the error classes' `name` fields, `Logger`'s methods and `LogEntry`'s fields undocumented. They now have comments.
+
 **Done when** tests cover:
 
-- [ ] `settle` waits for async `receive` and `pipeToSelf` chains, and throws `SettleTimeoutError` on a promise that never settles.
-- [ ] `advance` fires timers in order, settles between them, and fires timers created during the advance.
-- [ ] `expectMessage` with a value, with a predicate, and with no argument. Each failure message names the probe and what it got.
-- [ ] **Determinism:** a scenario with timers, asks, a crash under backoff with jitter, and a stop runs twice with the same seed and gives identical `kit.events`. A different seed changes the backoff delays.
-- [ ] A package test builds `dist/` and checks that both entry points load and export exactly the names in this spec.
-- [ ] Every public export has a TSDoc comment.
+- [x] `settle` waits for async `receive` and `pipeToSelf` chains, and throws `SettleTimeoutError` on a promise that never settles.
+- [x] `advance` fires timers in order, settles between them, and fires timers created during the advance.
+- [x] `expectMessage` with a value, with a predicate, and with no argument. Each failure message names the probe and what it got.
+- [x] **Determinism:** a scenario with timers, asks, a crash under backoff with jitter, and a stop runs twice with the same seed and gives identical `kit.events`. A different seed changes the backoff delays.
+- [x] A package test builds `dist/` and checks that both entry points load and export exactly the names in this spec.
+- [x] Every public export has a TSDoc comment.
 
 ### T7. Box office example and README
 
@@ -612,7 +626,7 @@ Complete `src/testkit/`: `advance`, `events`, `logs`, `shutdown`, the probe's `w
 
 ## Decision records
 
-This milestone sets up records 0001 to 0007 in `docs/decisions/`. 0001, 0004 and 0005 are Accepted. The rest are Proposed, and the tasks named in each one prove them. T4 added 0008, and T5 added 0009. If the design changes during implementation, update the matching record in the same commit.
+This milestone sets up records 0001 to 0007 in `docs/decisions/`. 0001, 0004 and 0005 are Accepted. The rest are Proposed, and the tasks named in each one prove them. T4 added 0008, T5 added 0009, and T6 added 0010. If the design changes during implementation, update the matching record in the same commit.
 
 ## Open questions
 

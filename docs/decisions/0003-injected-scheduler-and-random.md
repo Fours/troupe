@@ -1,6 +1,6 @@
 # 0003. All time, scheduling and chance go through an injected scheduler and random
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-20
 - **Milestone:** 1
 
@@ -29,6 +29,12 @@ T1's scheduler tests, and T6's determinism test: the same scenario run twice wit
 - `test/testkit/random.test.ts` pins `seededRandom(1)`'s first three values, so a change to the generator can't silently change recorded seeds.
 
 The record stays Proposed until T6 shows a whole actor system replaying identically.
+
+**T6 (2026-11-20):** `test/determinism.test.ts` runs one scenario under the testkit. It has a periodic timer, two piped asks (one of which times out during a backoff delay, so its late reply is a dead letter), two crashes under `restartWithBackoff` with `randomFactor: 0.5`, a stop and a shutdown.
+- Run twice with seed 1, it gives identical `kit.events`.
+- The test also checks that the events include every kind it claims: `spawned`, `failed`, `restarted`, `deadLetter` and `stopped`.
+- Seed 2 gives different `restarted.delayMs` values.
+- Swapping the kit's `seededRandom` for `Math.random` fails the same-seed check. Making `seededRandom` ignore its seed fails the different-seed check.
 
 ## Consequences
 

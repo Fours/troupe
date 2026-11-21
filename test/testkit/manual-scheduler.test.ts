@@ -92,6 +92,18 @@ describe('ManualScheduler', () => {
     expect(fired).toEqual([10, 40, 210]);
   });
 
+  it('reports the earliest live timer with nextTimerAt', () => {
+    const s = new ManualScheduler({ startTime: 5 });
+    expect(s.nextTimerAt()).toBeUndefined();
+    const cancelFirst = s.setTimer(() => {}, 10);
+    s.setTimer(() => {}, 20);
+    expect(s.nextTimerAt()).toBe(15);
+    cancelFirst();
+    expect(s.nextTimerAt()).toBe(25);
+    s.advanceTo(25);
+    expect(s.nextTimerAt()).toBeUndefined();
+  });
+
   it('fires a periodic chain at every interval', () => {
     const s = new ManualScheduler();
     const fired: number[] = [];
