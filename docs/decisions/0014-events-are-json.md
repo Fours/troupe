@@ -1,6 +1,6 @@
 # 0014. Events and snapshot states are JSON values, checked before they're written
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-21
 - **Milestone:** 2
 
@@ -35,7 +35,7 @@ Events and snapshot states must be **JSON values**: what `JSON.parse` could have
 - The journal contract in `test/persistence/contract.ts` checks that events and snapshot states come back deep-equal, that a batch with one non-JSON event writes nothing, and that changing the input or a result afterwards doesn't change what's stored. The in-memory backend passes it.
 - Letting a half-checked batch commit, or handing out stored tags by reference, fails the contract.
 
-This stays Proposed until T2 shows a persistent actor rejecting a non-JSON event before the append, as a failure that supervision handles.
+**T2 (2026-11-21):** `test/persistence/actor.test.ts`, "an event that isn't JSON": a command that persists an event with `amount: NaN` fails with a `TypeError` naming `$.amount is NaN`, before any append reaches the journal. Supervision restarts the actor, and its state is unchanged.
 
 ## Consequences
 

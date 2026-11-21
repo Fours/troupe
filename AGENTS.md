@@ -50,13 +50,15 @@ src/
   supervision.ts    supervise, option checks, and the strategy decision (0006, 0008)
   ask.ts            refs, ask and its temporary refs under /temp (0009)
   timers.ts         keyed timers, checked by generation when their messages are dequeued
+  internal.ts       hooks for the other entry points, never exported: the start hook and ctx internals
   actor.ts, names.ts, events.ts, logger.ts, errors.ts, queue.ts
   scheduler.ts      Scheduler and realScheduler (0003)
   globals.d.ts      the runtime globals src/ may use (0004); in the build config only
   testkit/          the /testkit entry point: ManualScheduler, seededRandom, createTestKit, TestProbe
   persistence/      the /persistence entry point: the store interfaces, the JSON-value check (0014),
-                    and the in-memory backend
-test/               mirrors src/; helpers/ holds deferred() and test actors (tree, watcher, idle)
+                    the in-memory backend, and persistentActor (actor.ts: effects and recovery)
+test/               mirrors src/; helpers/ holds deferred() and test actors (tree, watcher, idle),
+                    the persistent account, and faultyJournal() for holding and failing calls
                     persistence/contract.ts is the journal contract every backend runs
 examples/           runnable examples, run by Node with type stripping
 docs/               roadmap, milestone specs, decision records

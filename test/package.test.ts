@@ -43,15 +43,26 @@ const TESTKIT_VALUES = [
   'seededRandom',
 ];
 const TESTKIT_TYPES = ['LogEntry', 'ManualSchedulerOptions', 'TestKit', 'TestKitOptions'];
-// The milestone 2 spec's T1 names, plus NewSnapshot: the backend stamps a snapshot's timestamp.
-const PERSISTENCE_VALUES = ['JournalConflictError', 'JournalSequenceError', 'inMemoryPersistence'];
+// The milestone 2 spec's T1 and T2 names, plus NewSnapshot: the backend stamps a snapshot's
+// timestamp.
+const PERSISTENCE_VALUES = [
+  'JournalConflictError',
+  'JournalSequenceError',
+  'inMemoryPersistence',
+  'persistentActor',
+];
 const PERSISTENCE_TYPES = [
+  'Effect',
   'InMemoryPersistence',
   'Journal',
   'NewEvent',
   'NewSnapshot',
   'OffsetStore',
   'Persistence',
+  'PersistentActorDef',
+  'PersistentContext',
+  'PersistentSignal',
+  'PersistentState',
   'Snapshot',
   'SnapshotStore',
   'StoredEvent',

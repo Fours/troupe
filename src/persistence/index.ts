@@ -1,4 +1,12 @@
 // The /persistence entry point: runs on any JavaScript runtime. Export only from here.
+export {
+  persistentActor,
+  type Effect,
+  type PersistentActorDef,
+  type PersistentContext,
+  type PersistentSignal,
+  type PersistentState,
+} from './actor.js';
 export { JournalConflictError, JournalSequenceError } from './errors.js';
 export { inMemoryPersistence, type InMemoryPersistence } from './memory.js';
 export type {

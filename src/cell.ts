@@ -1,6 +1,7 @@
 import type { Dispatcher, Runnable } from './dispatcher.js';
 import type { EventBus } from './events.js';
 import { ActorStoppedError, NotAChildError } from './errors.js';
+import { INTERNALS, START, type CellInternals, type WithStart } from './internal.js';
 import { safeLogger, type Logger } from './logger.js';
 import { Names } from './names.js';
 import { Queue } from './queue.js';
@@ -138,6 +139,9 @@ interface PendingRestart {
  * unwrapped when they're dequeued. A timer's envelope is checked against its timer's current
  * generation then, so a cancelled timer's message is never received.
  *
+ * A definition may carry an internal start hook (`src/internal.ts`), which runs after `initial` and
+ * holds the mailbox until it settles. Persistent actors recover there (decision 0011).
+ *
  * Stopping goes: cancel the timers, dead-letter the user queue, stop every child and wait for them, run `postStop`,
  * then terminate, which frees the name, notifies watchers and publishes `stopped`.
  *
@@ -163,6 +167,7 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
   readonly #timers: TimerTable<M>;
   readonly #system = new Queue<SystemMessage>();
   readonly #log: Logger;
+  readonly #internals: CellInternals;
   #ctx: ActorContext<M>;
   // Bumped when an incarnation ends, so its ctx can tell it's stale.
   #incarnation = 0;
@@ -201,6 +206,11 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
     this.#strategy = opts.supervision;
     this.parent = parent;
     this.#log = safeLogger(host.log, { path });
+    this.#internals = {
+      publish: (body) => {
+        host.events.publish(body);
+      },
+    };
     this.ref = host.makeRef(path, (msg: M) => {
       this.#enqueue(msg);
     });
@@ -280,7 +290,7 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
     const incarnation = this.#incarnation;
     const current = () => this.#incarnation === incarnation;
     const host = this.#host;
-    return Object.freeze({
+    const ctx: ActorContext<M> = {
       self: this.ref,
       log: this.#log,
       now: () => host.now(),
@@ -310,7 +320,10 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
         }
         this.#pipe(promise, map);
       },
-    });
+    };
+    // Not enumerable, so spreading or logging a ctx doesn't show it.
+    Object.defineProperty(ctx, INTERNALS, { value: this.#internals });
+    return Object.freeze(ctx);
   }
 
   /** Unwraps one mailbox item and hands it to `receive`. */
@@ -424,15 +437,42 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
     this.#state = undefined;
     this.#startedAt = this.#host.now();
     const { initial } = this.#def;
+    let state: S;
     try {
-      this.#state =
+      state =
         typeof initial === 'function'
           ? (initial as (ctx: ActorContext<M>) => S)(this.#ctx)
           : initial;
-      this.#hasState = true;
     } catch (error) {
       this.#fail(error, {}, true);
+      return;
     }
+    const start = (this.#def as WithStart<M, S>)[START];
+    if (start === undefined) {
+      this.#state = state;
+      this.#hasState = true;
+      return;
+    }
+    // A persistent actor's recovery: the mailbox is held until it settles, so no message runs
+    // first, and its failure is a failure in the start, like a throw in initial.
+    this.#state = state;
+    let started: Promise<S>;
+    try {
+      started = start(state, this.#ctx);
+    } catch (error) {
+      this.#fail(error, {}, true);
+      return;
+    }
+    this.#awaitBusy(
+      started,
+      (next) => {
+        this.#state = next;
+        this.#hasState = true;
+      },
+      (error) => {
+        this.#fail(error, {}, true);
+      },
+    );
   }
 
   #handleSystem(sys: SystemMessage): void {

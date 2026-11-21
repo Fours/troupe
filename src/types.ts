@@ -231,6 +231,29 @@ export type SystemEvent = Timestamped<
       readonly attempt: number;
       readonly delayMs: number;
     }
+  /**
+   * A persistent actor's journal append succeeded and its events were applied. They hold sequence
+   * numbers `fromSeq` to `toSeq`.
+   */
+  | {
+      readonly type: 'persisted';
+      readonly path: string;
+      readonly persistenceId: string;
+      readonly fromSeq: number;
+      readonly toSeq: number;
+    }
+  /**
+   * A persistent actor finished recovering, with `lastSeq` the sequence number of its last event.
+   * `snapshotSeq` is where its snapshot left off, 0 without one, so `lastSeq - snapshotSeq` events
+   * were replayed. (Not `seq`, which every event already has: its place in the event stream.)
+   */
+  | {
+      readonly type: 'recovered';
+      readonly path: string;
+      readonly persistenceId: string;
+      readonly snapshotSeq: number;
+      readonly lastSeq: number;
+    }
   | {
       readonly type: 'deadLetter';
       readonly recipient: string;

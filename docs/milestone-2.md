@@ -163,6 +163,8 @@ export interface PersistentContext<C, E, S> extends ActorContext<C> {
 
 /** An immutable value describing what a command does. Each method returns a new effect. */
 export interface Effect<E, S> {
+  /** The events it persists. Read-only, so a test can check a decision without a journal. */
+  readonly events: readonly E[];
   /** After the events are applied, tells `to` the message built from the new state. */
   thenReply<R>(to: ActorRef<R>, message: (state: S) => R): Effect<E, S>;
   /** After the events are applied, runs `fn` with the new state. */
@@ -175,7 +177,8 @@ export interface Effect<E, S> {
 - The builders live on `ctx` so they're typed by the definition. Standalone functions couldn't infer `S` inside `thenReply` when the call is chained. A type test checks that `persist` takes only `E`, that `thenReply`'s callback gets `S`, and that `reply` checks the message against the ref's type.
 - The builders are arrow properties, so `onCommand(state, cmd, { persist, reply })` destructures safely.
 - `persist()` with no events is the same as `none()`.
-- `ctx.stop()` still works as it does in milestone 1. `thenStop()` is the way to stop after a persist, since it waits for the write.
+- `ctx.stop()` still works as it does in milestone 1. `thenStop()` is the way to stop after a persist, since it waits for the write. It's a step that calls `ctx.stop()`, so like `ctx.stop()` it takes effect after the current command, and steps chained after it still run.
+- `PersistentActorDef` grows task by task, as milestone 1's interfaces did. T2 has `id`, `persistence`, `initial`, `onCommand`, `onEvent` and `onSignal`, and an unknown field, such as `snapshots` before T3, throws `TypeError`.
 - If `onCommand` returns anything these builders didn't make, that's a failure with a `TypeError`.
 
 **What a command does, in order:**
@@ -215,7 +218,8 @@ export type PersistentSignal = Signal | { readonly type: 'recoveryCompleted'; re
 ```
 
 - `onSignal` gets `preRestart`, `postStop` and `terminated` as in milestone 1, plus `recoveryCompleted`. It returns nothing, because state changes only through events. To change state in response to a signal, send yourself a command.
-- `recoveryCompleted` is where an actor restarts the timers its state implies, since timers don't survive a restart.
+- `recoveryCompleted` is where an actor restarts the timers its state implies, since timers don't survive a restart. A throw there is a failure in the start, like a failed recovery.
+- While the mailbox is held for a persist or recovery, so is the system queue, as for any async `receive`. A stop takes effect once the write or recovery settles.
 
 ### The journal
 
@@ -375,10 +379,10 @@ New `SystemEvent` variants:
 
 ```ts
 | { type: 'persisted'; path: string; persistenceId: string; fromSeq: number; toSeq: number }
-| { type: 'recovered'; path: string; persistenceId: string; snapshotSeq: number; seq: number }
+| { type: 'recovered'; path: string; persistenceId: string; snapshotSeq: number; lastSeq: number }
 ```
 
-`snapshotSeq` is 0 when recovery didn't start from a snapshot, so `seq - snapshotSeq` events were replayed. These are the only persistence events in this milestone. Milestone 3's timeline reads the journal itself.
+`snapshotSeq` is 0 when recovery didn't start from a snapshot, so `lastSeq - snapshotSeq` events were replayed. (T2 named it `lastSeq`, not `seq`, because every `SystemEvent` already has a `seq`: its place in the event stream.) These are the only persistence events in this milestone. Milestone 3's timeline reads the journal itself.
 
 New errors, from `/persistence`:
 
@@ -418,8 +422,8 @@ Do these in order. Each one ends with passing tests.
 
 | Task | Status | Commit |
 | --- | --- | --- |
-| T1. Persistence entry point, stores and the in-memory backend | Done | |
-| T2. Persistent actors: commands, effects and recovery | Not started | |
+| T1. Persistence entry point, stores and the in-memory backend | Done | 65f1df6 |
+| T2. Persistent actors: commands, effects and recovery | Done | |
 | T3. Snapshots | Not started | |
 | T4. Event schemas and upcasters | Not started | |
 | T5. Projections | Not started | |
@@ -455,29 +459,29 @@ Do these in order. Each one ends with passing tests.
 
 **Done when** tests cover:
 
-- [ ] A command that persists replies with the new state, and the journal holds its events.
-- [ ] `reply` and `none` persist nothing and don't hold the mailbox.
-- [ ] Commands sent during a persist wait, then run in order, each seeing the state after the one before.
-- [ ] Commands sent right after `spawn` wait for recovery, then run in order.
-- [ ] Recovery: a new incarnation and a new system on the same backend both rebuild the same state from the journal.
-- [ ] `thenReply`, `thenRun` and `thenStop` run in the order they were chained, after the events are applied. `thenStop` stops after the write.
-- [ ] Each failure goes to supervision: a throw in `onCommand`, in a step, and in `onEvent`; a rejected append; an event that isn't JSON; and a failed read during recovery.
-- [ ] **Two writers:** two actors with the same id, spawned under different names, persist in turn. The loser fails with `JournalConflictError`, its command is dropped, and after a restart it sees the winner's events. The stream has no gaps or duplicates.
-- [ ] `persisted` and `recovered` events carry the right sequence numbers, and `recoveryCompleted` reaches `onSignal`.
-- [ ] Invalid options throw `TypeError` from `persistentActor()`.
-- [ ] Type tests: `C`, `E` and `S` are inferred, `persist` takes only `E`, `thenReply`'s callback gets `S`, and the result is spawnable as an `ActorRef<C>`.
-- [ ] Determinism: a scenario with persists, a conflict and a restart under backoff gives identical `kit.events` on two runs with the same seed.
+- [x] A command that persists replies with the new state, and the journal holds its events.
+- [x] `reply` and `none` persist nothing and don't hold the mailbox.
+- [x] Commands sent during a persist wait, then run in order, each seeing the state after the one before.
+- [x] Commands sent right after `spawn` wait for recovery, then run in order.
+- [x] Recovery: a new incarnation and a new system on the same backend both rebuild the same state from the journal.
+- [x] `thenReply`, `thenRun` and `thenStop` run in the order they were chained, after the events are applied. `thenStop` stops after the write.
+- [x] Each failure goes to supervision: a throw in `onCommand`, in a step, and in `onEvent`; a rejected append; an event that isn't JSON; and a failed read during recovery.
+- [x] **Two writers:** two actors with the same id, spawned under different names, persist in turn. The loser fails with `JournalConflictError`, its command is dropped, and after a restart it sees the winner's events. The stream has no gaps or duplicates.
+- [x] `persisted` and `recovered` events carry the right sequence numbers, and `recoveryCompleted` reaches `onSignal`.
+- [x] Invalid options throw `TypeError` from `persistentActor()`.
+- [x] Type tests: `C`, `E` and `S` are inferred, `persist` takes only `E`, `thenReply`'s callback gets `S`, and the result is spawnable as an `ActorRef<C>`.
+- [x] Determinism: a scenario with persists, a conflict and a restart under backoff gives identical `kit.events` on two runs with the same seed.
 
 ### T3. Snapshots
 
 **Done when** tests cover:
 
-- [ ] With `every: 3`, snapshots are saved at sequence numbers 3, 6 and 9, including when one persist crosses a multiple.
-- [ ] Recovery starts from the latest snapshot and replays only the events after it. The `recovered` event says so.
-- [ ] A snapshot with another version is ignored, and recovery replays everything.
-- [ ] A snapshot that fails to load or save is logged at `warn`, and the actor recovers or carries on.
-- [ ] A state that isn't JSON logs at `error` and saves nothing.
-- [ ] A slow save doesn't hold the mailbox, and `settle()` waits for it.
+- [x] With `every: 3`, snapshots are saved at sequence numbers 3, 6 and 9, including when one persist crosses a multiple.
+- [x] Recovery starts from the latest snapshot and replays only the events after it. The `recovered` event says so.
+- [x] A snapshot with another version is ignored, and recovery replays everything.
+- [x] A snapshot that fails to load or save is logged at `warn`, and the actor recovers or carries on.
+- [x] A state that isn't JSON logs at `error` and saves nothing.
+- [x] A slow save doesn't hold the mailbox, and `settle()` waits for it.
 
 ### T4. Event schemas and upcasters
 
@@ -486,22 +490,22 @@ Do these in order. Each one ends with passing tests.
 
 **Done when** tests cover:
 
-- [ ] A schema rejects a bad event on write, before the append, with the schema's issues.
-- [ ] A schema rejects a bad stored event on recovery.
-- [ ] An async schema works on both paths.
-- [ ] A version-1 event in the journal is upcast to version 2 and passes the version-2 schema, and new events are stored at version 2.
-- [ ] A stored version above the current one fails recovery with `EventVersionError`.
-- [ ] Upcasters with a gap throw `TypeError` from `persistentActor()`.
+- [x] A schema rejects a bad event on write, before the append, with the schema's issues.
+- [x] A schema rejects a bad stored event on recovery.
+- [x] An async schema works on both paths.
+- [x] A version-1 event in the journal is upcast to version 2 and passes the version-2 schema, and new events are stored at version 2.
+- [x] A stored version above the current one fails recovery with `EventVersionError`.
+- [x] Upcasters with a gap throw `TypeError` from `persistentActor()`.
 
 ### T5. Projections
 
 **Done when** tests cover:
 
-- [ ] A projection handles every tagged event once, in offset order, across several entities.
-- [ ] It saves its offset after each batch, and a new projection with the same name starts after it.
-- [ ] A full batch reads again at once, and a short one waits `pollMs` of virtual time.
-- [ ] A failure in `handle` restarts the projection from the stored offset, so the batch repeats.
-- [ ] A bad tag from `tags()` fails the persist with `TypeError`.
+- [x] A projection handles every tagged event once, in offset order, across several entities.
+- [x] It saves its offset after each batch, and a new projection with the same name starts after it.
+- [x] A full batch reads again at once, and a short one waits `pollMs` of virtual time.
+- [x] A failure in `handle` restarts the projection from the stored offset, so the batch repeats.
+- [x] A bad tag from `tags()` fails the persist with `TypeError`.
 
 ### T6. SQLite backend
 
@@ -510,11 +514,11 @@ Do these in order. Each one ends with passing tests.
 
 **Done when:**
 
-- [ ] The contract suite passes on `:memory:` and on a temp file, on Node 22, 24 and 26 in CI.
-- [ ] Two `sqlitePersistence` instances on one file, used in turn, keep one stream intact, and the stale one gets `JournalConflictError`.
-- [ ] Reopening a file finds everything a closed instance wrote.
-- [ ] Package tests: the entry point loads from `dist/`, and `/persistence` doesn't load `node:sqlite`.
-- [ ] `src/node/` is the only place lint allows Node imports.
+- [x] The contract suite passes on `:memory:` and on a temp file, on Node 22, 24 and 26 in CI.
+- [x] Two `sqlitePersistence` instances on one file, used in turn, keep one stream intact, and the stale one gets `JournalConflictError`.
+- [x] Reopening a file finds everything a closed instance wrote.
+- [x] Package tests: the entry point loads from `dist/`, and `/persistence` doesn't load `node:sqlite`.
+- [x] `src/node/` is the only place lint allows Node imports.
 
 ### T7. Postgres backend
 
@@ -525,12 +529,12 @@ Do these in order. Each one ends with passing tests.
 
 **Done when:**
 
-- [ ] The contract suite passes against Postgres, locally and in CI.
-- [ ] `setup()` is safe to run twice, and `schema` keeps two journals apart in one database.
-- [ ] **Concurrent writers:** two pools append to one stream at once, many times. Each append either succeeds or gets `JournalConflictError`, and the stream has no gaps or duplicates.
-- [ ] **Offsets commit in order:** while two pools append to many streams at once, a reader following one tag never sees an offset lower than one it has already seen. Removing the advisory lock makes this test fail.
-- [ ] A package test: the entry point doesn't import `pg`.
-- [ ] The integration run fails, rather than skipping, when `CI` is set and `TROUPE_POSTGRES_URL` isn't.
+- [x] The contract suite passes against Postgres, locally and in CI.
+- [x] `setup()` is safe to run twice, and `schema` keeps two journals apart in one database.
+- [x] **Concurrent writers:** two pools append to one stream at once, many times. Each append either succeeds or gets `JournalConflictError`, and the stream has no gaps or duplicates.
+- [x] **Offsets commit in order:** while two pools append to many streams at once, a reader following one tag never sees an offset lower than one it has already seen. Removing the advisory lock makes this test fail.
+- [x] A package test: the entry point doesn't import `pg`.
+- [x] The integration run fails, rather than skipping, when `CI` is set and `TROUPE_POSTGRES_URL` isn't.
 
 ### T8. Persistent box office and README
 
@@ -550,8 +554,8 @@ Do these in order. Each one ends with passing tests.
 
 **Done when:**
 
-- [ ] The demo described in "Outcome" works from a clean clone: `npm ci && npm run example`.
-- [ ] The example test passes, and fails if the show stops persisting holds.
+- [x] The demo described in "Outcome" works from a clean clone: `npm ci && npm run example`.
+- [x] The example test passes, and fails if the show stops persisting holds.
 
 ## Definition of done
 

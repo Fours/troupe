@@ -38,6 +38,10 @@ function describe(event: SystemEvent): string {
       return `${event.path} failed with ${String(event.error)}, so its parent will ${event.directive} it`;
     case 'restarted':
       return `${event.path} restarted after a ${String(event.delayMs)} ms backoff (attempt ${String(event.attempt)})`;
+    case 'persisted':
+      return `${event.path} persisted events ${String(event.fromSeq)} to ${String(event.toSeq)}`;
+    case 'recovered':
+      return `${event.path} recovered to event ${String(event.lastSeq)}`;
     case 'deadLetter':
       return `dead letter for ${event.recipient} (${event.reason})`;
   }
