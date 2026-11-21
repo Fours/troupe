@@ -386,7 +386,7 @@ Do these in order. Each one ends with passing tests.
 | T2. Actor system, mailbox and dispatcher | Done | 7dae4cf |
 | T3. Hierarchy, stopping and death watch | Done | 71eab4a |
 | T4. Supervision | Done | 5856382 |
-| T5. Ask, timers and pipeToSelf | Done | |
+| T5. Ask, timers and pipeToSelf | Done | 3afccd9 |
 | T6. Testkit and determinism | Not started | |
 | T7. Box office example and README | Not started | |
 
