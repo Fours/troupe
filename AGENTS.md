@@ -54,7 +54,10 @@ src/
   scheduler.ts      Scheduler and realScheduler (0003)
   globals.d.ts      the runtime globals src/ may use (0004); in the build config only
   testkit/          the /testkit entry point: ManualScheduler, seededRandom, createTestKit, TestProbe
+  persistence/      the /persistence entry point: the store interfaces, the JSON-value check (0014),
+                    and the in-memory backend
 test/               mirrors src/; helpers/ holds deferred() and test actors (tree, watcher, idle)
+                    persistence/contract.ts is the journal contract every backend runs
 examples/           runnable examples, run by Node with type stripping
 docs/               roadmap, milestone specs, decision records
 ```

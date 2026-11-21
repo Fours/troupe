@@ -14,6 +14,10 @@ export default defineConfig({
         find: /^@kylewillett\/troupe\/testkit$/,
         replacement: fileURLToPath(new URL('./src/testkit/index.ts', import.meta.url)),
       },
+      {
+        find: /^@kylewillett\/troupe\/persistence$/,
+        replacement: fileURLToPath(new URL('./src/persistence/index.ts', import.meta.url)),
+      },
     ],
   },
   test: {
@@ -23,7 +27,12 @@ export default defineConfig({
       provider: 'v8',
       include: ['src/**/*.ts'],
       // Entry points only re-export, so they have no lines worth measuring.
-      exclude: ['src/index.ts', 'src/testkit/index.ts', 'src/**/*.d.ts'],
+      exclude: [
+        'src/index.ts',
+        'src/testkit/index.ts',
+        'src/persistence/index.ts',
+        'src/**/*.d.ts',
+      ],
       thresholds: { lines: 90 },
     },
   },

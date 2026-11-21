@@ -28,3 +28,5 @@ When you change a decision, update its record in the same commit as the code.
 | [0008](0008-restart-is-a-new-incarnation.md) | A restart is a new incarnation behind the same ref | Accepted | 1 |
 | [0009](0009-ask-is-a-temporary-ref.md) | `ask` goes through a temporary ref and never fails fast | Accepted | 1 |
 | [0010](0010-piped-asks-stay-on-the-scheduler.md) | `pipeToSelf` of an ask is delivered by the system, not through a promise | Accepted | 1 |
+| [0014](0014-events-are-json.md) | Events and snapshot states are JSON values, checked before they're written | Proposed | 2 |
+| [0015](0015-journal-timestamps-come-from-an-injected-clock.md) | Journal timestamps come from an injected wall clock, and never order anything | Accepted | 2 |

@@ -235,7 +235,7 @@ export interface Journal {
 export interface NewEvent {
   readonly event: unknown;   // a JSON value
   readonly version: number;
-  readonly tags: readonly string[];
+  readonly tags: readonly string[]; // no duplicates
 }
 
 export interface StoredEvent extends NewEvent {
@@ -248,23 +248,27 @@ export interface StoredEvent extends NewEvent {
 
 - **Sequence numbers** start at 1 and have no gaps. `append` with `expectedSeq: 0` creates the stream. A conflict writes nothing.
 - **Offsets** increase across the journal, but may skip numbers. Once a reader has seen offset *n*, no event with a lower offset can appear later. That's what lets a projection store one number. Postgres needs work to keep this promise ([0016](decisions/0016-postgres-appends-take-a-journal-lock.md)).
-- **Timestamps** come from the backend's `clock` option, which defaults to `Date.now` ([0015](decisions/0015-journal-timestamps-come-from-an-injected-clock.md)). They're for people and projections, never for ordering. `scheduler.now()` can't serve, because it's monotonic and means nothing outside one process.
+- **Timestamps** come from the backend's `clock` option, which defaults to `Date.now` ([0015](decisions/0015-journal-timestamps-come-from-an-injected-clock.md)). They're for people and projections, never for ordering. `scheduler.now()` can't serve, because it's monotonic and means nothing outside one process. The backend stamps snapshots too, so callers never pass a timestamp in.
+- **Invalid arguments** reject with `TypeError` and write nothing: an event or snapshot state that isn't JSON, a repeated tag on one event, an empty id or tag, or a sequence number, offset or limit that isn't a safe integer in range. Checking the tag *pattern* is the persistent actor's job (T5).
 - **JSON in, JSON out.** Every backend stores events and snapshot states as JSON, and gives back values that are deep-equal to what went in. Object key order isn't kept, since Postgres's `jsonb` reorders keys. The in-memory backend round-trips through JSON too, so a test on it sees what Postgres would.
 - Numbers from the database (`bigint` columns) come back as JavaScript numbers. They're always safe integers.
 
 ```ts
 export interface SnapshotStore {
   /** Saves a snapshot. Ignored if the stored one has a higher `seq`. */
-  save(persistenceId: string, snapshot: Snapshot): Promise<void>;
+  save(persistenceId: string, snapshot: NewSnapshot): Promise<void>;
   /** The latest snapshot, if there is one. */
   load(persistenceId: string): Promise<Snapshot | undefined>;
 }
 
-export interface Snapshot {
+export interface NewSnapshot {
   readonly seq: number;
   readonly version: number;
   readonly state: unknown;     // a JSON value
-  readonly timestamp: number;
+}
+
+export interface Snapshot extends NewSnapshot {
+  readonly timestamp: number;  // from the backend's clock
 }
 
 export interface OffsetStore {
@@ -414,7 +418,7 @@ Do these in order. Each one ends with passing tests.
 
 | Task | Status | Commit |
 | --- | --- | --- |
-| T1. Persistence entry point, stores and the in-memory backend | Not started | |
+| T1. Persistence entry point, stores and the in-memory backend | Done | |
 | T2. Persistent actors: commands, effects and recovery | Not started | |
 | T3. Snapshots | Not started | |
 | T4. Event schemas and upcasters | Not started | |
@@ -425,22 +429,22 @@ Do these in order. Each one ends with passing tests.
 
 ### T1. Persistence entry point, stores and the in-memory backend
 
-- `src/persistence/`: `Journal`, `NewEvent`, `StoredEvent`, `SnapshotStore`, `Snapshot`, `OffsetStore`, `Persistence`, `JournalConflictError`, `JournalSequenceError`, and `inMemoryPersistence()`
+- `src/persistence/`: `Journal`, `NewEvent`, `StoredEvent`, `SnapshotStore`, `NewSnapshot`, `Snapshot`, `OffsetStore`, `Persistence`, `JournalConflictError`, `JournalSequenceError`, and `inMemoryPersistence()`
 - The `./persistence` export in `package.json`, and its paths and aliases in `tsconfig.json` and `vitest.config.ts`
 - A JSON-value check (`isJsonValue`), shared by the in-memory backend and, in T2, the persistent actor
 - `test/persistence/contract.ts`, run against the in-memory backend
 
 **Done when** tests cover:
 
-- [ ] Append and read: sequence numbers start at 1 with no gaps, `read` honours `fromSeq` and `limit`, and streams are independent.
-- [ ] A conflict: appending at a stale `expectedSeq` rejects with `JournalConflictError` and writes nothing, even for a batch.
-- [ ] A batch is all or none.
-- [ ] Offsets increase across streams, and `readByTag` returns only that tag's events, after the offset, in offset order, up to `limit`.
-- [ ] Timestamps come from the given clock.
-- [ ] Events and snapshot states come back deep-equal to what went in, and a stored value can't be changed through a reference the caller kept.
-- [ ] Snapshot store: `load` returns the latest, and a save with a lower `seq` is ignored.
-- [ ] Offset store: `load` is 0 before any save, and returns the last save after.
-- [ ] A package test: `/persistence` loads, exports exactly its names, and `@kylewillett/troupe` doesn't load it.
+- [x] Append and read: sequence numbers start at 1 with no gaps, `read` honours `fromSeq` and `limit`, and streams are independent.
+- [x] A conflict: appending at a stale `expectedSeq` rejects with `JournalConflictError` and writes nothing, even for a batch.
+- [x] A batch is all or none.
+- [x] Offsets increase across streams, and `readByTag` returns only that tag's events, after the offset, in offset order, up to `limit`.
+- [x] Timestamps come from the given clock.
+- [x] Events and snapshot states come back deep-equal to what went in, and a stored value can't be changed through a reference the caller kept.
+- [x] Snapshot store: `load` returns the latest, and a save with a lower `seq` is ignored.
+- [x] Offset store: `load` is 0 before any save, and returns the last save after.
+- [x] A package test: `/persistence` loads, exports exactly its names, and `@kylewillett/troupe` doesn't load it.
 
 ### T2. Persistent actors: commands, effects and recovery
 

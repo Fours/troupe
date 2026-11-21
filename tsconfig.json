@@ -25,7 +25,8 @@
     // Lets examples and tests import the package by name before dist/ is built.
     "paths": {
       "@kylewillett/troupe": ["./src/index.ts"],
-      "@kylewillett/troupe/testkit": ["./src/testkit/index.ts"]
+      "@kylewillett/troupe/testkit": ["./src/testkit/index.ts"],
+      "@kylewillett/troupe/persistence": ["./src/persistence/index.ts"]
     }
   },
   "include": ["src", "test", "examples", "*.config.ts"],

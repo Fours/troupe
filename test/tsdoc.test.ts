@@ -2,7 +2,11 @@ import { describe, expect, it } from 'vitest';
 import ts from 'typescript';
 import { exportsOf, program, root } from './helpers/exports.js';
 
-const ENTRIES = [`${root}src/index.ts`, `${root}src/testkit/index.ts`];
+const ENTRIES = [
+  `${root}src/index.ts`,
+  `${root}src/testkit/index.ts`,
+  `${root}src/persistence/index.ts`,
+];
 
 function documented(symbol: ts.Symbol, checker: ts.TypeChecker): boolean {
   return (
