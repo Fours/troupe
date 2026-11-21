@@ -87,6 +87,8 @@ Scope:
 
 Out of scope: distributed single-writer guarantees, which are milestone 4. The journal's sequence check is the safety net that catches a second writer until then.
 
+Spec: [milestone-2.md](milestone-2.md).
+
 ### 3. Backstage inspector, demo app and demo site
 
 **Outcome:** a visitor opens a web page and watches a running Troupe system. It shows the actor tree, mailboxes filling and draining, a supervisor restarting a crashed child, and an entity's event timeline, which can be scrubbed back through time. No backend is needed, because the core runs in the browser.

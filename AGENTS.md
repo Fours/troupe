@@ -14,7 +14,7 @@ Troupe is an actor framework for TypeScript, in the spirit of Akka. It has typed
 | # | Milestone | Status |
 | --- | --- | --- |
 | 1 | Local typed actors: hierarchy, supervision, ask, timers, testkit with virtual time | Done — [spec](docs/milestone-1.md) |
-| 2 | Event-sourced persistent actors: journals, snapshots, recovery | Not started |
+| 2 | Event-sourced persistent actors: journals, snapshots, recovery | In progress — [spec](docs/milestone-2.md) |
 | 3 | Backstage inspector, demo app and site, first npm release | Not started |
 | 4 | Multi-node: remoting, membership, cluster sharding | Not started |
 | 5 | Rehearsal: deterministic simulation testing | Not started |
