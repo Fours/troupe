@@ -325,7 +325,11 @@ describe('failures stop the actor', () => {
       { message: 'after', reason: 'stopped' },
     ]);
     expect(kit.logs).toMatchObject([
-      { level: 'error', msg: 'actor failed; stopping it', fields: { message: 'bad', error: boom } },
+      {
+        level: 'error',
+        msg: 'actor failed',
+        fields: { message: 'bad', error: boom, directive: 'stop' },
+      },
     ]);
   });
 

@@ -1,6 +1,6 @@
 # 0006. The parent chooses supervision at spawn, and the default is stop
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-20
 - **Milestone:** 1
 
@@ -23,6 +23,14 @@ Each child's strategy is passed when it's spawned: `ctx.spawn(def, name, { super
 ## Evidence
 
 T4's supervision tests. Milestone 2 should confirm that persistent entities, which restart by replaying their journal, fit this shape.
+
+**T4 (2026-11-20):** `src/supervision.ts` builds the strategies, and `spawn` takes one in `supervision`. `test/supervision.test.ts` covers:
+- The default is stop: a watcher sees `failure`, and the `failed` event records `directive: 'stop'`.
+- Each strategy applies to each failure source: a throw or rejection in `receive`, a throw in `initial` or in a `terminated` handler, and values that aren't `Error`s, `undefined` included.
+- Resume, restart, restart limits over a rolling window, and backoff under a seeded random, with the delays pinned.
+- Breaking the restart limit (`>` to `>=`), the window edge, the backoff exponent, or the reset edge fails at least one test each.
+
+Supervision decides from the failure times when a failure happens, so neither the limit window nor the backoff reset needs a timer of its own. What carries over a restart is [0008](0008-restart-is-a-new-incarnation.md).
 
 ## Consequences
 

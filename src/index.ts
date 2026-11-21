@@ -8,6 +8,7 @@ export {
 } from './errors.js';
 export { consoleLogger, silentLogger, type Logger, type LogLevel } from './logger.js';
 export { realScheduler, type Scheduler } from './scheduler.js';
+export { supervise, type SupervisorStrategy } from './supervision.js';
 export { createActorSystem } from './system.js';
 export type {
   ActorContext,

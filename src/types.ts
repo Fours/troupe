@@ -1,5 +1,6 @@
 import type { Logger } from './logger.js';
 import type { Scheduler } from './scheduler.js';
+import type { SupervisorStrategy } from './supervision.js';
 
 // These interfaces grow task by task through milestone 1: each one holds only what's built.
 
@@ -25,8 +26,8 @@ export type AnyRef = ActorRef<never>;
 
 /**
  * What an actor can see and do while it runs. Passed to `initial`, `receive` and `onSignal`. It
- * belongs to one incarnation of the actor: once that has stopped, `spawn` throws and `watch` does
- * nothing.
+ * belongs to one incarnation of the actor: once that has stopped or restarted, `spawn` throws and
+ * `watch` does nothing. A restart gets a new context, with the same `self`.
  */
 export interface ActorContext<M> {
   /** This actor's own ref. The same object `spawn` returned. */
@@ -39,7 +40,7 @@ export interface ActorContext<M> {
    * Starts a child actor under this one and returns its ref at once.
    * @param name Optional. Generated as `$1`, `$2` and so on when omitted.
    * @throws ActorNameError for an invalid, reserved or taken name.
-   * @throws ActorStoppedError once this actor is stopping or has stopped.
+   * @throws ActorStoppedError once this incarnation is stopping, restarting or has stopped.
    * @throws ActorSystemTerminatedError once the system is terminating.
    * @throws TypeError for a definition or options that can't be used.
    */
@@ -71,6 +72,11 @@ export interface ActorContext<M> {
 
 /** A lifecycle event, delivered to `onSignal`. */
 export type Signal =
+  /**
+   * The actor failed and is about to restart. Runs with the old state, before the children are
+   * stopped. Skipped when `initial` failed, since there's no state.
+   */
+  | { readonly type: 'preRestart'; readonly error: unknown }
   /** The actor has stopped, after all its children. The last thing it runs. */
   | { readonly type: 'postStop' }
   /**
@@ -96,14 +102,17 @@ export interface ActorDef<M, S> {
   receive(state: S, msg: M, ctx: ActorContext<M>): S | Promise<S>;
   /**
    * Handles lifecycle signals. Optional. The state returned from `terminated` becomes the new
-   * state, and anything returned from `postStop` is ignored. A promise holds the mailbox, as in
-   * `receive`. A throw in `postStop` is logged, and the stop goes ahead.
+   * state, and anything returned from `preRestart` or `postStop` is ignored. A promise holds the
+   * mailbox, as in `receive`. A throw in `preRestart` or `postStop` is logged, and the restart or
+   * stop goes ahead.
    */
   onSignal?(state: S, signal: Signal, ctx: ActorContext<M>): S | Promise<S>;
 }
 
 /** Options for one `spawn`. */
 export interface SpawnOptions {
+  /** What happens when the actor fails (decision 0006). Default `supervise.stop()`. */
+  supervision?: SupervisorStrategy;
   /** Mailbox limits. Default: unbounded. */
   mailbox?: {
     /** The most messages the mailbox holds. A `tell` past it becomes a `mailboxFull` dead letter. */
@@ -117,6 +126,8 @@ export interface ActorSystemOptions {
   name?: string;
   /** Where time and scheduling come from (decision 0003). Default `realScheduler()`. */
   scheduler?: Scheduler;
+  /** Where chance comes from, for backoff jitter (decision 0003). Default `Math.random`. */
+  random?: () => number;
   /** Where logs go. Default `consoleLogger("warn")`. */
   logger?: Logger;
   /** How many messages one actor runs per turn before others get a go. Default 10. */
@@ -135,6 +146,23 @@ export type SystemEvent = Timestamped<
   | { readonly type: 'spawned'; readonly path: string }
   /** An actor has terminated. `failure` is present when it stopped because it failed. */
   | { readonly type: 'stopped'; readonly path: string; readonly failure?: unknown }
+  /** An actor failed, and supervision chose `directive`. */
+  | {
+      readonly type: 'failed';
+      readonly path: string;
+      readonly error: unknown;
+      readonly directive: 'stop' | 'resume' | 'restart';
+    }
+  /**
+   * An actor is about to run `initial` again. `attempt` counts restarts from 1, since the
+   * restart window or the backoff last reset. `delayMs` is the backoff it waited, 0 for a restart.
+   */
+  | {
+      readonly type: 'restarted';
+      readonly path: string;
+      readonly attempt: number;
+      readonly delayMs: number;
+    }
   | {
       readonly type: 'deadLetter';
       readonly recipient: string;

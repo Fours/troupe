@@ -37,6 +37,7 @@ export default tseslint.config(
       'no-restricted-properties': [
         'error',
         { object: 'Date', property: 'now', message: 'Read time from the injected Scheduler.' },
+        { object: 'Math', property: 'random', message: "Draw chance from the system's random." },
       ],
     },
   },

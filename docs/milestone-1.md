@@ -383,8 +383,8 @@ Do these in order. Each one ends with passing tests.
 | T0. Scaffold the repo | Done | 79ce73c |
 | T1. Scheduler and virtual time | Done | 88cd10f |
 | T2. Actor system, mailbox and dispatcher | Done | 7dae4cf |
-| T3. Hierarchy, stopping and death watch | Done | |
-| T4. Supervision | Not started | |
+| T3. Hierarchy, stopping and death watch | Done | 71eab4a |
+| T4. Supervision | Done | |
 | T5. Ask, timers and pipeToSelf | Not started | |
 | T6. Testkit and determinism | Not started | |
 | T7. Box office example and README | Not started | |
@@ -497,15 +497,42 @@ As built:
 
 `src/supervision.ts`: `supervise` and the strategy logic.
 
+As built:
+
+- **The API this task adds:**
+  - `supervise` and `SupervisorStrategy`, and `supervision` in `SpawnOptions`.
+  - The `preRestart` signal, and the `failed` and `restarted` events.
+  - `random` in `ActorSystemOptions`, and `seed` in `TestKitOptions`.
+- **Option checks.** Each `supervise` factory checks its options, and `spawn` checks hand-built strategies the same way. Both throw `TypeError`. The rules:
+  - `maxRestarts` is an integer of at least 0, or `Infinity`.
+  - `withinMs` is a positive integer, or `Infinity`.
+  - `minMs`, `maxMs` and `resetAfterMs` are positive integers, and `maxMs` is at least `minMs`.
+  - `randomFactor` is finite and at least 0.
+- **Integer delays.** The backoff delay is the formula, rounded to an integer.
+- **Lint.** It now bans `Math.random` in `src/`. The default `random` is the one exception, with a comment.
+- **A restart is a new incarnation behind the same ref** ([0008](decisions/0008-restart-is-a-new-incarnation.md)).
+  - The old `ctx` goes stale.
+  - The actor's own watches are dropped, and `initial` sets them up again.
+  - The backoff delay runs from the failure, alongside `preRestart` and the children stopping.
+  - Messages queue up during the restart, and none is processed.
+- **Settled in planning:**
+  - Resume when `initial` failed stops the actor, because there's no state to keep.
+  - `restarted.attempt` counts from 1 since the last reset: the failures inside the window for restart, and *n* + 1 for backoff. `delayMs` is 0 for a plain restart.
+  - A stop during a restart cancels it. `postStop` runs with the last state, and `failure` isn't set.
+  - `preRestart` is skipped when `initial` failed, as `postStop` is.
+- **Rolling windows.** Limits and resets are worked out from failure times when a failure happens, so no timer tracks them.
+- **Timers.** The restart cancels timers, but timers arrive in T5, so T5's "Timers are cancelled on stop and on restart" tests that part.
+- **Moving time.** Tests move virtual time with `kit.scheduler.advanceTo()` and then `settle()`, until `kit.advance` arrives in T6.
+
 **Done when** tests cover:
 
-- [ ] The default is stop. `terminated` carries `failure`, and a `failed` event records the directive.
-- [ ] Each failure source triggers supervision: a throw in `receive`, a rejection in async `receive`, `initial`, `terminated` in `onSignal`, and a thrown value that isn't an `Error`.
-- [ ] Resume keeps the state and drops only the failing message.
-- [ ] Restart runs `preRestart` with the old state, stops the children, cancels the timers and runs `initial` again. It keeps the mailbox, the ref and the watchers.
-- [ ] A restart limit: `maxRestarts: 2, withinMs: 1000` stops the actor on the third failure inside the window, and allows it once the window has passed.
-- [ ] Backoff delays follow the formula exactly, under a seeded random. Messages wait during the delay, and the count resets after `resetAfterMs`.
-- [ ] A throw in `preRestart` or `postStop` is logged and doesn't block the restart or stop.
+- [x] The default is stop. `terminated` carries `failure`, and a `failed` event records the directive.
+- [x] Each failure source triggers supervision: a throw in `receive`, a rejection in async `receive`, `initial`, `terminated` in `onSignal`, and a thrown value that isn't an `Error`.
+- [x] Resume keeps the state and drops only the failing message.
+- [x] Restart runs `preRestart` with the old state, stops the children and runs `initial` again. It keeps the mailbox, the ref and the watchers. Timer cancellation is tested in T5.
+- [x] A restart limit: `maxRestarts: 2, withinMs: 1000` stops the actor on the third failure inside the window, and allows it once the window has passed.
+- [x] Backoff delays follow the formula exactly, under a seeded random. Messages wait during the delay, and the count resets after `resetAfterMs`.
+- [x] A throw in `preRestart` or `postStop` is logged and doesn't block the restart or stop.
 
 ### T5. Ask, timers and pipeToSelf
 
@@ -563,7 +590,7 @@ Complete `src/testkit/`: `advance`, `events`, `logs`, `shutdown`, the probe's `w
 
 ## Decision records
 
-This milestone sets up records 0001 to 0007 in `docs/decisions/`. 0001, 0004 and 0005 are Accepted. The rest are Proposed, and the tasks named in each one prove them. If the design changes during implementation, update the matching record in the same commit.
+This milestone sets up records 0001 to 0007 in `docs/decisions/`. 0001, 0004 and 0005 are Accepted. The rest are Proposed, and the tasks named in each one prove them. T4 added 0008. If the design changes during implementation, update the matching record in the same commit.
 
 ## Open questions
 

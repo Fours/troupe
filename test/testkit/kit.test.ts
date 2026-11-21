@@ -23,6 +23,10 @@ describe('createTestKit', () => {
     probe.expectMessage('hi');
   });
 
+  it('rejects a seed that is not a safe integer', () => {
+    expect(() => createTestKit({ seed: 1.5 })).toThrow(TypeError);
+  });
+
   it('passes system options through', () => {
     const kit = createTestKit({ system: { name: 'kit-test' } });
     expect(kit.system.name).toBe('kit-test');

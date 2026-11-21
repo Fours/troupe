@@ -2,8 +2,14 @@ import type { Dispatcher, Runnable } from './dispatcher.js';
 import type { EventBus } from './events.js';
 import { ActorStoppedError, NotAChildError } from './errors.js';
 import { safeLogger, type Logger } from './logger.js';
-import type { Names } from './names.js';
+import { Names } from './names.js';
 import { Queue } from './queue.js';
+import {
+  decide,
+  NO_FAILURES,
+  type RestartHistory,
+  type SupervisorStrategy,
+} from './supervision.js';
 import type { ActorContext, ActorDef, ActorRef, AnyRef, Signal, SpawnOptions } from './types.js';
 
 /** A failure, kept with a flag because `throw undefined` is legal. */
@@ -39,6 +45,10 @@ export interface CellHost {
   readonly events: EventBus;
   readonly log: Logger;
   now(): number;
+  /** The system's source of chance, for backoff jitter (decision 0003). */
+  random(): number;
+  /** The system scheduler's `setTimer`. */
+  setTimer(task: () => void, delayMs: number): () => void;
   /** Called with +1 when a cell starts waiting on a promise, and -1 when it stops. */
   trackBusy(delta: 1 | -1): void;
   /** True once `terminate()` has been called. */
@@ -54,45 +64,74 @@ export interface CellHost {
   cellOf(ref: unknown): CellNode | undefined;
 }
 
+/** A cell's checked spawn options. */
+export interface CellOptions {
+  readonly capacity: number;
+  readonly supervision: SupervisorStrategy;
+}
+
 type SystemMessage =
   | { readonly type: 'stop' }
   | { readonly type: 'terminated'; readonly target: CellNode }
-  | { readonly type: 'childrenDone' };
+  | { readonly type: 'childrenDone' }
+  | { readonly type: 'restartDue' };
 
-type Phase = 'running' | 'stopping' | 'terminated';
+type Phase = 'running' | 'restarting' | 'stopping' | 'terminated';
+
+/** A restart that's under way: it finishes once the children are gone and the delay is over. */
+interface PendingRestart {
+  readonly attempt: number;
+  readonly delayMs: number;
+  childrenPending: boolean;
+  delayPending: boolean;
+  cancelDelay: (() => void) | undefined;
+}
 
 /**
  * One actor: its state, mailbox and lifecycle. The dispatcher gives it turns, and it runs one
  * message at a time, holding its mailbox while an async `receive` or `onSignal` is pending
  * (decision 0002).
  *
- * It has two queues. The system queue holds stop requests and `terminated` notices, and is always
- * read before the user queue, so a stop jumps ahead of queued messages.
+ * It has two queues. The system queue holds stop requests, `terminated` notices and restart
+ * steps, and is always read before the user queue, so a stop jumps ahead of queued messages.
  *
  * Stopping goes: dead-letter the user queue, stop every child and wait for them, run `postStop`,
- * then terminate, which frees the name, notifies watchers and publishes `stopped`. Until T4 adds
- * supervision, every failure stops the actor this way, with `failure` set.
+ * then terminate, which frees the name, notifies watchers and publishes `stopped`.
+ *
+ * A failure goes to the strategy the parent chose (decision 0006). A restart makes a new
+ * incarnation behind the same ref (decision 0008): run `preRestart`, drop the actor's own watches,
+ * stop the children and wait for them and for any backoff delay, then run `initial` with a new
+ * `ctx`. The mailbox, the ref and the watchers carry over.
  */
 export class Cell<M, S> implements Runnable, CellNode, ParentNode {
   readonly ref: ActorRef<M>;
-  readonly ctx: ActorContext<M>;
   readonly name: string;
   readonly path: string;
   readonly parent: ParentNode;
-  readonly names: Names;
+  readonly names = new Names();
   readonly childCells = new Map<string, CellNode>();
   readonly watchers = new Set<CellNode>();
   readonly #watching = new Set<CellNode>();
   readonly #def: ActorDef<M, S>;
   readonly #host: CellHost;
   readonly #capacity: number;
+  readonly #strategy: SupervisorStrategy;
   readonly #mailbox = new Queue<M>();
   readonly #system = new Queue<SystemMessage>();
   readonly #log: Logger;
+  #ctx: ActorContext<M>;
+  // Bumped when an incarnation ends, so its ctx can tell it's stale.
+  #incarnation = 0;
   #state: S | undefined;
   #started = false;
-  // True once initial has returned, so there's a state to pass to postStop.
+  // True once initial has returned, so there's a state to pass to preRestart and postStop.
   #hasState = false;
+  // When this incarnation ran initial, for the backoff reset.
+  #startedAt = 0;
+  #history: RestartHistory = NO_FAILURES;
+  #restart: PendingRestart | undefined;
+  // Waiting for every child to terminate, for a stop or a restart.
+  #awaitingChildren = false;
   #phase: Phase = 'running';
   #failure: Failure;
   // In the dispatcher's ready queue.
@@ -107,17 +146,16 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
     path: string,
     def: ActorDef<M, S>,
     host: CellHost,
-    capacity: number,
+    opts: CellOptions,
     parent: ParentNode,
-    names: Names,
   ) {
     this.name = name;
     this.path = path;
     this.#def = def;
     this.#host = host;
-    this.#capacity = capacity;
+    this.#capacity = opts.capacity;
+    this.#strategy = opts.supervision;
     this.parent = parent;
-    this.names = names;
     this.#log = safeLogger(host.log, { path });
     this.ref = Object.freeze({
       path,
@@ -125,28 +163,7 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
         this.#tell(msg);
       },
     });
-    this.ctx = Object.freeze({
-      self: this.ref,
-      log: this.#log,
-      now: () => host.now(),
-      spawn: <C, CS>(def: ActorDef<C, CS>, childName?: string, opts?: SpawnOptions) => {
-        if (this.#phase !== 'running') {
-          throw new ActorStoppedError(`${path} is stopping or has stopped, so it can't spawn`);
-        }
-        return host.spawn(this, def, childName, opts);
-      },
-      stop: (ref?: AnyRef) => {
-        this.#stop(ref);
-      },
-      watch: (ref: AnyRef) => {
-        this.#watch(ref);
-      },
-      unwatch: (ref: AnyRef) => {
-        this.#unwatch(ref);
-      },
-      child: (childName: string) => this.childCells.get(childName)?.ref,
-      children: () => [...this.childCells.values()].map((c) => c.ref),
-    });
+    this.#ctx = this.#makeContext();
   }
 
   get terminated(): boolean {
@@ -163,7 +180,7 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
   }
 
   requestStop(): void {
-    if (this.#phase !== 'running') return;
+    if (this.#stopping()) return;
     this.#system.push({ type: 'stop' });
     this.#scheduleIfReady();
   }
@@ -177,7 +194,7 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
   removeChild(child: CellNode): void {
     this.childCells.delete(child.name);
     this.names.release(child.name);
-    if (this.#phase === 'stopping' && this.childCells.size === 0) {
+    if (this.#awaitingChildren && this.childCells.size === 0) {
       this.#system.push({ type: 'childrenDone' });
       this.#scheduleIfReady();
     }
@@ -204,7 +221,7 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
         // Size checked above, so shift() returns a message. M itself may include undefined.
         const msg = this.#mailbox.shift() as M;
         steps++;
-        this.#invoke(() => this.#def.receive(this.#state as S, msg, this.ctx), { message: msg });
+        this.#invoke(() => this.#def.receive(this.#state as S, msg, this.#ctx), { message: msg });
       }
     } finally {
       this.#running = false;
@@ -213,10 +230,45 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
     return steps;
   }
 
+  /** Builds the ctx for the current incarnation. It goes stale once that incarnation ends. */
+  #makeContext(): ActorContext<M> {
+    const incarnation = this.#incarnation;
+    const current = () => this.#incarnation === incarnation;
+    const host = this.#host;
+    return Object.freeze({
+      self: this.ref,
+      log: this.#log,
+      now: () => host.now(),
+      spawn: <C, CS>(def: ActorDef<C, CS>, childName?: string, opts?: SpawnOptions) => {
+        if (!current() || this.#phase !== 'running') {
+          throw new ActorStoppedError(
+            `${this.path}: this incarnation has stopped or restarted, so it can't spawn`,
+          );
+        }
+        return host.spawn(this, def, childName, opts);
+      },
+      stop: (ref?: AnyRef) => {
+        this.#stop(ref);
+      },
+      watch: (ref: AnyRef) => {
+        if (current()) this.#watch(ref);
+      },
+      unwatch: (ref: AnyRef) => {
+        this.#unwatch(ref);
+      },
+      child: (childName: string) => this.childCells.get(childName)?.ref,
+      children: () => [...this.childCells.values()].map((c) => c.ref),
+    });
+  }
+
+  #stopping(): boolean {
+    return this.#phase === 'stopping' || this.#phase === 'terminated';
+  }
+
   #tell(msg: M): void {
     const reason = this.#host.terminating()
       ? 'terminated'
-      : this.#phase !== 'running'
+      : this.#stopping()
         ? 'stopped'
         : this.#mailbox.size >= this.#capacity
           ? 'mailboxFull'
@@ -225,6 +277,7 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
       this.#deadLetter(msg, reason);
       return;
     }
+    // While restarting, messages queue up and wait for the new incarnation.
     this.#mailbox.push(msg);
     this.#scheduleIfReady();
   }
@@ -235,8 +288,13 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
 
   #scheduleIfReady(): void {
     if (this.#scheduled || this.#running || this.#busy || this.#phase === 'terminated') return;
-    if (this.#started && this.#system.size === 0 && this.#mailbox.size === 0) return;
-    this.#schedule();
+    // The mailbox only counts while running: a restarting cell with queued messages but nothing
+    // else to do would otherwise be scheduled, run no steps, and be scheduled again forever.
+    const hasWork =
+      !this.#started ||
+      this.#system.size > 0 ||
+      (this.#phase === 'running' && this.#mailbox.size > 0);
+    if (hasWork) this.#schedule();
   }
 
   #schedule(): void {
@@ -246,15 +304,18 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
 
   #init(): void {
     this.#started = true;
+    this.#hasState = false;
+    this.#state = undefined;
+    this.#startedAt = this.#host.now();
     const { initial } = this.#def;
     try {
       this.#state =
         typeof initial === 'function'
-          ? (initial as (ctx: ActorContext<M>) => S)(this.ctx)
+          ? (initial as (ctx: ActorContext<M>) => S)(this.#ctx)
           : initial;
       this.#hasState = true;
     } catch (error) {
-      this.#fail(error, {});
+      this.#fail(error, {}, true);
     }
   }
 
@@ -264,7 +325,19 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
         this.#beginStop(undefined);
         return;
       case 'childrenDone':
-        this.#postStop();
+        this.#awaitingChildren = false;
+        if (this.#restart === undefined) {
+          this.#postStop();
+          return;
+        }
+        this.#restart.childrenPending = false;
+        this.#finishRestart();
+        return;
+      case 'restartDue':
+        // A stop since the timer fired cancels the restart, and this with it.
+        if (this.#restart === undefined) return;
+        this.#restart.delayPending = false;
+        this.#finishRestart();
         return;
       case 'terminated': {
         // Dropped while stopping, and after unwatch, even if it was already queued.
@@ -276,7 +349,7 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
           failure === undefined
             ? { type: 'terminated', ref: sys.target.ref }
             : { type: 'terminated', ref: sys.target.ref, failure: failure.error };
-        this.#invoke(() => onSignal(this.#state as S, signal, this.ctx), {
+        this.#invoke(() => onSignal(this.#state as S, signal, this.#ctx), {
           signal: 'terminated',
           target: sys.target.ref.path,
         });
@@ -287,7 +360,7 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
 
   /**
    * Runs a handler that returns the next state, directly or as a promise. A promise makes the
-   * cell busy until it settles. A throw or rejection fails the actor.
+   * cell busy until it settles. A throw or rejection is a failure, for supervision.
    */
   #invoke(handler: () => S | Promise<S>, context: Record<string, unknown>): void {
     let result: S | Promise<S>;
@@ -331,9 +404,72 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
     );
   }
 
-  #fail(error: unknown, context: Record<string, unknown>): void {
-    this.#log.error('actor failed; stopping it', { ...context, error });
-    this.#beginStop({ error });
+  /** Hands a failure to the strategy, then publishes and logs what it decided. */
+  #fail(error: unknown, context: Record<string, unknown>, inInitial = false): void {
+    const { decision, history } = decide(this.#strategy, this.#history, {
+      now: this.#host.now(),
+      startedAt: this.#startedAt,
+      inInitial,
+      random: () => this.#host.random(),
+    });
+    this.#history = history;
+    const { directive } = decision;
+    this.#host.events.publish({ type: 'failed', path: this.path, error, directive });
+    this.#log.error('actor failed', { ...context, error, directive });
+    switch (decision.directive) {
+      case 'stop':
+        this.#beginStop({ error });
+        return;
+      case 'resume':
+        return;
+      case 'restart':
+        this.#beginRestart(error, decision.attempt, decision.delayMs);
+        return;
+    }
+  }
+
+  #beginRestart(error: unknown, attempt: number, delayMs: number): void {
+    this.#phase = 'restarting';
+    this.#incarnation++;
+    this.#unwatchAll();
+    // T5's timers are cancelled here.
+    const restart: PendingRestart = {
+      attempt,
+      delayMs,
+      childrenPending: true,
+      delayPending: delayMs > 0,
+      cancelDelay: undefined,
+    };
+    this.#restart = restart;
+    // The delay runs from the failure, alongside preRestart and the children stopping.
+    if (delayMs > 0) {
+      restart.cancelDelay = this.#host.setTimer(() => {
+        this.#system.push({ type: 'restartDue' });
+        this.#scheduleIfReady();
+      }, delayMs);
+    }
+    this.#signal({ type: 'preRestart', error }, 'restarting anyway', () => {
+      if (this.#stopChildren()) return;
+      restart.childrenPending = false;
+      this.#finishRestart();
+    });
+  }
+
+  /** Starts the new incarnation, once the children are gone and the delay is over. */
+  #finishRestart(): void {
+    const restart = this.#restart;
+    if (restart === undefined || restart.childrenPending || restart.delayPending) return;
+    this.#restart = undefined;
+    this.#phase = 'running';
+    this.#ctx = this.#makeContext();
+    // The next step runs initial again, ahead of the queued messages.
+    this.#started = false;
+    this.#host.events.publish({
+      type: 'restarted',
+      path: this.path,
+      attempt: restart.attempt,
+      delayMs: restart.delayMs,
+    });
   }
 
   #stop(ref: AnyRef | undefined): void {
@@ -366,6 +502,11 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
     target.watchers.delete(this);
   }
 
+  #unwatchAll(): void {
+    for (const target of this.#watching) target.watchers.delete(this);
+    this.#watching.clear();
+  }
+
   #cellOrThrow(ref: unknown, what: string): CellNode {
     const cell = this.#host.cellOf(ref);
     if (cell === undefined) {
@@ -375,51 +516,63 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
   }
 
   #beginStop(failure: Failure): void {
-    if (this.#phase !== 'running') return;
+    if (this.#stopping()) return;
+    // A stop during a restart cancels it. postStop then runs with the last state.
+    this.#restart?.cancelDelay?.();
+    this.#restart = undefined;
     this.#phase = 'stopping';
     this.#failure = failure;
     while (this.#mailbox.size > 0) this.#deadLetter(this.#mailbox.shift(), 'stopped');
-    if (this.childCells.size === 0) {
-      this.#postStop();
-      return;
-    }
+    // A restart may already be waiting for the children, and childrenDone will still come.
+    if (this.#awaitingChildren || this.#stopChildren()) return;
+    this.#postStop();
+  }
+
+  /** Asks every child to stop. Returns false when there are none, so there's nothing to wait for. */
+  #stopChildren(): boolean {
+    if (this.childCells.size === 0) return false;
+    this.#awaitingChildren = true;
     for (const child of [...this.childCells.values()]) child.requestStop();
+    return true;
   }
 
   #postStop(): void {
+    this.#signal({ type: 'postStop' }, 'stopping anyway', () => {
+      this.#terminate();
+    });
+  }
+
+  /**
+   * Runs `preRestart` or `postStop`, awaiting it if it's async, then `next`. These can't fail the
+   * actor: a throw or rejection is logged, and `next` runs anyway. Skipped when there's no state.
+   */
+  #signal(signal: Signal, anyway: string, next: () => void): void {
     const onSignal = this.#def.onSignal?.bind(this.#def);
     if (onSignal === undefined || !this.#hasState) {
-      this.#terminate();
+      next();
       return;
     }
     let result: S | Promise<S>;
     try {
-      result = onSignal(this.#state as S, { type: 'postStop' }, this.ctx);
+      result = onSignal(this.#state as S, signal, this.#ctx);
     } catch (error) {
-      this.#log.error('postStop threw; stopping anyway', { error });
-      this.#terminate();
+      this.#log.error(`${signal.type} threw; ${anyway}`, { error });
+      next();
       return;
     }
     if (!isThenable(result)) {
-      this.#terminate();
+      next();
       return;
     }
-    this.#awaitBusy(
-      result,
-      () => {
-        this.#terminate();
-      },
-      (error) => {
-        this.#log.error('postStop rejected; stopping anyway', { error });
-        this.#terminate();
-      },
-    );
+    this.#awaitBusy(result, next, (error) => {
+      this.#log.error(`${signal.type} rejected; ${anyway}`, { error });
+      next();
+    });
   }
 
   #terminate(): void {
     this.#phase = 'terminated';
-    for (const target of this.#watching) target.watchers.delete(this);
-    this.#watching.clear();
+    this.#unwatchAll();
     this.parent.removeChild(this);
     for (const watcher of this.watchers) watcher.notifyTerminated(this);
     this.watchers.clear();

@@ -2,7 +2,15 @@
 // assertions do nothing, and @ts-expect-error lines fail the typecheck if they stop being errors.
 import { describe, expectTypeOf, it } from 'vitest';
 import { actor } from '../src/actor.js';
-import type { ActorDef, ActorRef, AnyRef } from '../src/types.js';
+import { supervise, type SupervisorStrategy } from '../src/supervision.js';
+import type {
+  ActorDef,
+  ActorRef,
+  AnyRef,
+  Signal,
+  SpawnOptions,
+  SystemEvent,
+} from '../src/types.js';
 
 type A = { type: 'a' };
 type B = { type: 'b' };
@@ -69,5 +77,31 @@ describe('actor()', () => {
       initial: 'zero',
       receive: (n) => n,
     });
+  });
+});
+
+describe('supervision types', () => {
+  it('builds strategies that spawn accepts', () => {
+    expectTypeOf(
+      supervise.restartWithBackoff({ minMs: 1, maxMs: 2 }),
+    ).toEqualTypeOf<SupervisorStrategy>();
+    expectTypeOf<{ supervision: SupervisorStrategy }>().toExtend<SpawnOptions>();
+    // Never called: it would throw. The type error is the point.
+    const missing = () =>
+      // @ts-expect-error minMs and maxMs are required
+      supervise.restartWithBackoff({ minMs: 1 });
+    expectTypeOf(missing).returns.toEqualTypeOf<SupervisorStrategy>();
+  });
+
+  it('adds preRestart to Signal, and failed and restarted to SystemEvent', () => {
+    expectTypeOf<Extract<Signal, { type: 'preRestart' }>>().toEqualTypeOf<{
+      readonly type: 'preRestart';
+      readonly error: unknown;
+    }>();
+    type Failed = Extract<SystemEvent, { type: 'failed' }>;
+    expectTypeOf<Failed['directive']>().toEqualTypeOf<'stop' | 'resume' | 'restart'>();
+    type Restarted = Extract<SystemEvent, { type: 'restarted' }>;
+    expectTypeOf<Restarted['attempt']>().toEqualTypeOf<number>();
+    expectTypeOf<Restarted['delayMs']>().toEqualTypeOf<number>();
   });
 });

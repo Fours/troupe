@@ -4,6 +4,7 @@ import { createSystem } from '../system.js';
 import type { ActorSystem, ActorSystemOptions, SystemEvent } from '../types.js';
 import { ManualScheduler } from './manual-scheduler.js';
 import { TestProbe } from './probe.js';
+import { seededRandom } from './random.js';
 
 /** One entry the kit's logger recorded. */
 export interface LogEntry {
@@ -14,10 +15,12 @@ export interface LogEntry {
 
 /** Options for {@link createTestKit}. */
 export interface TestKitOptions {
+  /** The seed for the system's `random`, through {@link seededRandom}. Default 1. */
+  seed?: number;
   /** The virtual time to start at, in ms. Default 0. */
   startTime?: number;
-  /** Options for the system under test. The kit supplies the scheduler and the logger. */
-  system?: Omit<ActorSystemOptions, 'scheduler' | 'logger'>;
+  /** Options for the system under test. The kit supplies the scheduler, random and logger. */
+  system?: Omit<ActorSystemOptions, 'scheduler' | 'random' | 'logger'>;
 }
 
 /** An actor system on virtual time, with probes and a record of everything it did. */
@@ -49,10 +52,12 @@ const MAX_TICKS = 1000;
 const PROBE_NAME = /^[A-Za-z0-9][A-Za-z0-9._~-]{0,63}$/;
 
 /**
- * Creates an actor system on a {@link ManualScheduler}, with a logger that records into
- * `kit.logs`. Nothing runs until you call `settle`.
+ * Creates an actor system on a {@link ManualScheduler} and a {@link seededRandom}, with a logger
+ * that records into `kit.logs`. Nothing runs until you call `settle`.
+ * @throws TypeError if `seed` isn't a safe integer.
  */
 export function createTestKit(opts: TestKitOptions = {}): TestKit {
+  const random = seededRandom(opts.seed ?? 1);
   const scheduler = new ManualScheduler(
     opts.startTime === undefined ? {} : { startTime: opts.startTime },
   );
@@ -68,7 +73,7 @@ export function createTestKit(opts: TestKitOptions = {}): TestKit {
     warn: record('warn'),
     error: record('error'),
   };
-  const handle = createSystem({ ...opts.system, scheduler, logger });
+  const handle = createSystem({ ...opts.system, scheduler, random, logger });
   const events: SystemEvent[] = [];
   handle.system.events.subscribe((event) => events.push(event));
 

@@ -30,6 +30,7 @@ describe('createActorSystem options', () => {
     ['a string throughput', { throughput: '10' }],
     ['a negative yieldAfter', { yieldAfter: -1 }],
     ['an infinite yieldAfter', { yieldAfter: Infinity }],
+    ['a random that is not a function', { random: 0.5 }],
   ];
   for (const [what, opts] of bad) {
     it(`throws TypeError for ${what}`, () => {
@@ -55,7 +56,18 @@ describe('spawn checks', () => {
 
   const badOpts: [string, unknown][] = [
     ['options that are not an object', 5],
-    ['an unknown field', { supervision: 'stop' }],
+    ['an unknown field', { supervisor: 'stop' }],
+    ['a supervision that is a string', { supervision: 'stop' }],
+    ['a supervision of an unknown type', { supervision: { type: 'escalate' } }],
+    ['a stop strategy with extra fields', { supervision: { type: 'stop', maxRestarts: 1 } }],
+    [
+      'a hand-built restart with a bad limit',
+      { supervision: { type: 'restart', maxRestarts: -1, withinMs: 10 } },
+    ],
+    [
+      'a hand-built backoff with no randomFactor',
+      { supervision: { type: 'backoff', minMs: 1, maxMs: 2, resetAfterMs: 2 } },
+    ],
     ['an unknown mailbox field', { mailbox: { size: 2 } }],
     ['a mailbox that is not an object', { mailbox: 3 }],
     ['a zero capacity', { mailbox: { capacity: 0 } }],
@@ -78,6 +90,18 @@ describe('spawn checks', () => {
       expect(() => system.spawn(def as never)).toThrow(TypeError);
     });
   }
+
+  it('accepts hand-built strategies that are valid', () => {
+    const strategies = [
+      { type: 'stop' },
+      { type: 'resume' },
+      { type: 'restart', maxRestarts: 0, withinMs: Infinity },
+      { type: 'backoff', minMs: 1, maxMs: 1, randomFactor: 0, resetAfterMs: 1 },
+    ] as const;
+    for (const supervision of strategies) {
+      expect(system.spawn(idle, undefined, { supervision }).path).toMatch(/^\/user\//);
+    }
+  });
 
   it("doesn't claim the name when the checks fail", () => {
     expect(() => system.spawn(idle, 'kept', { mailbox: { capacity: 0 } })).toThrow(TypeError);
