@@ -382,8 +382,8 @@ Do these in order. Each one ends with passing tests.
 | --- | --- | --- |
 | T0. Scaffold the repo | Done | 79ce73c |
 | T1. Scheduler and virtual time | Done | 88cd10f |
-| T2. Actor system, mailbox and dispatcher | Done | |
-| T3. Hierarchy, stopping and death watch | Not started | |
+| T2. Actor system, mailbox and dispatcher | Done | 7dae4cf |
+| T3. Hierarchy, stopping and death watch | Done | |
 | T4. Supervision | Not started | |
 | T5. Ask, timers and pipeToSelf | Not started | |
 | T6. Testkit and determinism | Not started | |
@@ -462,15 +462,36 @@ As built:
 
 ### T3. Hierarchy, stopping and death watch
 
+As built:
+
+- **The API this task adds:**
+  - `ActorDef.onSignal`, with `Signal` covering `postStop` and `terminated` (`preRestart` comes in T4).
+  - On `ctx`: `spawn`, `stop`, `watch`, `unwatch`, `child` and `children`.
+  - On the system: `stop`, `terminate` and `whenTerminated`.
+  - The `stopped` event, and dead-letter reasons `stopped` and `terminated`.
+  - New public names: `Signal`, `NotAChildError`, `ActorStoppedError` and `ActorSystemTerminatedError`.
+- **Failures stop the actor.** This replaces T2's temporary handling: a throw or rejection in `initial`, `receive` or a `terminated` handler stops the actor, with `failure` set on `terminated` and on the `stopped` event. T4 adds the `failed` event and the other strategies.
+- **`failure` is a key that's present or absent, not a value to compare with `undefined`.** Test it with `'failure' in signal`, because `throw undefined` is still a failure.
+- **Watchers hear later.** A terminating actor queues `terminated` on each watcher's system queue just before it publishes `stopped`. Each watcher handles it on its own next turn, so in a combined log, the watcher's handling comes after the `stopped` event.
+- **`ctx.stop()` on self** goes through the actor's own system queue too, so it takes effect after the current message, including an async one.
+- **Settled in planning:**
+  - Stopping a former child that has already terminated does nothing.
+  - Watching or unwatching a ref that isn't an actor of this system, such as a probe, throws `TypeError`.
+  - `postStop` is skipped when `initial` failed, because there's no state to pass it.
+  - A `terminated` that arrives while the watcher is stopping is dropped.
+  - Watching yourself does nothing.
+  - After `terminate()`, every new `tell` is a `terminated` dead letter, even to actors that are still stopping.
+- CI jobs now have `timeout-minutes: 10`, so a dispatcher bug that hangs a test fails within minutes.
+
 **Done when** tests cover:
 
-- [ ] `ctx.spawn` creates children under the parent's path. `child(name)` and `children()` work, in spawn order.
-- [ ] Stopping order: children terminate depth first, then the parent's `postStop` (awaited when it's async), then watchers get `terminated`, then the `stopped` event. Check it with an event log on a three-level tree.
-- [ ] `ctx.stop()` finishes the current message. Messages queued after it, and any sent later, are dead letters with reason `stopped`.
-- [ ] `ctx.stop(child)` jumps the child's user queue. `ctx.stop(notAChild)` throws `NotAChildError`.
-- [ ] A name is reusable only after its actor has terminated, and an old ref never reaches the new actor.
-- [ ] Watch is idempotent. Watching a terminated actor delivers `terminated` at once. A `terminated` that's already queued isn't delivered after `unwatch`.
-- [ ] `system.terminate()` stops everything, resolves after the last `stopped` event, and returns the same promise each time. Afterwards `spawn` throws `ActorSystemTerminatedError` and `tell` is a dead letter with reason `terminated`.
+- [x] `ctx.spawn` creates children under the parent's path. `child(name)` and `children()` work, in spawn order.
+- [x] Stopping order: children terminate depth first, then the parent's `postStop` (awaited when it's async), then watchers get `terminated`, then the `stopped` event. Check it with an event log on a three-level tree.
+- [x] `ctx.stop()` finishes the current message. Messages queued after it, and any sent later, are dead letters with reason `stopped`.
+- [x] `ctx.stop(child)` jumps the child's user queue. `ctx.stop(notAChild)` throws `NotAChildError`.
+- [x] A name is reusable only after its actor has terminated, and an old ref never reaches the new actor.
+- [x] Watch is idempotent. Watching a terminated actor delivers `terminated` at once. A `terminated` that's already queued isn't delivered after `unwatch`.
+- [x] `system.terminate()` stops everything, resolves after the last `stopped` event, and returns the same promise each time. Afterwards `spawn` throws `ActorSystemTerminatedError` and `tell` is a dead letter with reason `terminated`.
 
 ### T4. Supervision
 

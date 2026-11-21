@@ -1,10 +1,18 @@
-import { Cell, type CellHost } from './cell.js';
+import { Cell, type CellHost, type CellNode, type ParentNode } from './cell.js';
 import { Dispatcher } from './dispatcher.js';
+import { ActorSystemTerminatedError, NotAChildError } from './errors.js';
 import { EventBus } from './events.js';
 import { consoleLogger, isLogger, safeLogger } from './logger.js';
 import { childPath, Names } from './names.js';
 import { realScheduler, type Scheduler } from './scheduler.js';
-import type { ActorDef, ActorRef, ActorSystem, ActorSystemOptions, SpawnOptions } from './types.js';
+import type {
+  ActorDef,
+  ActorRef,
+  ActorSystem,
+  ActorSystemOptions,
+  AnyRef,
+  SpawnOptions,
+} from './types.js';
 
 const SYSTEM_OPTIONS = new Set(['name', 'scheduler', 'logger', 'throughput', 'yieldAfter']);
 const SPAWN_OPTIONS = new Set(['mailbox']);
@@ -54,7 +62,28 @@ export function createSystem(opts: ActorSystemOptions = {}): SystemHandle {
   const log = safeLogger(logger);
   const now = () => scheduler.now();
   const events = new EventBus(now, log);
+  const cells = new WeakMap<object, CellNode>();
   let busy = 0;
+  let terminating = false;
+  let resolveTerminated!: () => void;
+  const whenTerminated = new Promise<void>((resolve) => {
+    resolveTerminated = resolve;
+  });
+
+  // The parent of every top-level actor. terminate() stops it like any other parent.
+  const guardian: ParentNode = {
+    path: USER_PATH,
+    names: new Names(),
+    childCells: new Map<string, CellNode>(),
+    removeChild(child) {
+      this.childCells.delete(child.name);
+      this.names.release(child.name);
+      // The last stopped event is published right after this returns, before anyone awaiting
+      // whenTerminated can run.
+      if (terminating && this.childCells.size === 0) resolveTerminated();
+    },
+  };
+
   const host: CellHost = {
     dispatcher: new Dispatcher(scheduler, throughput, yieldAfter),
     events,
@@ -63,20 +92,50 @@ export function createSystem(opts: ActorSystemOptions = {}): SystemHandle {
     trackBusy: (delta) => {
       busy += delta;
     },
+    terminating: () => terminating,
+    cellOf: (ref) => (typeof ref === 'object' && ref !== null ? cells.get(ref) : undefined),
+    spawn<M, S>(
+      parent: ParentNode,
+      def: ActorDef<M, S>,
+      childName: string | undefined,
+      spawnOpts: SpawnOptions | undefined,
+    ): ActorRef<M> {
+      if (terminating) {
+        throw new ActorSystemTerminatedError(`system "${name}" is terminating, so it can't spawn`);
+      }
+      checkDef(def);
+      const capacity = checkSpawnOptions(spawnOpts);
+      const claimed = parent.names.claim(childName, parent.path);
+      const path = childPath(parent.path, claimed);
+      const cell = new Cell(claimed, path, def, host, capacity, parent, new Names());
+      cells.set(cell.ref, cell);
+      parent.childCells.set(claimed, cell);
+      events.publish({ type: 'spawned', path });
+      cell.start();
+      return cell.ref;
+    },
   };
-  const userNames = new Names();
 
   const system: ActorSystem = Object.freeze({
     name,
     events,
+    whenTerminated,
     spawn<M, S>(def: ActorDef<M, S>, childName?: string, spawnOpts?: SpawnOptions): ActorRef<M> {
-      checkDef(def);
-      const capacity = checkSpawnOptions(spawnOpts);
-      const path = childPath(USER_PATH, userNames.claim(childName, USER_PATH));
-      const cell = new Cell(path, def, host, capacity);
-      events.publish({ type: 'spawned', path });
-      cell.start();
-      return cell.ref;
+      return host.spawn(guardian, def, childName, spawnOpts);
+    },
+    stop(ref: AnyRef): void {
+      const cell = host.cellOf(ref);
+      if (cell?.parent !== guardian) {
+        throw new NotAChildError(`${describeRef(ref)} is not a top-level actor of "${name}"`);
+      }
+      cell.requestStop();
+    },
+    terminate(): Promise<void> {
+      if (terminating) return whenTerminated;
+      terminating = true;
+      if (guardian.childCells.size === 0) resolveTerminated();
+      for (const child of [...guardian.childCells.values()]) child.requestStop();
+      return whenTerminated;
     },
   });
   return { system, busy: () => busy };
@@ -89,6 +148,14 @@ function checkDef(def: unknown): void {
   const d = def as Record<string, unknown>;
   if (!('initial' in d)) throw new TypeError('spawn: the definition has no initial state');
   if (typeof d.receive !== 'function') throw new TypeError('spawn: receive must be a function');
+  if (d.onSignal !== undefined && typeof d.onSignal !== 'function') {
+    throw new TypeError('spawn: onSignal must be a function when it is set');
+  }
+}
+
+function describeRef(ref: unknown): string {
+  const path = typeof ref === 'object' && ref !== null ? (ref as { path?: unknown }).path : ref;
+  return typeof path === 'string' ? path : 'that ref';
 }
 
 function checkSpawnOptions(opts: unknown): number {

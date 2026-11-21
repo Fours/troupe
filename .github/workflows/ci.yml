@@ -8,6 +8,8 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    # A dispatcher bug can hang a test in a sync loop no Vitest timeout can interrupt.
+    timeout-minutes: 10
     strategy:
       matrix:
         # Every supported LTS line. Keep in step with engines in package.json.

@@ -42,6 +42,11 @@ export class Names {
     this.#taken.add(name);
     return name;
   }
+
+  /** Frees `name` for reuse, once its actor has terminated. Generated names are never reused. */
+  release(name: string): void {
+    this.#taken.delete(name);
+  }
 }
 
 /** Joins a parent path and a child name. */
