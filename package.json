@@ -44,7 +44,8 @@
     "format": "prettier --write .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "coverage": "vitest run --coverage"
+    "coverage": "vitest run --coverage",
+    "example": "npm run build && node examples/box-office/main.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

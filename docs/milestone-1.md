@@ -387,8 +387,8 @@ Do these in order. Each one ends with passing tests.
 | T3. Hierarchy, stopping and death watch | Done | 71eab4a |
 | T4. Supervision | Done | 5856382 |
 | T5. Ask, timers and pipeToSelf | Done | 3afccd9 |
-| T6. Testkit and determinism | Done | |
-| T7. Box office example and README | Not started | |
+| T6. Testkit and determinism | Done | b9392b5 |
+| T7. Box office example and README | Done | |
 
 ### T0. Scaffold the repo
 
@@ -613,7 +613,29 @@ As built:
   - the testkit
   - the ask deadlock pitfall, and the warning that timers keep a Node process alive until `terminate()`
 
-**Done when:** the demo described in "Outcome" works from a clean clone, and the example test passes.
+As built:
+
+- **Files.**
+  - `box-office.ts` has the actors.
+  - `scenario.ts` has the story, as `runScenario(stage)`. The stage supplies the system, `sleep`, `shutdown` and a narrator, so the same script runs on real time and under the testkit.
+  - `narrate.ts` turns scenario lines and system events into timestamped lines.
+  - `main.ts` runs it all on `realScheduler()`.
+- **State stays plain.** `BoxOffice` keeps no state, and finds each show with `ctx.child(name)`, since refs carry functions. Each `Show` holds its sales, its holds and the next hold id, as plain data. A hold is a single timer keyed by the hold id.
+- **The story.**
+  1. Alice holds seats and confirms them.
+  2. Bob's hold expires, and Dave, who was turned away, gets the seats.
+  3. Carol holds a seat.
+  4. Mallory's request for -1 seats crashes `hamlet`, which restarts with backoff. Mallory's ask times out.
+  5. Carol's confirm then finds no hold, because the restarted show has forgotten everything.
+- **Asks from outside the system.** The scenario turns each `ask` into a `Result` straight away, then sleeps. Under the testkit, the sleep is `kit.advance`, which is what delivers the reply. Converting first means a timeout during the sleep is never an unhandled rejection.
+- **Resolving the package by name.** `npm run example` runs Node on `main.ts`, which imports `@kylewillett/troupe` by name. Node resolves that to `dist/` through the package's own `exports`. `vitest.config.ts` aliases both entry points to `src/`, as `tsconfig.json`'s paths do, so the example test needs no build.
+- **The test** checks the whole narrated transcript, the restart's backoff delay, that no dead letters or timers are left, and that another seed changes the delay. Not setting the hold timer, restarting without backoff, or dropping forwarded requests each fails it.
+- **README.** It covers each point listed above. Its code snippets were typechecked by hand, not by a test.
+
+**Done when:**
+
+- [x] The demo described in "Outcome" works from a clean clone: `npm ci && npm run example`.
+- [x] The example test passes.
 
 ## Definition of done
 
