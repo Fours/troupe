@@ -305,8 +305,8 @@ Do these in order. Each one ends with passing tests.
 | T1. The benchmark and its baseline | Done | d28e83d, 4003682, 2d65cea |
 | T2. Message events and inspection hooks | Done | 921fd59 |
 | T3. The Backstage protocol and in-process source | Done | 7d012b0 |
-| T4. Demo foundation: opening night | Done | |
-| T5. The Backstage UI | Not started | |
+| T4. Demo foundation: opening night | Done | 650befd |
+| T5. The Backstage UI | Done, but for your check | |
 | T6. The Node server | Not started | |
 | T7. API review and the 0.1.0 release | Not started | |
 | T8. The write-up | Not started | |
@@ -403,12 +403,23 @@ Write [0022](decisions/0022-demo-drives-virtual-time.md).
 
 **Done when:**
 
-- [ ] The store has unit tests: frames to view model, bounded history, dropped messages, and a fresh `hello` after a reconnect
-- [ ] The demo page shows the tree, actor details, failure history and the timeline, live
-- [ ] Scrubbing a show's timeline shows its state after each event, with the change highlighted, and "Live" returns to the present
-- [ ] A rush of 30 customers at 4× keeps the page responsive: no frame takes longer than 50 ms in a Playwright trace
-- [ ] Playwright covers the tree, each button, the timeline from mouse and keyboard, and the phone width from open question 4
+- [x] The store has unit tests: frames to view model, bounded history, dropped messages, and a fresh `hello` after a reconnect
+- [x] The demo page shows the tree, actor details, failure history and the timeline, live
+- [x] Scrubbing a show's timeline shows its state after each event, with the change highlighted, and "Live" returns to the present
+- [x] A rush of 30 customers at 4× keeps the page responsive: no frame takes longer than 50 ms in a Playwright trace
+  - Measured with Chromium's `long-animation-frame` entries, which time every frame past 50 ms from its first task to its paint. There are none. A 60 ms busy loop in the tree's render makes the test fail with every frame at 61 to 82 ms.
+- [x] Playwright covers the tree, each button, the timeline from mouse and keyboard, and the phone width from open question 4
 - [ ] Someone non-technical can say what it shows without help (you check this)
+
+**Found in T5:**
+
+- **The night goes on** (T4's sold-out question). One arrival in ten comes to return seats they bought: a `returned` event, tagged `sale`, which takes seats off the show and off the sales board. Lear now sells out in about five minutes at 1×, and from then on returns free seats for the next customers, so a sold-out show still writes and Journal down still fails it. At 0.2, returns kept pace with sales and nothing sold out in twelve minutes.
+- **A restart is a reconnect.** `openingNight` gained `onSystem`, called before a new system's actors spawn. The demo's client closes the old source, attaches one to the new system, and connects everyone again, so the UI gets a fresh `hello`, as a dropped connection would give it.
+- **The store keeps no clock.** Its time is the events' `at`, so pausing freezes the fade-outs and the depth chart too, and the same frames always give the same view. A `hello` can list an actor as `starting` whose `initial` hasn't run, and no event says when it has, so the first thing it does (a handled message, a child spawned) marks it running. A persistent actor is running once it has recovered.
+- **Depth samples keep each ms's peak.** Under virtual time a message often arrives and is handled in the same ms, so one sample per ms showed every mailbox as empty. Each sample now has the most it held in that ms as well as how it was left.
+- **The frame budget runs alone.** Run beside the other tests, Chromium reported frames of 59 to 73 ms with at most 6 ms of script in them, which is waiting for a CPU, not the page's work. Alone, six runs in a row had no long frame. So `frames.spec.ts` is its own Playwright project, which depends on the others and runs after them.
+- **Backstage lays out by its own width**, with container queries: three columns, then the tree beside details over the timeline, then one panel at a time behind tabs below 40 rem. A page can put it beside other things, as the demo puts the log beside it.
+- `e2e/` has its own tsconfig with the DOM's types, for the functions it passes to `page.evaluate`, so the root config still has none.
 
 ### T6. The Node server
 

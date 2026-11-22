@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { nightClient, type NightClient } from './domain/backstage-client.ts';
 import type { Speed } from './domain/clock.ts';
 import { narrate } from './domain/narrate.ts';
 import { openingNight, type OpeningNight } from './domain/opening-night.ts';
@@ -13,7 +14,7 @@ export interface LogLine {
 }
 
 /** How many lines the log keeps. */
-export const LOG_LINES = 200;
+export const LOG_LINES = 60;
 
 /** What the page shows, redrawn at most once per animation frame. */
 export interface View {
@@ -23,18 +24,27 @@ export interface View {
   readonly error?: string;
 }
 
+/** A running night, and Backstage attached to it. */
+interface Running {
+  readonly night: OpeningNight;
+  readonly client: NightClient;
+}
+
 /**
- * Runs opening night for the page: creates it, drives its clock from animation frames, and
- * gathers the log. The night is created in the effect, so React's strict-mode double run makes
- * and disposes a whole one, rather than sharing one that was disposed.
+ * Runs opening night for the page: creates it with Backstage attached, drives its clock from
+ * animation frames, and gathers the log. The night is created in the effect, so React's
+ * strict-mode double run makes and disposes a whole one, rather than sharing one that was
+ * disposed.
  */
 export function useOpeningNight(seed: number, speed: Speed) {
-  const [night, setNight] = useState<OpeningNight>();
+  const [running, setRunning] = useState<Running>();
   const [view, setView] = useState<View>({ now: 0, lines: [] });
 
   useEffect(() => {
     const channel = messageChannelYield();
     const created = openingNight({ seed, yieldToEventLoop: channel.yieldToEventLoop });
+    // Before the clock first moves, so Backstage sees every spawn.
+    const client = nightClient(created);
     let lines: readonly LogLine[] = [];
     let nextId = 0;
     let changed = true;
@@ -75,20 +85,22 @@ export function useOpeningNight(seed: number, speed: Speed) {
       );
     };
     frame = requestAnimationFrame(loop);
-    setNight(created);
+    setRunning({ night: created, client });
 
     return () => {
       cancelAnimationFrame(frame);
       unsubscribe();
+      client.close();
       void created.dispose().finally(() => {
         channel.close();
       });
     };
   }, [seed]);
 
+  const night = running?.night;
   useEffect(() => {
     if (night !== undefined) night.clock.speed = speed;
   }, [night, speed]);
 
-  return { night, view };
+  return { night, client: running?.client, view };
 }

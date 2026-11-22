@@ -32,17 +32,8 @@
       "@kylewillett/troupe/backstage": ["./src/backstage/index.ts"]
     }
   },
-  "include": [
-    "src",
-    "test",
-    "examples",
-    "scripts",
-    "bench",
-    "e2e",
-    "demo/vite.config.ts",
-    "*.config.ts"
-  ],
+  "include": ["src", "test", "examples", "scripts", "bench", "demo/vite.config.ts", "*.config.ts"],
   // Node's types already declare these globals, and skipLibCheck would hide any clash, so the
   // editor and tests see only Node's. The build config puts the file back.
-  "exclude": ["src/globals.d.ts"]
+  "exclude": ["src/globals.d.ts", "e2e"]
 }

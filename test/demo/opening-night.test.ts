@@ -5,7 +5,7 @@ import { RUSH_SIZE } from '../../demo/src/domain/crowd.ts';
 import { JournalDownError } from '../../demo/src/domain/faulty-persistence.ts';
 import { narrate } from '../../demo/src/domain/narrate.ts';
 import { DEFAULT_TARGET, type OpeningNight } from '../../demo/src/domain/opening-night.ts';
-import { SHOWS, type StatusReply } from '../../demo/src/domain/shows.ts';
+import { SHOWS, showId, type ShowEvent, type StatusReply } from '../../demo/src/domain/shows.ts';
 import { answered, nextTurn, only, testNight } from './helpers.ts';
 
 const showPath = (show: string) => `/user/box-office/${show}`;
@@ -62,6 +62,30 @@ describe('opening night', () => {
     await night.clock.advance(300);
     const totals = await answered(night.clock, night.totals());
     expect(sum(totals)).toBe(sum(await sold(night)));
+  });
+
+  it('goes on after a show sells out, since returns put seats back on sale', async () => {
+    const { night } = testNight();
+    // Long enough for lear, the smallest, to sell out at the steady rate.
+    await night.clock.advance(10 * 60_000);
+    const events = (await night.persistence.journal.read(showId('lear'), 1, 10_000)).map(
+      (e) => e.event as ShowEvent,
+    );
+    // Fold the sales, to find when every seat was sold.
+    let sold = 0;
+    let fullAt = -1;
+    events.forEach((e, i) => {
+      if (e.type === 'confirmed') sold += e.seats;
+      if (e.type === 'returned') sold -= e.seats;
+      if (sold === SHOWS.lear && fullAt < 0) fullAt = i;
+    });
+    expect(fullAt).toBeGreaterThan(-1);
+    // Then a return freed seats, and someone bought them.
+    const after = events.slice(fullAt + 1);
+    const returned = after.findIndex((e) => e.type === 'returned');
+    expect(returned).toBeGreaterThan(-1);
+    expect(after.slice(returned).some((e) => e.type === 'confirmed')).toBe(true);
+    await night.dispose();
   });
 
   describe('Rush', () => {
@@ -128,6 +152,12 @@ describe('opening night', () => {
       await night.clock.advance(10_000);
       const before = await sold(night);
       expect(sum(before)).toBeGreaterThan(0);
+      const stream = async (show: string) =>
+        (await night.persistence.journal.read(showId(show), 1, 10_000)).map(
+          (e) => e.event as ShowEvent,
+        );
+      const lengths: Record<string, number> = {};
+      for (const show of NAMES) lengths[show] = (await stream(show)).length;
 
       await night.journalDown();
       expect(night.persistence.isDown).toBe(true);
@@ -156,10 +186,18 @@ describe('opening night', () => {
           only(events, 'recovered').some((e) => e.path === showPath(show) && e.at >= upAt),
         ).toBe(true);
       }
-      // Nobody could buy while it was down, and the rush has gone home.
-      expect(await sold(night)).toEqual(before);
+      // Nobody could buy while it was down, and the rush has gone home. A return still waiting
+      // in a mailbox when the journal came back is all that changed.
+      const expected: Record<string, number> = {};
+      for (const show of NAMES) {
+        const since = (await stream(show)).slice(lengths[show]);
+        expect(since.filter((e) => e.type === 'confirmed')).toEqual([]);
+        const returned = since.reduce((n, e) => n + (e.type === 'returned' ? e.seats : 0), 0);
+        expected[show] = (before[show] ?? 0) - returned;
+      }
+      expect(await sold(night)).toEqual(expected);
       await night.clock.advance(300);
-      expect(await answered(night.clock, night.totals())).toEqual(before);
+      expect(await answered(night.clock, night.totals())).toEqual(expected);
     });
   });
 
@@ -264,6 +302,8 @@ describe('the log', () => {
       { ok: true, value: { ...confirm, ok: true, seats: 3 } },
       { ok: true, value: { ...confirm, ok: false, reason: 'no such hold' } },
       { ok: true, value: { ...confirm, ok: false, reason: 'closed' } },
+      { ok: true, value: { kind: 'return', show: 'lear', ok: true, seats: 2 } },
+      { ok: true, value: { kind: 'return', show: 'lear', ok: false, reason: 'nothing sold yet' } },
     ].map((message) => narrate(deliver(customer, message)));
     expect(lines).toEqual([
       'customer-7 holds 1 seat for lear',
@@ -274,6 +314,8 @@ describe('the log', () => {
       'customer-7 bought 3 seats for lear',
       'customer-7 came back too late: the hold on lear had expired',
       "customer-7 can't buy for lear: closed",
+      'customer-7 returns 2 seats for lear, back on sale',
+      "customer-7 can't return seats for lear: nothing sold yet",
     ]);
   });
 

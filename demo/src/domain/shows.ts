@@ -21,6 +21,9 @@ export const SALE_TAG = 'sale';
 /** Why a confirm fails when its hold has expired, or never was. */
 export const NO_SUCH_HOLD = 'no such hold';
 
+/** Why a return fails when the show has sold nothing. */
+export const NOTHING_SOLD = 'nothing sold yet';
+
 /** How a show is supervised. Each restart replays the journal, so it backs off. */
 export const SHOW_BACKOFF = { minMs: 200, maxMs: 5_000 } as const;
 
@@ -43,6 +46,11 @@ export type ConfirmReply =
   | { kind: 'confirm'; ok: true; show: string; seats: number }
   | { kind: 'confirm'; ok: false; show: string; reason: string };
 
+/** The answer to a return. `seats` can be fewer than asked, if fewer were sold. */
+export type ReturnReply =
+  | { kind: 'return'; ok: true; show: string; seats: number }
+  | { kind: 'return'; ok: false; show: string; reason: string };
+
 /** The answer to a status request: a show's seats right now. */
 export type StatusReply =
   { ok: true; capacity: number; sold: number; held: number } | { ok: false; reason: string };
@@ -51,6 +59,13 @@ export type StatusReply =
 export type CustomerRequest =
   | { type: 'hold'; show: string; customer: string; seats: number; replyTo: ActorRef<HoldReply> }
   | { type: 'confirm'; show: string; holdId: string; replyTo: ActorRef<ConfirmReply> }
+  | {
+      type: 'return';
+      show: string;
+      customer: string;
+      seats: number;
+      replyTo: ActorRef<ReturnReply>;
+    }
   | { type: 'status'; show: string; replyTo: ActorRef<StatusReply> };
 
 /** What a show handles: customer requests, plus its own hold timers. */
@@ -61,7 +76,9 @@ export type ShowEvent =
   | { type: 'held'; holdId: string; customer: string; seats: number }
   // Carries its seats, so the sales board needs no other event to count a sale.
   | { type: 'confirmed'; holdId: string; seats: number }
-  | { type: 'released'; holdId: string };
+  | { type: 'released'; holdId: string }
+  // A sale undone, so seats go back on sale and the night never stays sold out.
+  | { type: 'returned'; customer: string; seats: number };
 
 /** A show's state: plain data, rebuilt from its events. */
 export interface ShowState {
@@ -141,6 +158,21 @@ export function show(name: string, capacity: number, persistence: Persistence) {
               seats: hold.seats,
             }));
         }
+        case 'return': {
+          if (state.sold === 0) {
+            return reply(msg.replyTo, {
+              kind: 'return',
+              ok: false,
+              show: name,
+              reason: NOTHING_SOLD,
+            });
+          }
+          const seats = Math.min(msg.seats, state.sold);
+          return persist({ type: 'returned', customer: msg.customer, seats }).thenReply(
+            msg.replyTo,
+            (): ReturnReply => ({ kind: 'return', ok: true, show: name, seats }),
+          );
+        }
         case 'status':
           return reply(msg.replyTo, {
             ok: true,
@@ -173,9 +205,12 @@ export function show(name: string, capacity: number, persistence: Persistence) {
           };
         case 'released':
           return { ...state, holds: without(state.holds, event.holdId) };
+        case 'returned':
+          return { ...state, sold: state.sold - event.seats };
       }
     },
-    tags: (event) => (event.type === 'confirmed' ? [SALE_TAG] : []),
+    // A return is a sale too, of minus its seats, so the sales board sees both.
+    tags: (event) => (event.type === 'confirmed' || event.type === 'returned' ? [SALE_TAG] : []),
     onSignal: (state, signal, ctx) => {
       // Timers don't survive a restart, so each recovered hold gets a fresh one.
       if (signal.type !== 'recoveryCompleted') return;
@@ -194,6 +229,9 @@ function unknownShow(msg: CustomerRequest): void {
       return;
     case 'confirm':
       msg.replyTo.tell({ kind: 'confirm', ok: false, show: msg.show, reason });
+      return;
+    case 'return':
+      msg.replyTo.tell({ kind: 'return', ok: false, show: msg.show, reason });
       return;
     case 'status':
       msg.replyTo.tell({ ok: false, reason });

@@ -3,7 +3,10 @@ import { actor, supervise, type ActorRef } from '@kylewillett/troupe';
 import { projection, type Persistence } from '@kylewillett/troupe/persistence';
 import { SALE_TAG, SHOW_BACKOFF } from './shows.ts';
 
-/** What the board handles: a sale from its feed, or a request for the totals. */
+/**
+ * What the board handles: a sale from its feed, or a request for the totals. A return is a sale
+ * of minus its seats.
+ */
 export type BoardMsg =
   | { type: 'sale'; offset: number; show: string; seats: number }
   | { type: 'totals'; replyTo: ActorRef<Readonly<Record<string, number>>> };
@@ -35,7 +38,7 @@ export function salesBoard(persistence: Persistence) {
           tag: SALE_TAG,
           pollMs: 250,
           handle: (stored) => {
-            const event = stored.event as { seats?: unknown };
+            const event = stored.event as { type?: unknown; seats?: unknown };
             if (typeof event.seats !== 'number' || !stored.persistenceId.startsWith(SHOW_PREFIX)) {
               return;
             }
@@ -43,7 +46,7 @@ export function salesBoard(persistence: Persistence) {
               type: 'sale',
               offset: stored.offset,
               show: stored.persistenceId.slice(SHOW_PREFIX.length),
-              seats: event.seats,
+              seats: event.type === 'returned' ? -event.seats : event.seats,
             });
           },
         }),

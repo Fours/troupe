@@ -1,0 +1,6 @@
+{
+  // The Backstage UI's own settings: browser APIs and JSX, as the demo has. The root tsconfig
+  // covers the store's tests, which import its files too, so they import with .ts extensions.
+  "extends": "../demo/tsconfig.json",
+  "include": ["src"]
+}

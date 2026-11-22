@@ -1,7 +1,7 @@
 // The crowd: customers arriving at the box office, each a short-lived actor that asks for a hold,
 // thinks it over, then buys or walks away, and stops.
 import { actor, type ActorRef, type Result } from '@kylewillett/troupe';
-import type { ConfirmReply, CustomerRequest, HoldReply } from './shows.ts';
+import type { ConfirmReply, CustomerRequest, HoldReply, ReturnReply } from './shows.ts';
 
 /** The most customers in the steady stream at once. A rush goes past it. */
 export const MAX_LIVE = 12;
@@ -13,9 +13,10 @@ export const RUSH_SIZE = 30;
 export const ASK_TIMEOUT_MS = 3_000;
 
 /**
- * The gap between arrivals in the steady stream, in ms. With {@link SEATS} and
- * {@link BUY_CHANCE}, this sells about one seat a second: lear (40 seats) sells out in about three
- * minutes at 1×, and the whole house in about ten. A sold-out show writes nothing more.
+ * The gap between arrivals in the steady stream, in ms. With {@link SEATS}, {@link BUY_CHANCE}
+ * and {@link RETURN_CHANCE}, this sells about two thirds of a seat a second: lear (40 seats) sells
+ * out in about five minutes at 1×, and most of the house in about twelve. Returns then free seats
+ * for the next customers, so a sold-out show keeps writing and the night goes on.
  */
 export const ARRIVAL_MS = { min: 400, max: 1_200 } as const;
 
@@ -28,12 +29,17 @@ export const THINK_MS = { min: 500, max: 6_000 } as const;
 /** How likely a customer is to buy once they hold seats. */
 export const BUY_CHANCE = 0.6;
 
+/** How likely an arrival is to be someone returning seats, rather than buying. */
+export const RETURN_CHANCE = 0.1;
+
 /** What one customer will do. The crowd draws it, so a customer has no chance of its own. */
 export interface Plan {
   readonly show: string;
   readonly seats: number;
   readonly thinkMs: number;
   readonly buys: boolean;
+  /** Whether they've come to return `seats` they bought earlier, instead of buying. */
+  readonly returns: boolean;
 }
 
 /**
@@ -43,11 +49,13 @@ export interface Plan {
 export type CustomerMsg =
   | { type: 'held'; reply?: HoldReply }
   | { type: 'decide'; show: string; buys: boolean }
-  | { type: 'bought'; reply?: ConfirmReply };
+  | { type: 'bought'; reply?: ConfirmReply }
+  | { type: 'returned'; reply?: ReturnReply };
 
 /** Where a customer is in their visit. */
 export type CustomerState =
   | { readonly phase: 'asking' }
+  | { readonly phase: 'returning' }
   | { readonly phase: 'thinking'; readonly holdId: string }
   | { readonly phase: 'buying'; readonly holdId: string };
 
@@ -58,6 +66,16 @@ export function customer(name: string, plan: Plan, office: ActorRef<CustomerRequ
   const { show, seats } = plan;
   return actor<CustomerMsg, CustomerState>({
     initial: (ctx) => {
+      if (plan.returns) {
+        ctx.pipeToSelf(
+          office.ask<ReturnReply>(
+            (replyTo) => ({ type: 'return', show, customer: name, seats, replyTo }),
+            { timeoutMs: ASK_TIMEOUT_MS },
+          ),
+          (result): CustomerMsg => ({ type: 'returned', ...answer(result) }),
+        );
+        return { phase: 'returning' };
+      }
       ctx.pipeToSelf(
         office.ask<HoldReply>(
           (replyTo) => ({ type: 'hold', show, customer: name, seats, replyTo }),
@@ -94,6 +112,7 @@ export function customer(name: string, plan: Plan, office: ActorRef<CustomerRequ
           return { phase: 'buying', holdId };
         }
         case 'bought':
+        case 'returned':
           ctx.stop();
           return state;
       }
@@ -141,6 +160,7 @@ export function crowd(opts: CrowdOptions) {
     seats: between(random, SEATS.min, SEATS.max),
     thinkMs: between(random, THINK_MS.min, THINK_MS.max),
     buys: random() < BUY_CHANCE,
+    returns: random() < RETURN_CHANCE,
   });
 
   return actor<CrowdMsg, CrowdState>({

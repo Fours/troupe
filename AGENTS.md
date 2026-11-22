@@ -79,11 +79,17 @@ test/               mirrors src/; helpers/ holds deferred() and test actors (tre
                     node/ tests the Node-only backends, lint.test.ts the lint config's boundaries
                     integration/ needs Postgres: its own Vitest project, run by test:integration
                     demo/ tests the demo's domain on the testkit and its driven clock
+                    backstage-ui/ tests the Backstage UI's store and diff, with no browser
+backstage/          the Backstage UI (React, plain CSS), with its own tsconfig for the browser.
+                    Ships only as built files. src/store/ turns frames into a view model with no
+                    React and no clock of its own; src/ui/ draws it against a BackstageClient
 demo/               the demo site (Vite, React, plain CSS), with its own tsconfig for the browser
   src/domain/       opening night, with no React: shows, the crowd, the sales board, the faulty
-                    journal, the driven clock (0022) and the log's narration. No Date.now or
-                    Math.random: it runs on virtual time and seeded chance
-e2e/                Playwright tests of the built demo, run by test:e2e
+                    journal, the driven clock (0022), the log's narration, and the Backstage client
+                    that follows a restart. No Date.now or Math.random: it runs on virtual time
+                    and seeded chance
+e2e/                Playwright tests of the built demo, run by test:e2e, with its own tsconfig for
+                    the DOM. frames.spec.ts runs in its own project, after the others
 examples/           runnable examples, run by Node with type stripping
 scripts/            build steps run by Node with type stripping: write-sql.ts ships table SQL in dist/
 bench/              the benchmark (0019), run by Node with type stripping against dist/; results

@@ -2,7 +2,7 @@
 // alone, so the log is as deterministic as they are.
 import type { Result, SystemEvent } from '@kylewillett/troupe';
 import type { CustomerMsg } from './crowd.ts';
-import { NO_SUCH_HOLD, type ConfirmReply, type HoldReply } from './shows.ts';
+import { NO_SUCH_HOLD, type ConfirmReply, type HoldReply, type ReturnReply } from './shows.ts';
 
 const SHOW_PATH = /^\/user\/box-office\/([^/]+)$/;
 const CUSTOMER_PATH = /^\/user\/crowd\/([^/]+)$/;
@@ -12,7 +12,8 @@ const FEED_PATH = '/user/sales-board/feed';
  * What a `delivered` to a customer carries: its decide timer's message, or a piped ask's raw
  * result, since a pipe's mapping runs only as the message is taken.
  */
-type CustomerDelivery = Extract<CustomerMsg, { type: 'decide' }> | Result<HoldReply | ConfirmReply>;
+type CustomerDelivery =
+  Extract<CustomerMsg, { type: 'decide' }> | Result<HoldReply | ConfirmReply | ReturnReply>;
 
 const seats = (n: number): string => `${String(n)} ${n === 1 ? 'seat' : 'seats'}`;
 
@@ -24,6 +25,11 @@ function customerLine(name: string, msg: CustomerDelivery): string | undefined {
   if ('type' in msg) return msg.buys ? undefined : `${name} walks away, and the hold will expire`;
   if (!msg.ok) return `${name} gave up waiting for an answer`;
   const reply = msg.value;
+  if (reply.kind === 'return') {
+    return reply.ok
+      ? `${name} returns ${seats(reply.seats)} for ${reply.show}, back on sale`
+      : `${name} can't return seats for ${reply.show}: ${reply.reason}`;
+  }
   if (!reply.ok) {
     if (reply.reason === NO_SUCH_HOLD) {
       return `${name} came back too late: the hold on ${reply.show} had expired`;

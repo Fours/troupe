@@ -45,6 +45,11 @@ export interface OpeningNight {
   readonly generation: number;
   /** Calls `listener` with every event of this system and every later one, messages included. */
   subscribe(listener: (event: SystemEvent) => void): () => void;
+  /**
+   * Calls `listener` with the system now, and with each new one a restart makes, before its
+   * actors spawn, so an inspector attached to it sees every spawn.
+   */
+  onSystem(listener: (system: ActorSystem) => void): () => void;
   // The buttons. Each runs in the clock's next turn, and resolves once it has.
   /** Sends {@link RUSH_SIZE} customers at once. */
   rush(): Promise<void>;
@@ -94,6 +99,7 @@ export function openingNight(opts: OpeningNightOptions): OpeningNight {
   });
   const persistence = faultyPersistence(() => scheduler.now());
   const listeners = new Set<(event: SystemEvent) => void>();
+  const watchers = new Set<(system: ActorSystem) => void>();
   let generation = 0;
 
   const newSystem = (): ActorSystem => {
@@ -174,6 +180,13 @@ export function openingNight(opts: OpeningNightOptions): OpeningNight {
         listeners.delete(listener);
       };
     },
+    onSystem(listener) {
+      watchers.add(listener);
+      listener(system);
+      return () => {
+        watchers.delete(listener);
+      };
+    },
     rush: () =>
       press(({ crowd: people }) => {
         people.tell({ type: 'rush', count: RUSH_SIZE });
@@ -202,6 +215,7 @@ export function openingNight(opts: OpeningNightOptions): OpeningNight {
         await settleUntil(system.terminate(), settle);
         generation++;
         system = newSystem();
+        for (const watcher of watchers) watcher(system);
         actors = cast(system);
       }),
     status: (show) =>

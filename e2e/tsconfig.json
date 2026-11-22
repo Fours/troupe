@@ -1,0 +1,10 @@
+{
+  // The Playwright tests run in Node, but the functions they pass to page.evaluate run in the
+  // page, so they get the DOM's types too. Kept out of the root config, so nothing else does.
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM"]
+  },
+  "include": ["."],
+  "exclude": []
+}

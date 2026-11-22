@@ -40,6 +40,16 @@ describe('the sales board', () => {
     expect(await totals()).toEqual({ hamlet: 9, lear: 1 });
   });
 
+  it('takes a return off its show', async () => {
+    const { kit, journal, totals } = setup();
+    await journal.append(showId('hamlet'), 0, [
+      sale(4),
+      { event: { type: 'returned', customer: 'zoe', seats: 3 }, version: 1, tags: [SALE_TAG] },
+    ]);
+    await kit.advance(250);
+    expect(await totals()).toEqual({ hamlet: 1 });
+  });
+
   it('counts a sale once, however often its feed sends it', async () => {
     const { kit, board, totals } = setup();
     await kit.settle();

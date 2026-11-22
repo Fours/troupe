@@ -63,8 +63,9 @@ export default tseslint.config(
     rules: { 'no-restricted-properties': RESTRICTED_PROPERTIES },
   },
   {
-    // The demo runs in the browser: no Node built-ins or globals. Its config file runs in Node.
-    files: ['demo/src/**/*.{ts,tsx}'],
+    // The demo and Backstage's UI run in the browser: no Node built-ins or globals. The demo's
+    // config file runs in Node.
+    files: ['demo/src/**/*.{ts,tsx}', 'backstage/src/**/*.{ts,tsx}'],
     rules: {
       'no-restricted-imports': [
         'error',
@@ -84,8 +85,13 @@ export default tseslint.config(
     rules: { 'no-restricted-properties': RESTRICTED_PROPERTIES },
   },
   {
+    // The store's time is the events' own, so the same frames always give the same view.
+    files: ['backstage/src/store/**/*.ts'],
+    rules: { 'no-restricted-properties': RESTRICTED_PROPERTIES },
+  },
+  {
     // The rules of hooks, and effects that list what they depend on.
-    files: ['demo/**/*.tsx'],
+    files: ['demo/**/*.tsx', 'backstage/**/*.tsx'],
     ...reactHooks.configs.flat.recommended,
   },
   {

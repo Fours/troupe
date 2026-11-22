@@ -23,7 +23,14 @@ function setup(persistence: Persistence = inMemoryPersistence(), capacity = 10) 
     return probe.expectMessage();
   };
   const visit = (name: string, plan: Partial<Plan> = {}) => {
-    const full: Plan = { show: 'hamlet', seats: 2, thinkMs: 1_000, buys: true, ...plan };
+    const full: Plan = {
+      show: 'hamlet',
+      seats: 2,
+      thinkMs: 1_000,
+      buys: true,
+      returns: false,
+      ...plan,
+    };
     const ref = kit.system.spawn(customer(name, full, office), name);
     const watcher = kit.probe<never>();
     watcher.watch(ref);
@@ -59,6 +66,17 @@ describe('a customer', () => {
     await kit.advance(HOLD_MS + 500);
     watcher.expectTerminated(ref);
     expect(await status()).toMatchObject({ sold: 0, held: 0 });
+  });
+
+  it('returns seats bought earlier, and leaves', async () => {
+    const { kit, status, visit } = setup();
+    visit('alice', { seats: 3, thinkMs: 100 });
+    await kit.advance(100);
+    expect(await status()).toMatchObject({ sold: 3 });
+    const { ref, watcher } = visit('frank', { seats: 2, returns: true });
+    await kit.settle();
+    watcher.expectTerminated(ref);
+    expect(await status()).toMatchObject({ sold: 1, held: 0 });
   });
 
   it('leaves when turned away', async () => {

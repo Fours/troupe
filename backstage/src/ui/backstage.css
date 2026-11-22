@@ -1,0 +1,600 @@
+/* Backstage. Its own tokens, so it looks the same in the demo and served on its own. */
+.backstage {
+  --bs-bg: #ffffff;
+  --bs-panel: #faf9fc;
+  --bs-fg: #1c1b22;
+  --bs-muted: #5d5b66;
+  --bs-line: #e3e1ea;
+  --bs-accent: #7a2e3a;
+  --bs-select: #f3e6e8;
+  --bs-changed: #f6dfa4;
+  --bs-running: #2f7d4f;
+  --bs-starting: #2b63b5;
+  --bs-restarting: #b86e00;
+  --bs-stopped: #8f8c99;
+  --bs-error: #b3261e;
+  --bs-bar: #c9768a;
+  --bs-flow: #7a2e3a;
+  --bs-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+  /* The layout follows the room Backstage has, not the window, since a page may put it beside
+     other things. */
+  container-type: inline-size;
+  color: var(--bs-fg);
+  min-width: 0;
+}
+
+/* Three columns when there's room. */
+.bs-grid {
+  display: grid;
+  grid-template-columns: minmax(19rem, 1fr) minmax(0, 1.25fr) minmax(0, 1.25fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+@media (prefers-color-scheme: dark) {
+  .backstage {
+    --bs-bg: #17161c;
+    --bs-panel: #1e1d24;
+    --bs-fg: #ecebf1;
+    --bs-muted: #a3a1ad;
+    --bs-line: #2f2d38;
+    --bs-accent: #d77a88;
+    --bs-select: #3a2328;
+    --bs-changed: #5b4714;
+    --bs-running: #6fcf97;
+    --bs-starting: #8ab4f8;
+    --bs-restarting: #f2b04c;
+    --bs-stopped: #6d6a78;
+    --bs-error: #f2b8b5;
+    --bs-bar: #b0566c;
+    --bs-flow: #e8a0ab;
+  }
+}
+
+.backstage h2 {
+  font-size: 1.05rem;
+  margin: 0 0 0.25rem;
+}
+
+.backstage h3 {
+  font-size: 1rem;
+  margin: 0.25rem 0;
+}
+
+.backstage h4 {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--bs-muted);
+  margin: 1rem 0 0.35rem;
+}
+
+.bs-panel {
+  background: var(--bs-panel);
+  border: 1px solid var(--bs-line);
+  border-radius: 8px;
+  padding: 0.75rem;
+  min-width: 0;
+}
+
+.bs-explain {
+  margin: 0 0 0.25rem;
+  font-size: 0.9rem;
+}
+
+.bs-more {
+  font-size: 0.85rem;
+  color: var(--bs-muted);
+  margin-bottom: 0.5rem;
+}
+
+.bs-more summary {
+  cursor: pointer;
+}
+
+.bs-more p {
+  margin: 0.25rem 0;
+}
+
+.bs-empty,
+.bs-note {
+  color: var(--bs-muted);
+  font-size: 0.85rem;
+}
+
+.bs-error {
+  color: var(--bs-error);
+  font-size: 0.9rem;
+}
+
+.bs-path {
+  font-family: var(--bs-mono);
+  font-weight: normal;
+  font-size: 0.8rem;
+  color: var(--bs-muted);
+  overflow-wrap: anywhere;
+}
+
+.bs-summary {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+}
+
+/* The phone's tabs: hidden while every panel fits. */
+.bs-tabs {
+  display: none;
+}
+
+/* The tree. Rows are exactly 30 px, as Tree.tsx's ROW says. */
+.bs-tree {
+  position: relative;
+  max-height: 34rem;
+  min-height: 30px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.bs-flows {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+.bs-flow {
+  fill: none;
+  stroke: var(--bs-flow);
+  stroke-width: 1.5;
+  animation: bs-flow 700ms ease-out forwards;
+}
+
+@keyframes bs-flow {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.bs-tree-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.bs-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  height: 30px;
+  padding-right: 0.25rem;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  font-size: 0.9rem;
+  animation: bs-appear 300ms ease-out;
+}
+
+.bs-row:hover {
+  background: var(--bs-line);
+}
+
+.bs-row:focus-visible {
+  outline: 2px solid var(--bs-accent);
+  outline-offset: -2px;
+}
+
+.bs-row.bs-selected {
+  background: var(--bs-select);
+}
+
+@keyframes bs-appear {
+  from {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+}
+
+.bs-dot {
+  flex: none;
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  background: var(--bs-running);
+}
+
+.bs-starting .bs-dot {
+  background: var(--bs-starting);
+}
+
+.bs-restarting .bs-dot,
+.bs-stopping .bs-dot {
+  background: var(--bs-restarting);
+  animation: bs-pulse 600ms ease-in-out infinite alternate;
+}
+
+.bs-stopped {
+  animation: bs-fade 1500ms ease-in forwards;
+}
+
+.bs-stopped .bs-dot {
+  background: var(--bs-stopped);
+}
+
+@keyframes bs-pulse {
+  to {
+    transform: scale(1.5);
+  }
+}
+
+@keyframes bs-fade {
+  to {
+    opacity: 0.25;
+  }
+}
+
+.bs-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bs-phase {
+  font-size: 0.75rem;
+  color: var(--bs-restarting);
+}
+
+.bs-stopped .bs-phase {
+  color: var(--bs-stopped);
+}
+
+.bs-failures {
+  font-size: 0.75rem;
+  color: var(--bs-error);
+}
+
+.bs-tag {
+  font-size: 0.7rem;
+  padding: 0 0.3rem;
+  border: 1px solid var(--bs-line);
+  border-radius: 999px;
+  color: var(--bs-muted);
+}
+
+.bs-mailbox {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex: none;
+}
+
+.bs-bar {
+  width: 4rem;
+  height: 0.45rem;
+  background: var(--bs-line);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.bs-fill {
+  display: block;
+  height: 100%;
+  background: var(--bs-bar);
+  transition: width 120ms linear;
+}
+
+.bs-depth {
+  width: 1.6rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.8rem;
+  color: var(--bs-muted);
+}
+
+/* Values. */
+.bs-value {
+  font-family: var(--bs-mono);
+  font-size: 0.8rem;
+  line-height: 1.45;
+  margin: 0;
+  padding: 0.5rem;
+  background: var(--bs-bg);
+  border: 1px solid var(--bs-line);
+  border-radius: 6px;
+  max-height: 18rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.bs-entries {
+  display: block;
+  padding-left: 1.2em;
+}
+
+.bs-entry {
+  display: block;
+}
+
+.bs-key {
+  color: var(--bs-muted);
+}
+
+.bs-string {
+  color: var(--bs-running);
+}
+
+.bs-number,
+.bs-boolean {
+  color: var(--bs-starting);
+}
+
+.bs-null {
+  color: var(--bs-stopped);
+}
+
+.bs-chip {
+  font-family: var(--bs-mono);
+  font-size: 0.75rem;
+  padding: 0 0.35rem;
+  border-radius: 4px;
+  border: 1px solid var(--bs-line);
+  background: var(--bs-panel);
+}
+
+.bs-chip-ref {
+  color: var(--bs-accent);
+}
+
+.bs-chip-error {
+  color: var(--bs-error);
+}
+
+.bs-chip-cut,
+.bs-chip-cycle,
+.bs-chip-value {
+  color: var(--bs-muted);
+}
+
+.bs-changed {
+  background: var(--bs-changed);
+  color: inherit;
+  border-radius: 3px;
+  outline: 1px solid var(--bs-restarting);
+}
+
+.bs-changed.bs-block {
+  display: inline-block;
+  vertical-align: top;
+}
+
+.bs-removed {
+  color: var(--bs-muted);
+  text-decoration: line-through;
+}
+
+/* Details. */
+.bs-chart {
+  margin: 0;
+}
+
+.bs-chart svg {
+  width: 100%;
+  height: 56px;
+  display: block;
+}
+
+.bs-chart figcaption {
+  font-size: 0.75rem;
+  color: var(--bs-muted);
+}
+
+.bs-axis {
+  stroke: var(--bs-line);
+}
+
+.bs-line {
+  fill: none;
+  stroke: var(--bs-bar);
+  stroke-width: 2;
+}
+
+.bs-scroll {
+  overflow-x: auto;
+}
+
+.bs-messages {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.bs-messages th,
+.bs-messages td {
+  text-align: left;
+  padding: 0.15rem 0.4rem 0.15rem 0;
+  border-bottom: 1px solid var(--bs-line);
+  white-space: nowrap;
+}
+
+.bs-messages th {
+  color: var(--bs-muted);
+  font-weight: 600;
+}
+
+.bs-message code {
+  font-family: var(--bs-mono);
+  font-size: 0.75rem;
+}
+
+.bs-outcome-failed td,
+.bs-outcome-dropped td {
+  color: var(--bs-error);
+}
+
+.bs-outcome-waiting td,
+.bs-outcome-skipped td {
+  color: var(--bs-muted);
+}
+
+.bs-failure-list {
+  margin: 0;
+  padding-left: 1.5rem;
+  font-size: 0.85rem;
+}
+
+.bs-failure-list time {
+  font-variant-numeric: tabular-nums;
+  color: var(--bs-muted);
+}
+
+/* The timeline. */
+.bs-scrubber {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin: 0.5rem 0;
+}
+
+.bs-scrubber input {
+  flex: 1;
+  accent-color: var(--bs-accent);
+  min-width: 0;
+}
+
+.backstage button {
+  font: inherit;
+  color: inherit;
+}
+
+.bs-scrubber button {
+  padding: 0.2rem 0.7rem;
+  border: 1px solid var(--bs-line);
+  border-radius: 6px;
+  background: var(--bs-bg);
+  cursor: pointer;
+}
+
+.bs-scrubber button[aria-pressed='true'] {
+  background: var(--bs-accent);
+  border-color: var(--bs-accent);
+  color: var(--bs-bg);
+}
+
+.bs-events {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 16rem;
+  overflow-y: auto;
+}
+
+.bs-event {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: none;
+  padding: 0.15rem 0.25rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.bs-event:hover {
+  background: var(--bs-line);
+}
+
+.bs-event[aria-current='true'] {
+  background: var(--bs-select);
+}
+
+.bs-event code {
+  font-family: var(--bs-mono);
+  font-size: 0.75rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.bs-seq {
+  width: 2.5rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--bs-muted);
+  flex: none;
+}
+
+.bs-event time {
+  color: var(--bs-muted);
+  font-variant-numeric: tabular-nums;
+  flex: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bs-row,
+  .bs-flow,
+  .bs-restarting .bs-dot,
+  .bs-stopping .bs-dot {
+    animation: none;
+  }
+
+  .bs-stopped {
+    animation: none;
+    opacity: 0.4;
+  }
+}
+
+/* Two columns: the tree, and details over the timeline. */
+@container (max-width: 68rem) {
+  .bs-grid {
+    grid-template-columns: minmax(18rem, 1fr) minmax(0, 1.4fr);
+  }
+
+  .bs-panel-tree {
+    grid-row: span 2;
+  }
+}
+
+/* A phone: one panel at a time, behind tabs. */
+@container (max-width: 40rem) {
+  .bs-grid {
+    display: block;
+  }
+
+  .bs-tabs {
+    display: flex;
+    gap: 0.25rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .bs-tabs button {
+    flex: 1;
+    padding: 0.5rem;
+    border: 1px solid var(--bs-line);
+    border-radius: 6px;
+    background: var(--bs-panel);
+    cursor: pointer;
+  }
+
+  .bs-tabs button[aria-selected='true'] {
+    background: var(--bs-accent);
+    border-color: var(--bs-accent);
+    color: var(--bs-bg);
+  }
+
+  .bs-panel:not(.bs-active) {
+    display: none;
+  }
+
+  .bs-tree {
+    max-height: none;
+  }
+}

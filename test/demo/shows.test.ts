@@ -8,6 +8,7 @@ import {
   showId,
   type ConfirmReply,
   type HoldReply,
+  type ReturnReply,
   type StatusReply,
 } from '../../demo/src/domain/shows.ts';
 import { only } from './helpers.ts';
@@ -138,6 +139,52 @@ describe('a show', () => {
     ]);
   });
 
+  it('takes seats back, puts them on sale again, and tags the return', async () => {
+    const { kit, persistence, office, holds, hold, confirm, status } = setup();
+    const returns = kit.probe<ReturnReply>('returns');
+    const giveBack = (seats: number) => {
+      office.tell({ type: 'return', show: 'hamlet', customer: 'zoe', seats, replyTo: returns.ref });
+    };
+    giveBack(1);
+    await kit.settle();
+    expect(returns.expectMessage()).toEqual({
+      kind: 'return',
+      ok: false,
+      show: 'hamlet',
+      reason: 'nothing sold yet',
+    });
+
+    hold(4);
+    await kit.settle();
+    const reply = holds.expectMessage();
+    if (!reply.ok) throw new Error('expected a hold');
+    confirm(reply.holdId);
+    await kit.settle();
+    hold(1, 'bob');
+    await kit.settle();
+    expect(holds.expectMessage()).toMatchObject({ ok: false, reason: 'sold out' });
+
+    // More than were sold gives back only what was.
+    giveBack(3);
+    giveBack(3);
+    await kit.settle();
+    expect(returns.messages()).toEqual([
+      { kind: 'return', ok: true, show: 'hamlet', seats: 3 },
+      { kind: 'return', ok: true, show: 'hamlet', seats: 1 },
+    ]);
+    expect(await status()).toEqual({ ok: true, capacity: 4, sold: 0, held: 0 });
+    hold(2, 'carol');
+    await kit.settle();
+    expect(holds.expectMessage()).toMatchObject({ ok: true, seats: 2 });
+
+    const sales = await persistence.journal.readByTag(SALE_TAG, 0, 10);
+    expect(sales.map((e) => (e.event as { type: string }).type)).toEqual([
+      'confirmed',
+      'returned',
+      'returned',
+    ]);
+  });
+
   it('answers a request for a show that is not on', async () => {
     const { kit, office, holds, confirms } = setup();
     office.tell({ type: 'hold', show: 'cats', customer: 'eve', seats: 1, replyTo: holds.ref });
@@ -149,5 +196,9 @@ describe('a show', () => {
     expect(holds.expectMessage()).toEqual({ kind: 'hold', ok: false, show: 'cats', reason });
     expect(confirms.expectMessage()).toEqual({ kind: 'confirm', ok: false, show: 'cats', reason });
     expect(statuses.expectMessage()).toEqual({ ok: false, reason });
+    const returns = kit.probe<ReturnReply>();
+    office.tell({ type: 'return', show: 'cats', customer: 'eve', seats: 1, replyTo: returns.ref });
+    await kit.settle();
+    expect(returns.expectMessage()).toEqual({ kind: 'return', ok: false, show: 'cats', reason });
   });
 });

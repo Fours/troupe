@@ -1,8 +1,12 @@
 import { useState } from 'react';
+import { Backstage } from '../../backstage/src/index.ts';
 import { SPEEDS, type Speed } from './domain/clock.ts';
 import { RUSH_SIZE } from './domain/crowd.ts';
 import { DEFAULT_TARGET } from './domain/opening-night.ts';
+import { SHOWS } from './domain/shows.ts';
 import { useOpeningNight } from './useOpeningNight.ts';
+
+const SHOW_PATH = /^\/user\/box-office\/([^/]+)$/;
 
 const SPEED_LABELS: Record<Speed, string> = { 0: 'Paused', 0.25: '¼×', 1: '1×', 4: '4×' };
 
@@ -14,15 +18,23 @@ function showtime(ms: number): string {
   return `${String(minutes)}:${seconds.toFixed(1).padStart(4, '0')}`;
 }
 
+/** The show a path names, if it names one. */
+function showOf(path: string | undefined): string | undefined {
+  const name = path === undefined ? undefined : SHOW_PATH.exec(path)?.[1];
+  return name !== undefined && name in SHOWS ? name : undefined;
+}
+
 /**
- * The plain demo page: what's happening in words, the buttons, and a log. Backstage replaces the
- * log in T5.
+ * The demo page: what's happening in words beside Backstage, which shows the same system from
+ * the inside, and the buttons that make things happen.
  */
 export function App() {
   const [speed, setSpeed] = useState<Speed>(1);
-  const { night, view } = useOpeningNight(1, speed);
+  const { night, client, view } = useOpeningNight(1, speed);
   const [journalDown, setJournalDown] = useState(false);
   const [restarting, setRestarting] = useState(false);
+  const [selected, setSelected] = useState(`/user/box-office/${DEFAULT_TARGET}`);
+  const target = showOf(selected) ?? DEFAULT_TARGET;
   const ready = night !== undefined && !restarting;
 
   return (
@@ -31,9 +43,10 @@ export function App() {
         <h1>Opening night</h1>
         <p className="lede">
           A real Troupe actor system is running in this page, with no server. Customers arrive at
-          the box office, hold seats for one of four shows, then buy them or walk away. Each show is
-          an actor that keeps its sales in a journal, so when it crashes, it comes back with
-          everything it had.
+          the box office, hold seats for one of four shows, then buy them or walk away, and now and
+          then someone returns seats. Each show is an actor that keeps its sales in a journal, so
+          when it crashes, it comes back with everything it had. Below, Backstage shows the same
+          system from the inside.
         </p>
       </header>
 
@@ -62,7 +75,7 @@ export function App() {
           <button type="button" disabled={!ready} onClick={() => void night?.rush()}>
             Rush
           </button>
-          <button type="button" disabled={!ready} onClick={() => void night?.badRequest()}>
+          <button type="button" disabled={!ready} onClick={() => void night?.badRequest(target)}>
             Bad request
           </button>
           <button
@@ -94,9 +107,10 @@ export function App() {
         </div>
         <p className="hint">
           <strong>Rush</strong> sends {RUSH_SIZE} customers at once, so mailboxes fill.{' '}
-          <strong>Bad request</strong> sends {DEFAULT_TARGET} a hold for -1 seats: it crashes, and
-          its supervisor restarts it. <strong>Journal down</strong> makes every write and read fail
-          until it's back. <strong>Restart the system</strong> starts a new one on the same journal.
+          <strong>Bad request</strong> sends {target} a hold for -1 seats: it crashes, and its
+          supervisor restarts it. Pick another show in Backstage to crash that one.{' '}
+          <strong>Journal down</strong> makes every write and read fail until it's back.{' '}
+          <strong>Restart the system</strong> starts a new one on the same journal.
         </p>
       </section>
 
@@ -106,16 +120,35 @@ export function App() {
         </p>
       )}
 
-      <section className="log">
-        <h2 id="log-heading">What's happening</h2>
-        <ol aria-labelledby="log-heading">
-          {view.lines.map((line) => (
-            <li key={line.id}>
-              <time>{showtime(line.at)}</time> {line.text}
-            </li>
-          ))}
-        </ol>
-      </section>
+      <div className="stage">
+        <section className="log" aria-labelledby="log-heading">
+          <h2 id="log-heading">What's happening</h2>
+          <ol aria-labelledby="log-heading">
+            {view.lines.map((line) => (
+              <li key={line.id}>
+                <time>{showtime(line.at)}</time> {line.text}
+              </li>
+            ))}
+          </ol>
+        </section>
+
+        <section className="inspector" aria-labelledby="backstage-heading">
+          <h2 id="backstage-heading">Backstage</h2>
+          {client === undefined ? (
+            <p>Opening the doors…</p>
+          ) : (
+            <Backstage
+              client={client}
+              selected={selected}
+              onSelect={setSelected}
+              explain={{
+                tree: 'Here: the box office and its four shows, the sales board, and the crowd, which sends a customer for each arrival.',
+                timeline: "A show's journal holds every hold, sale, release and return.",
+              }}
+            />
+          )}
+        </section>
+      </div>
     </main>
   );
 }

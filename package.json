@@ -55,7 +55,7 @@
   "sideEffects": false,
   "scripts": {
     "build": "tsc -p tsconfig.build.json && tsc -p tsconfig.build.node.json && node scripts/write-sql.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.build.json --noEmit && tsc -p tsconfig.build.node.json --noEmit && tsc -p demo/tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.build.json --noEmit && tsc -p tsconfig.build.node.json --noEmit && tsc -p demo/tsconfig.json && tsc -p backstage/tsconfig.json && tsc -p e2e/tsconfig.json",
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",
     "test": "vitest run --project unit",
