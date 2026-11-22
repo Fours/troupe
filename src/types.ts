@@ -207,8 +207,9 @@ export interface ActorSystemOptions {
 type Timestamped<E> = E extends unknown ? { readonly seq: number; readonly at: number } & E : never;
 
 /**
- * Something that happened in the system. `seq` counts up by one per event, across the system, and
- * `at` is the scheduler's time.
+ * Something that happened in the system. `seq` orders events across the system: each event takes
+ * the next one. It doesn't count a subscriber's events, since one that didn't ask for message
+ * events sees gaps while another subscriber did. `at` is the scheduler's time.
  */
 export type SystemEvent = Timestamped<
   | { readonly type: 'spawned'; readonly path: string }
@@ -254,10 +255,53 @@ export type SystemEvent = Timestamped<
       readonly snapshotSeq: number;
       readonly lastSeq: number;
     }
+  /**
+   * A message went into an actor's mailbox. Published only to subscribers that asked for
+   * messages. Every one ends with exactly one `processed`, or a `deadLetter` with its `id`.
+   */
+  | {
+      readonly type: 'delivered';
+      readonly path: string;
+      /** Unique per message in this system, so the event that ends it can be matched to it. */
+      readonly id: number;
+      /**
+       * The sending actor's path, when it's known: the actor whose handler was running when the
+       * message was sent, before any `await` (decision 0020). Absent for a send after an `await`,
+       * from a timer, or from outside any actor.
+       */
+      readonly from?: string;
+      /** The message itself, not a copy. */
+      readonly message: unknown;
+      /** The mailbox's size after this message went in. */
+      readonly depth: number;
+    }
+  /**
+   * An actor finished handling a message, including any async work it awaited. Published only to
+   * subscribers that asked for messages. When the handler fails, this comes before the `failed`.
+   */
+  | {
+      readonly type: 'processed';
+      readonly path: string;
+      /** The `id` of the message's `delivered`. */
+      readonly id: number;
+      /** Scheduler time from taking the message to settling. 0 under virtual time for sync work. */
+      readonly durationMs: number;
+      /** The mailbox's size after this message came out. */
+      readonly depth: number;
+      /** Whether the handler returned a different state object. */
+      readonly stateChanged: boolean;
+      /** Present, and true, for a cancelled timer's message, which no handler saw. */
+      readonly skipped?: true;
+    }
   | {
       readonly type: 'deadLetter';
       readonly recipient: string;
       readonly message: unknown;
+      /**
+       * The `id` of the message's `delivered`, when it had one: it was in the mailbox while
+       * message events were on, and a stop drained it.
+       */
+      readonly id?: number;
       /**
        * `mailboxFull`: a bounded mailbox was full. `stopped`: the actor was stopping or had
        * stopped. `askCompleted`: a reply to an `ask` that had already been answered or had timed
@@ -271,9 +315,14 @@ export type SystemEvent = Timestamped<
 export interface EventStream {
   /**
    * Calls `listener` with every event from now on. A listener that throws is logged and skipped.
+   *
+   * `delivered` and `processed` go only to listeners that pass `{ messages: true }`. While none
+   * has, the system doesn't build them at all (decision 0020).
    * @returns A function that unsubscribes.
+   * @throws TypeError unless `listener` is a function, and `opts` an object whose `messages`, if
+   * set, is a boolean.
    */
-  subscribe(listener: (event: SystemEvent) => void): () => void;
+  subscribe(listener: (event: SystemEvent) => void, opts?: { messages?: boolean }): () => void;
 }
 
 /** A running actor system: the root of an actor hierarchy. */

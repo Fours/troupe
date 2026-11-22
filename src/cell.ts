@@ -1,7 +1,14 @@
 import type { Dispatcher, Runnable } from './dispatcher.js';
 import type { EventBus } from './events.js';
 import { ActorStoppedError, NotAChildError } from './errors.js';
-import { INTERNALS, START, type CellInternals, type WithStart } from './internal.js';
+import {
+  INTERNALS,
+  persistentHookOf,
+  START,
+  type CellInspection,
+  type CellInternals,
+  type WithStart,
+} from './internal.js';
 import { safeLogger, type Logger } from './logger.js';
 import { Names } from './names.js';
 import { Queue } from './queue.js';
@@ -33,11 +40,31 @@ class PipeEnvelope<M> {
   ) {}
 }
 
+/** A mailbox item with the id of its `delivered`, wrapped only while message events are on. */
+class Tracked<M> {
+  constructor(
+    readonly id: number,
+    readonly item: Untracked<M>,
+  ) {}
+}
+
+/** A mailbox item without its message id. */
+type Untracked<M> = M | TimerEnvelope<M> | PipeEnvelope<M>;
+
 /**
- * What the user queue holds. Only timer and pipe messages are wrapped, so a plain `tell` doesn't
- * allocate. A user message can't be an instance of these private classes.
+ * What the user queue holds. Only timer and pipe messages are wrapped, and only while message
+ * events are on is anything else, so a plain `tell` doesn't allocate. A user message can't be an
+ * instance of these private classes.
  */
-type Envelope<M> = M | TimerEnvelope<M> | PipeEnvelope<M>;
+type Envelope<M> = Untracked<M> | Tracked<M>;
+
+/** A message being handled whose `delivered` was published, so its `processed` is owed. */
+interface Tracking {
+  readonly id: number;
+  readonly takenAt: number;
+  /** The mailbox's size once it came out. */
+  readonly depth: number;
+}
 
 type DeadLetterReason = 'mailboxFull' | 'stopped' | 'terminated';
 
@@ -58,6 +85,10 @@ export interface CellNode extends Watcher {
   requestStop(): void;
   /** Watchers of this cell, kept so it can notify them when it terminates. */
   readonly watchers: Set<Watcher>;
+  /** Its children that haven't terminated, in spawn order. */
+  readonly childCells: Map<string, CellNode>;
+  /** What an inspector sees of it, read-only. */
+  inspect(): CellInspection;
 }
 
 /** Something that has children: a cell, or the `/user` guardian. */
@@ -74,6 +105,12 @@ export interface CellHost {
   readonly dispatcher: Dispatcher;
   readonly events: EventBus;
   readonly log: Logger;
+  /**
+   * The path of the actor whose code is running outside a dispatcher turn, for `delivered`'s
+   * `from` (decision 0020). A cell sets it around code it runs after a promise settles. Inside a
+   * turn, the dispatcher's `current` says who's running.
+   */
+  senderOverride: string | undefined;
   now(): number;
   /** The system's source of chance, for backoff jitter (decision 0003). */
   random(): number;
@@ -139,6 +176,11 @@ interface PendingRestart {
  * unwrapped when they're dequeued. A timer's envelope is checked against its timer's current
  * generation then, so a cancelled timer's message is never received.
  *
+ * While a subscriber wants message events (decision 0020), each message is wrapped with an id as
+ * it goes in, publishing `delivered`, and ends with exactly one `processed` or dead letter with
+ * that id. While none does, nothing is wrapped or built. The cell names itself as the sender of
+ * every `tell` during its turn, and around code it runs once an awaited handler settles.
+ *
  * A definition may carry an internal start hook (`src/internal.ts`), which runs after `initial` and
  * holds the mailbox until it settles. Persistent actors recover there (decision 0011).
  *
@@ -189,6 +231,8 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
   #running = false;
   // Waiting for an async receive or onSignal to settle.
   #busy = false;
+  // How many mailbox items are Tracked, so an untracked mailbox skips the instanceof check.
+  #tracked = 0;
 
   constructor(
     name: string,
@@ -217,6 +261,7 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
         };
         Promise.resolve(promise).then(done, done);
       },
+      asSender: (fn) => this.#asSender(fn),
     };
     this.ref = host.makeRef(path, (msg: M) => {
       this.#enqueue(msg);
@@ -234,6 +279,21 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
 
   get failure(): Failure {
     return this.#failure;
+  }
+
+  inspect(): CellInspection {
+    return {
+      path: this.path,
+      status:
+        this.#phase === 'restarting' || this.#phase === 'stopping'
+          ? this.#phase
+          : this.#started && this.#hasState
+            ? 'running'
+            : 'starting',
+      depth: this.#mailbox.size,
+      state: this.#hasState ? this.#state : undefined,
+      persistent: persistentHookOf(this.#def),
+    };
   }
 
   /** Queues the actor's first step, which runs `initial`. */
@@ -292,6 +352,18 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
     return steps;
   }
 
+  /** Runs `fn` with this actor as the sender, for code that runs outside its turn. */
+  #asSender<T>(fn: () => T): T {
+    const host = this.#host;
+    const outer = host.senderOverride;
+    host.senderOverride = this.path;
+    try {
+      return fn();
+    } finally {
+      host.senderOverride = outer;
+    }
+  }
+
   /** Builds the ctx for the current incarnation. It goes stale once that incarnation ends. */
   #makeContext(): ActorContext<M> {
     const incarnation = this.#incarnation;
@@ -334,23 +406,59 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
   }
 
   /** Unwraps one mailbox item and hands it to `receive`. */
-  #receive(item: Envelope<M>): void {
+  #receive(envelope: Envelope<M>): void {
+    let item: Untracked<M>;
+    let tracking: Tracking | undefined;
+    if (this.#tracked > 0 && envelope instanceof Tracked) {
+      item = envelope.item;
+      tracking = this.#take(envelope);
+    } else {
+      // With no Tracked items in the mailbox, this one isn't.
+      item = envelope as Untracked<M>;
+    }
     let msg: M;
     if (item instanceof TimerEnvelope) {
       // A cancelled or replaced timer's message is dropped here, even if it was already queued.
-      if (!this.#timers.accept(item)) return;
+      if (!this.#timers.accept(item)) {
+        if (tracking !== undefined) this.#processed(tracking, false, true);
+        return;
+      }
       msg = item.msg;
     } else if (item instanceof PipeEnvelope) {
       try {
         msg = item.map(item.result);
       } catch (error) {
+        if (tracking !== undefined) this.#processed(tracking, false);
         this.#fail(error, { pipeToSelf: item.result.ok ? 'ok' : 'error' });
         return;
       }
     } else {
       msg = item;
     }
-    this.#invoke(() => this.#def.receive(this.#state as S, msg, this.#ctx), { message: msg });
+    const handler = () => this.#def.receive(this.#state as S, msg, this.#ctx);
+    if (tracking === undefined) this.#invoke(handler, { message: msg });
+    else this.#invokeTracked(handler, { message: msg }, tracking);
+  }
+
+  /** Starts tracking a message as it's taken from the mailbox. */
+  #take(envelope: Tracked<M>): Tracking {
+    this.#tracked--;
+    return { id: envelope.id, takenAt: this.#host.now(), depth: this.#mailbox.size };
+  }
+
+  /** Publishes the `processed` that ends a tracked message, if anyone still wants it. */
+  #processed(tracking: Tracking, stateChanged: boolean, skipped = false): void {
+    const { events } = this.#host;
+    if (!events.messages) return;
+    const body = {
+      type: 'processed',
+      path: this.path,
+      id: tracking.id,
+      durationMs: this.#host.now() - tracking.takenAt,
+      depth: tracking.depth,
+      stateChanged,
+    } as const;
+    events.publishMessage(skipped ? { ...body, skipped: true } : body);
   }
 
   /**
@@ -393,7 +501,7 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
   }
 
   /** Queues a message, or makes it a dead letter. Returns false for a dead letter. */
-  #enqueue(item: Envelope<M>): boolean {
+  #enqueue(item: Untracked<M>): boolean {
     const reason = this.#host.terminating()
       ? 'terminated'
       : this.#stopping()
@@ -402,24 +510,36 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
           ? 'mailboxFull'
           : undefined;
     if (reason !== undefined) {
-      this.#deadLetter(item, reason);
+      this.#deadLetter(item, reason, undefined);
       return false;
     }
     // While restarting, messages queue up and wait for the new incarnation.
-    this.#mailbox.push(item);
+    if (this.#host.events.messages) this.#pushTracked(item);
+    else this.#mailbox.push(item);
     this.#scheduleIfReady();
     return true;
   }
 
-  /** Publishes what was sent, never the cell's wrapper: a pipe's raw `Result`, a timer's message. */
-  #deadLetter(item: Envelope<M>, reason: DeadLetterReason): void {
-    const message =
-      item instanceof PipeEnvelope
-        ? item.result
-        : item instanceof TimerEnvelope
-          ? (item.msg as unknown)
-          : item;
-    this.#host.events.publish({ type: 'deadLetter', recipient: this.path, message, reason });
+  /** Queues a message with an id, and publishes its `delivered`. */
+  #pushTracked(item: Untracked<M>): void {
+    const host = this.#host;
+    const id = host.events.nextMessageId();
+    this.#mailbox.push(new Tracked(id, item));
+    this.#tracked++;
+    const sender = host.senderOverride ?? host.dispatcher.current?.path;
+    const body = {
+      type: 'delivered',
+      path: this.path,
+      id,
+      message: sent(item),
+      depth: this.#mailbox.size,
+    } as const;
+    host.events.publishMessage(sender === undefined ? body : { ...body, from: sender });
+  }
+
+  #deadLetter(item: Untracked<M>, reason: DeadLetterReason, id: number | undefined): void {
+    const body = { type: 'deadLetter', recipient: this.path, message: sent(item), reason } as const;
+    this.#host.events.publish(id === undefined ? body : { ...body, id });
   }
 
   #scheduleIfReady(): void {
@@ -548,6 +668,47 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
     );
   }
 
+  /**
+   * {@link Cell.#invoke} for a tracked message: its `processed` comes when the handler settles,
+   * before any `failed`. A copy rather than a flag, so the untracked path every message takes
+   * while nobody watches stays as small as it was, and V8 keeps inlining it (decision 0020).
+   */
+  #invokeTracked(
+    handler: () => S | Promise<S>,
+    context: Record<string, unknown>,
+    tracking: Tracking,
+  ): void {
+    const before = this.#state;
+    let result: S | Promise<S>;
+    try {
+      result = handler();
+    } catch (error) {
+      this.#processed(tracking, false);
+      this.#fail(error, context);
+      return;
+    }
+    if (!isThenable(result)) {
+      this.#state = result;
+      this.#processed(tracking, result !== before);
+      return;
+    }
+    this.#awaitBusy(
+      result,
+      (next) => {
+        this.#state = next;
+        this.#processed(tracking, next !== before);
+      },
+      (error) => {
+        this.#processed(tracking, false);
+        this.#fail(error, context);
+      },
+    );
+  }
+
+  /**
+   * Holds the mailbox until `promise` settles. The callbacks run as this actor's code, so a
+   * `preRestart` or `postStop` they lead to has a sender, as it would inside a turn.
+   */
   #awaitBusy<T>(promise: Promise<T>, ok: (value: T) => void, failed: (error: unknown) => void) {
     this.#busy = true;
     this.#host.trackBusy(1);
@@ -555,13 +716,17 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
       (value) => {
         this.#busy = false;
         this.#host.trackBusy(-1);
-        ok(value);
+        this.#asSender(() => {
+          ok(value);
+        });
         this.#scheduleIfReady();
       },
       (error: unknown) => {
         this.#busy = false;
         this.#host.trackBusy(-1);
-        failed(error);
+        this.#asSender(() => {
+          failed(error);
+        });
         this.#scheduleIfReady();
       },
     );
@@ -687,10 +852,18 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
     this.#failure = failure;
     this.#timers.cancelAll();
     while (this.#mailbox.size > 0) {
-      const item = this.#mailbox.shift() as Envelope<M>;
-      // Its timer was cancelled just above, so its message is never received, not even as a
-      // dead letter.
-      if (!(item instanceof TimerEnvelope)) this.#deadLetter(item, 'stopped');
+      const envelope = this.#mailbox.shift() as Envelope<M>;
+      const tracked = this.#tracked > 0 && envelope instanceof Tracked;
+      if (tracked) this.#tracked--;
+      const item = tracked ? envelope.item : (envelope as Untracked<M>);
+      if (!(item instanceof TimerEnvelope)) {
+        this.#deadLetter(item, 'stopped', tracked ? envelope.id : undefined);
+      } else if (tracked) {
+        // Its timer was cancelled just above, so its message is never received, not even as a
+        // dead letter. A tracked one still owes its `processed`.
+        const now = this.#host.now();
+        this.#processed({ id: envelope.id, takenAt: now, depth: this.#mailbox.size }, false, true);
+      }
     }
     // A restart may already be waiting for the children, and childrenDone will still come.
     if (this.#awaitingChildren || this.#stopChildren()) return;
@@ -751,6 +924,15 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
         : { type: 'stopped', path: this.path, failure: this.#failure.error },
     );
   }
+}
+
+/** What was sent, never the cell's wrapper: a pipe's raw `Result`, a timer's message. */
+function sent<M>(item: Untracked<M>): unknown {
+  return item instanceof PipeEnvelope
+    ? item.result
+    : item instanceof TimerEnvelope
+      ? item.msg
+      : item;
 }
 
 function isThenable<T>(value: T | Promise<T>): value is Promise<T> {

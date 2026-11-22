@@ -1,5 +1,11 @@
 import { checkInt, checkKeys, describe } from '../checks.js';
-import { internalsOf, START, type WithStart } from '../internal.js';
+import {
+  internalsOf,
+  PERSISTENT,
+  START,
+  type PersistentHook,
+  type WithStart,
+} from '../internal.js';
 import { isValidName } from '../names.js';
 import type { ActorContext, ActorDef, ActorRef, Signal } from '../types.js';
 import { EventValidationError, EventVersionError, JournalSequenceError } from './errors.js';
@@ -157,7 +163,7 @@ const OPTIONS = new Set([
 const SNAPSHOT_OPTIONS = new Set(['every', 'version']);
 const EVENT_OPTIONS = new Set(['schema', 'version', 'upcasters']);
 const MAX_ID_LENGTH = 255;
-/** Events per read during recovery. */
+/** Events per read during recovery and `stateAt`. */
 const PAGE_SIZE = 256;
 
 type Step<S> = (state: S, ctx: ActorContext<never>) => void;
@@ -350,7 +356,11 @@ export function persistentActor<C, E, S>(
       fromSeq: current.seq + 1,
       toSeq: next.seq,
     });
-    runSteps(effect, state, ctx);
+    // After the append's await, so outside the cell's turn: the steps' tells name this actor as
+    // their sender only through the hook (decision 0020).
+    internalsOf(ctx).asSender(() => {
+      runSteps(effect, state, ctx);
+    });
     if (snapshotting !== undefined && snapshotDue(current.seq, next.seq, snapshotting.every)) {
       saveSnapshot(snapshotting, next, ctx);
     }
@@ -415,14 +425,16 @@ export function persistentActor<C, E, S>(
     return { seq: snapshot.seq, state: snapshot.state as S };
   };
 
-  const recover = async (
-    initial: PersistentState<S>,
-    ctx: ActorContext<C>,
-  ): Promise<PersistentState<S>> => {
-    const start = await startFrom(initial, ctx);
+  /**
+   * Folds the journal's events after `start.seq`, up to `until` or the end, whichever comes first:
+   * upcast, checked and applied, as recovery and `stateAt` both need.
+   */
+  const fold = async (start: PersistentState<S>, until: number): Promise<PersistentState<S>> => {
     let { seq, state } = start;
     for (;;) {
-      const page = await journal.read(id, seq + 1, PAGE_SIZE);
+      const want = Math.min(PAGE_SIZE, until - seq);
+      if (want <= 0) break;
+      const page = await journal.read(id, seq + 1, want);
       for (const stored of page) {
         if (stored.seq !== seq + 1) throw new JournalSequenceError(id, seq + 1, stored.seq);
         const event = upcast(stored);
@@ -433,8 +445,17 @@ export function persistentActor<C, E, S>(
         );
         seq = stored.seq;
       }
-      if (page.length < PAGE_SIZE) break;
+      if (page.length < want) break;
     }
+    return { seq, state };
+  };
+
+  const recover = async (
+    initial: PersistentState<S>,
+    ctx: ActorContext<C>,
+  ): Promise<PersistentState<S>> => {
+    const start = await startFrom(initial, ctx);
+    const { seq, state } = await fold(start, Infinity);
     internalsOf(ctx).publish({
       type: 'recovered',
       path: ctx.self.path,
@@ -444,9 +465,31 @@ export function persistentActor<C, E, S>(
     });
     // A throw here is a failure in the start, like one in recovery: this is where the actor
     // restarts its timers, and carrying on without them would hide the bug.
-    def.onSignal?.(state, { type: 'recoveryCompleted', seq }, contextFor(ctx, seq));
+    // After recovery's awaits, so outside the cell's turn, like the effect steps.
+    internalsOf(ctx).asSender(() => {
+      def.onSignal?.(state, { type: 'recoveryCompleted', seq }, contextFor(ctx, seq));
+    });
     return { seq, state };
   };
+
+  /** For inspectors: the state after event `seq`, from the journal alone, with no snapshot. */
+  const stateAt = async (seq: number): Promise<S> => {
+    if (!Number.isSafeInteger(seq) || seq < 0) {
+      throw new TypeError(`${id}: stateAt needs a non-negative integer, got ${describe(seq)}`);
+    }
+    const reached = await fold({ seq: 0, state: def.initial }, seq);
+    if (reached.seq < seq) {
+      throw new RangeError(
+        `${id}: the journal ends at event ${String(reached.seq)}, before ${String(seq)}`,
+      );
+    }
+    return reached.state;
+  };
+  const hook: PersistentHook = Object.freeze({
+    persistenceId: id,
+    persistence: def.persistence,
+    stateAt,
+  });
 
   const result: ActorDef<C, PersistentState<S>> & WithStart<C, PersistentState<S>> = {
     initial: { seq: 0, state: def.initial },
@@ -475,6 +518,8 @@ export function persistentActor<C, E, S>(
     },
     [START]: recover,
   };
+  // Not enumerable, so spreading a definition doesn't carry it to a def that isn't this one.
+  Object.defineProperty(result, PERSISTENT, { value: hook });
   if (def.onSignal !== undefined) {
     result.onSignal = (current, signal, ctx) => {
       def.onSignal?.(current.state, signal, contextFor(ctx, current.seq));

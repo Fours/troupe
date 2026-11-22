@@ -53,8 +53,12 @@ function client(target: ActorRef<WorkerMsg>, out: ActorRef<string>) {
  * Periodic timers, two asks (one times out while the worker waits out its backoff, so its late
  * reply is a dead letter), two crashes under backoff with jitter, and a stop.
  */
-async function scenario(seed: number) {
+async function scenario(seed: number, opts: { messages?: boolean } = {}) {
   const kit = createTestKit({ seed });
+  const withMessages: SystemEvent[] = [];
+  if (opts.messages === true) {
+    kit.system.events.subscribe((e) => withMessages.push(e), { messages: true });
+  }
   const out = kit.probe<string>('out');
   const w = kit.system.spawn(worker, 'worker', {
     supervision: supervise.restartWithBackoff({ minMs: 100, maxMs: 1000, randomFactor: 0.5 }),
@@ -72,7 +76,11 @@ async function scenario(seed: number) {
   kit.system.stop(w);
   await kit.advance(100);
   await kit.shutdown();
-  return { events: snapshot(kit.events), replies: out.messages() };
+  return {
+    events: snapshot(kit.events),
+    messages: snapshot(withMessages),
+    replies: out.messages(),
+  };
 }
 
 /** Events as plain data, so two runs compare by content: errors by name and message. */
@@ -82,6 +90,11 @@ function snapshot(events: readonly SystemEvent[]): unknown {
       value instanceof Error ? `${value.name}: ${value.message}` : value,
     ),
   );
+}
+
+/** An event without its `seq`, which message events take their share of. */
+function withoutSeq(event: SystemEvent): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(event).filter(([key]) => key !== 'seq'));
 }
 
 function restartDelays(events: unknown): number[] {
@@ -101,6 +114,23 @@ describe('determinism', () => {
     expect(first.replies).toHaveLength(2);
     expect(first.replies[0]).toMatch(/^failed AskTimeoutError/);
     expect(first.replies[1]).toMatch(/^count \d+$/);
+  });
+
+  it('replays to identical events with a message subscriber too', async () => {
+    const first = await scenario(1, { messages: true });
+    const second = await scenario(1, { messages: true });
+    expect(second).toEqual(first);
+    const types = new Set((first.messages as SystemEvent[]).map((e) => e.type));
+    expect(types).toContain('delivered');
+    expect(types).toContain('processed');
+    // Watching messages doesn't change what happens, only what's seen.
+    const without = await scenario(1);
+    expect(first.replies).toEqual(without.replies);
+    expect(
+      (first.messages as SystemEvent[])
+        .filter((e) => e.type !== 'delivered' && e.type !== 'processed')
+        .map(withoutSeq),
+    ).toEqual((without.events as SystemEvent[]).map(withoutSeq));
   });
 
   it('changes the backoff delays with a different seed', async () => {

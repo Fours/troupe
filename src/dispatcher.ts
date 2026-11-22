@@ -3,6 +3,8 @@ import type { Scheduler } from './scheduler.js';
 
 /** Something the dispatcher can give a turn to: in practice, an actor's cell. */
 export interface Runnable {
+  /** The actor's path, for the sender of what it sends during its turn (decision 0020). */
+  readonly path?: string;
   /**
    * Runs up to `max` steps synchronously.
    * @returns How many steps ran.
@@ -26,6 +28,16 @@ export class Dispatcher {
   readonly #ready = new Queue<Runnable>();
   #running = false;
   #wakePending = false;
+  /**
+   * The runnable whose turn this is, while one is running and `trackCurrent` is on. A cell's turn
+   * is the only code that runs inside a drain, so whatever it sends, it sent (decision 0020).
+   */
+  current: Runnable | undefined;
+  /**
+   * Whether to keep `current`. Only message events need it, and storing a pointer every turn
+   * costs a GC write barrier, so the system turns this on only while someone wants them.
+   */
+  trackCurrent = false;
 
   constructor(scheduler: Scheduler, throughput: number, yieldAfter: number) {
     this.#scheduler = scheduler;
@@ -49,10 +61,12 @@ export class Dispatcher {
       while (ran < this.#yieldAfter) {
         const next = this.#ready.shift();
         if (next === undefined) break;
+        if (this.trackCurrent) this.current = next;
         ran += next.run(Math.min(this.#throughput, this.#yieldAfter - ran));
       }
     } finally {
       this.#running = false;
+      this.current = undefined;
     }
     if (this.#ready.size > 0) {
       // Out of budget with work left: yield to the event loop, then carry on.

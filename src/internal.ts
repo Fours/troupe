@@ -1,9 +1,12 @@
 // Hooks between the core and the package's other entry points. None of this is public API: the
 // symbols are exported only to the package's own modules, never from an entry point, so user
-// actors can't reach them. Persistent actors use them to recover before any message (milestone 2).
+// actors can't reach them. Persistent actors use them to recover before any message (milestone 2),
+// and Backstage uses them to read what the public API doesn't show (milestone 3).
 
 import type { EventBody } from './events.js';
-import type { ActorContext } from './types.js';
+import type { Persistence } from './persistence/types.js';
+import type { Scheduler } from './scheduler.js';
+import type { ActorContext, ActorSystem } from './types.js';
 
 /**
  * An optional async step on an `ActorDef`, run after `initial` and before any message. It gets the
@@ -32,6 +35,11 @@ export interface CellInternals {
    * `settle` waits for it. The caller handles its rejection. Persistent actors' snapshot saves.
    */
   track(promise: PromiseLike<unknown>): void;
+  /**
+   * Runs `fn` with this actor as the sender of every `tell` in it, for code that runs after an
+   * `await` on the actor's behalf: a persistent actor's effect steps (decision 0020).
+   */
+  asSender<T>(fn: () => T): T;
 }
 
 /** The internals of a `ctx` the system made. */
@@ -41,4 +49,63 @@ export function internalsOf(ctx: object): CellInternals {
     throw new TypeError('this context was not made by an actor system');
   }
   return internals;
+}
+
+/** The inspection hook on a system the core made. */
+export const INSPECT: unique symbol = Symbol('troupe.inspect');
+
+/** The inspection hook on a persistent actor's definition. */
+export const PERSISTENT: unique symbol = Symbol('troupe.persistent');
+
+/**
+ * Where an actor is in its life. `starting` covers the time before `initial` has run, and a
+ * persistent actor's recovery.
+ */
+export type ActorStatus = 'starting' | 'running' | 'restarting' | 'stopping';
+
+/** What the tree walk shows of one live actor. Read-only: nothing here changes the actor. */
+export interface CellInspection {
+  readonly path: string;
+  readonly status: ActorStatus;
+  /** How many messages wait in its mailbox. */
+  readonly depth: number;
+  /** Its current state, the object itself. `undefined` before `initial` has returned. */
+  readonly state: unknown;
+  /** Its definition's persistent hook, when it's a persistent actor. */
+  readonly persistent: PersistentHook | undefined;
+}
+
+/** What `system[INSPECT]` holds. */
+export interface SystemInspection {
+  /** The scheduler the system runs on. */
+  readonly scheduler: Scheduler;
+  /** Every live actor under `/user`, depth first, each parent before its children in spawn order. */
+  walk(): CellInspection[];
+}
+
+/** What a persistent actor's definition offers an inspector, without touching a live actor. */
+export interface PersistentHook {
+  readonly persistenceId: string;
+  readonly persistence: Persistence;
+  /**
+   * The state after event `seq`, folded from the journal's events 1 to `seq` as recovery folds
+   * them, with no snapshot. `stateAt(0)` is the initial state.
+   * @throws TypeError, as a rejection, unless `seq` is a non-negative integer.
+   * @throws RangeError, as a rejection, when `seq` is past the journal's last event.
+   */
+  stateAt(seq: number): Promise<unknown>;
+}
+
+/** The inspection hook of a system the core made. */
+export function inspectSystem(system: ActorSystem): SystemInspection {
+  const inspection = (system as unknown as { [INSPECT]?: SystemInspection })[INSPECT];
+  if (inspection === undefined) {
+    throw new TypeError('this system was not made by createActorSystem');
+  }
+  return inspection;
+}
+
+/** The persistent hook of a definition, if it's a persistent actor's. */
+export function persistentHookOf(def: object): PersistentHook | undefined {
+  return (def as { [PERSISTENT]?: PersistentHook })[PERSISTENT];
 }

@@ -7,6 +7,7 @@ import type {
   ActorContext,
   ActorDef,
   ActorRef,
+  ActorSystem,
   AnyRef,
   Result,
   Signal,
@@ -171,5 +172,34 @@ describe('supervision types', () => {
     expectTypeOf<DeadLetter['reason']>().toEqualTypeOf<
       'mailboxFull' | 'stopped' | 'askCompleted' | 'terminated'
     >();
+  });
+});
+
+describe('message events', () => {
+  it('narrow by type, with an optional sender and skipped flag', () => {
+    type Delivered = Extract<SystemEvent, { type: 'delivered' }>;
+    type Processed = Extract<SystemEvent, { type: 'processed' }>;
+    expectTypeOf<Delivered['id']>().toEqualTypeOf<number>();
+    expectTypeOf<Delivered['from']>().toEqualTypeOf<string | undefined>();
+    expectTypeOf<Delivered['message']>().toEqualTypeOf<unknown>();
+    expectTypeOf<Delivered['depth']>().toEqualTypeOf<number>();
+    expectTypeOf<Processed['durationMs']>().toEqualTypeOf<number>();
+    expectTypeOf<Processed['skipped']>().toEqualTypeOf<true | undefined>();
+    expectTypeOf<Processed['stateChanged']>().toEqualTypeOf<boolean>();
+    type DeadLetter = Extract<SystemEvent, { type: 'deadLetter' }>;
+    expectTypeOf<DeadLetter['id']>().toEqualTypeOf<number | undefined>();
+  });
+
+  it('are asked for with an optional messages flag', () => {
+    type Subscribe = ActorSystem['events']['subscribe'];
+    expectTypeOf<Parameters<Subscribe>[1]>().toEqualTypeOf<{ messages?: boolean } | undefined>();
+    // Never called: only the typecheck reads it.
+    const misuse = (system: ActorSystem) => {
+      // @ts-expect-error messages is a boolean
+      system.events.subscribe(() => {}, { messages: 1 });
+      // @ts-expect-error no other options
+      system.events.subscribe(() => {}, { message: true });
+    };
+    expectTypeOf(misuse).toBeFunction();
   });
 });

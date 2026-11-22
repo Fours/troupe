@@ -4,6 +4,7 @@ import { checkInt, checkKeys, describe } from './checks.js';
 import { Dispatcher } from './dispatcher.js';
 import { ActorSystemTerminatedError, NotAChildError } from './errors.js';
 import { EventBus } from './events.js';
+import { INSPECT, type CellInspection, type SystemInspection } from './internal.js';
 import { consoleLogger, isLogger, safeLogger } from './logger.js';
 import { childPath, Names } from './names.js';
 import { realScheduler, type Scheduler } from './scheduler.js';
@@ -94,7 +95,10 @@ export function createSystem(opts: ActorSystemOptions = {}): SystemHandle {
 
   const log = safeLogger(logger);
   const now = () => scheduler.now();
-  const events = new EventBus(now, log);
+  const dispatcher = new Dispatcher(scheduler, throughput, yieldAfter);
+  const events = new EventBus(now, log, (on) => {
+    dispatcher.trackCurrent = on;
+  });
   const setTimer = (task: () => void, delayMs: number) => scheduler.setTimer(task, delayMs);
   const asker = new Asker({ events, systemName: name, defaultTimeoutMs: askTimeoutMs, setTimer });
   const makeRef = <M>(path: string, tell: (msg: M) => void) => asker.ref(path, tell);
@@ -121,9 +125,10 @@ export function createSystem(opts: ActorSystemOptions = {}): SystemHandle {
   };
 
   const host: CellHost = {
-    dispatcher: new Dispatcher(scheduler, throughput, yieldAfter),
+    dispatcher,
     events,
     log,
+    senderOverride: undefined,
     now,
     random,
     setTimer,
@@ -156,7 +161,12 @@ export function createSystem(opts: ActorSystemOptions = {}): SystemHandle {
     },
   };
 
-  const system: ActorSystem = Object.freeze({
+  const inspection: SystemInspection = Object.freeze({
+    scheduler,
+    walk: () => walk(guardian.childCells, []),
+  });
+
+  const system: ActorSystem = {
     name,
     events,
     whenTerminated,
@@ -179,7 +189,10 @@ export function createSystem(opts: ActorSystemOptions = {}): SystemHandle {
       for (const child of [...guardian.childCells.values()]) child.requestStop();
       return whenTerminated;
     },
-  });
+  };
+  // Not enumerable, so spreading or logging a system doesn't show it.
+  Object.defineProperty(system, INSPECT, { value: inspection });
+  Object.freeze(system);
   return {
     system,
     busy: () => busy,
@@ -192,6 +205,15 @@ export function createSystem(opts: ActorSystemOptions = {}): SystemHandle {
       else cell.watchers.add(watcher);
     },
   };
+}
+
+/** Every cell under `cells`, depth first, each parent before its children in spawn order. */
+function walk(cells: ReadonlyMap<string, CellNode>, out: CellInspection[]): CellInspection[] {
+  for (const cell of cells.values()) {
+    out.push(cell.inspect());
+    walk(cell.childCells, out);
+  }
+  return out;
 }
 
 function checkDef(def: unknown): void {

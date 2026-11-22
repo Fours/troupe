@@ -49,5 +49,10 @@ function describe(event: SystemEvent): string {
         : `${event.path} recovered to event ${String(event.lastSeq)}, from a snapshot at ${String(event.snapshotSeq)}`;
     case 'deadLetter':
       return `dead letter for ${event.recipient} (${event.reason})`;
+    // Only a subscriber with { messages: true } gets these, and the narrator doesn't ask for them.
+    case 'delivered':
+      return `${event.path} got message ${String(event.id)}`;
+    case 'processed':
+      return `${event.path} handled message ${String(event.id)}`;
   }
 }

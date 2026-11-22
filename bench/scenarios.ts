@@ -443,7 +443,20 @@ export function scenarios(env: BenchEnv): readonly Scenario[] {
           },
         }),
     },
-    // { messages: true } arrives with message events in milestone 3, T2.
+    {
+      name: 'events-messages',
+      group: 'Message events',
+      unit: 'msg/s',
+      full: { messages: 1_000_000 },
+      quick: { messages: 20_000 },
+      run: (size) =>
+        pingPong(param(size, 'messages'), {
+          yieldAfter: NO_YIELD,
+          attach: (system) => {
+            system.events.subscribe(() => undefined, { messages: true });
+          },
+        }),
+    },
     ...journalRows('memory', 10_000, 100, true, () => {
       const persistence = inMemoryPersistence();
       return Promise.resolve({ journal: persistence.journal, close: () => Promise.resolve() });

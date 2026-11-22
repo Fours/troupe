@@ -99,6 +99,7 @@ describe('scenarios', () => {
       'spawn-stop',
       'events-none',
       'events-plain',
+      'events-messages',
       'journal-memory-1',
       'journal-memory-100',
       'journal-sqlite-1',
@@ -122,6 +123,6 @@ describe('scenarios', () => {
     const quick = all.filter((s) => s.quick !== undefined).map((s) => s.name);
     expect(quick.some((n) => n.includes('sqlite') || n.includes('postgres'))).toBe(false);
     expect(quick).toContain('journal-memory-100');
-    expect(quick).toHaveLength(10);
+    expect(quick).toHaveLength(11);
   });
 });
