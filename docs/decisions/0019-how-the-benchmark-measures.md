@@ -1,6 +1,6 @@
 # 0019. The benchmark is a baseline for later milestones: medians of 10 runs, each in a fresh process
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-22
 - **Milestone:** 3
 

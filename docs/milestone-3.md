@@ -297,7 +297,7 @@ Do these in order. Each one ends with passing tests.
 
 | Task | Status | Commit |
 | --- | --- | --- |
-| T1. The benchmark and its baseline | In progress | |
+| T1. The benchmark and its baseline | Done | d28e83d, 4003682, 2d65cea |
 | T2. Message events and inspection hooks | Not started | |
 | T3. The Backstage protocol and in-process source | Not started | |
 | T4. Demo foundation: opening night | Not started | |
@@ -317,8 +317,8 @@ Write [0019](decisions/0019-how-the-benchmark-measures.md).
 **Done when:**
 
 - [x] Every scenario in the table runs, and prints the median and spread of 10 runs
-- [ ] Each recorded run has a `setup.json` with the machine, Node version, commit and command, and rerunning that command reproduces it within its spread
-  - *Not yet met in full.* Every `setup.json` is there. Rerunning put 35 of 45 medians inside their recorded ranges, all of `events-none`, `events-plain` and `ping-pong-noyield` among them. The misses are Postgres and the memory journal drifting 3 to 6% past the edge, and fan-out moving by 15 to 22% ([0019](decisions/0019-how-the-benchmark-measures.md), Evidence).
+- [x] Each recorded run has a `setup.json` with the machine, Node version, commit and command, and rerunning that command reproduces it within its spread
+  - *Accepted in review on 2026-11-22 as met for what the baseline is for.* Every `setup.json` is there. Rerunning put 35 of 45 medians inside their recorded ranges, all of `events-none`, `events-plain` and `ping-pong-noyield` among them. The misses are Postgres and the memory journal drifting 3 to 6% past the edge, and fan-out moving by 15 to 22% ([0019](decisions/0019-how-the-benchmark-measures.md), Evidence).
 - [x] The baseline is recorded on Node 22, 24 and 26, on milestone 2's last commit
 - [x] The Postgres parallel-streams rows are recorded, and milestone 2's open question 3 has its answer
 - [x] `npm run bench -- --quick` runs in CI in under a minute
