@@ -12,6 +12,8 @@ export interface ProbeHost {
 /**
  * A ref that records what it's sent, for assertions. Its assertions are synchronous, because the
  * test controls time: `await kit.settle()` (or `advance`), then assert.
+ *
+ * Exported as a type only: create probes with `kit.probe()`.
  */
 export class TestProbe<M> {
   /** Send this to the actor under test, as a `replyTo` or a subscriber. */

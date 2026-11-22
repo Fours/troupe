@@ -9,6 +9,7 @@ const ENTRIES = [
   `${root}src/node/sqlite/index.ts`,
   `${root}src/persistence/postgres/index.ts`,
   `${root}src/backstage/index.ts`,
+  `${root}src/node/backstage/index.ts`,
 ];
 
 function documented(symbol: ts.Symbol, checker: ts.TypeChecker): boolean {

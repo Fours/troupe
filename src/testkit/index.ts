@@ -7,5 +7,6 @@ export {
   type TestKitOptions,
 } from './kit.js';
 export { ManualScheduler, type ManualSchedulerOptions } from './manual-scheduler.js';
-export { TestProbe } from './probe.js';
+// A type only: probes come from `kit.probe()`, which gives them their system.
+export type { TestProbe } from './probe.js';
 export { seededRandom } from './random.js';

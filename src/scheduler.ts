@@ -17,13 +17,16 @@ export interface Scheduler {
 
 /**
  * A scheduler on the host's real clock and event loop: `performance.now()`, which is monotonic,
- * `queueMicrotask`, and `setTimeout`. It works on any JavaScript runtime (decision 0004).
+ * rounded down to whole milliseconds, `queueMicrotask`, and `setTimeout`. It works on any
+ * JavaScript runtime (decision 0004).
  *
  * Its timers aren't `unref()`'d, which is Node-only, so pending timers keep a Node process alive.
  */
 export function realScheduler(): Scheduler {
   return {
-    now: () => performance.now(),
+    // Whole milliseconds, as on virtual time, so an event's `at` and a `processed` event's
+    // `durationMs` are integers whichever clock runs. Rounding down keeps it monotonic.
+    now: () => Math.floor(performance.now()),
     runSoon: (task) => {
       queueMicrotask(task);
     },

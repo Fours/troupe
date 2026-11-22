@@ -2,7 +2,7 @@
 
 Typed actors for TypeScript, in the spirit of Akka: hierarchies, supervision, `ask`, timers, a testkit that runs on virtual time, and event-sourced persistent actors on an in-memory, SQLite or Postgres journal. Cluster sharding comes next.
 
-> **Status:** early development, not published yet. See the [roadmap](docs/roadmap.md) and the specs for [milestone 1](docs/milestone-1.md) and [milestone 2](docs/milestone-2.md).
+> **Status:** 0.x, so a minor version can change the API, and milestone 4 will. See the [changelog](CHANGELOG.md), the [roadmap](docs/roadmap.md), and the specs for [milestone 1](docs/milestone-1.md), [milestone 2](docs/milestone-2.md) and [milestone 3](docs/milestone-3.md).
 
 - **Typed:** each actor has one message type, and refs are checked against it.
 - **No runtime dependencies**, and the core runs on any JavaScript runtime, not only Node.
@@ -10,16 +10,11 @@ Typed actors for TypeScript, in the spirit of Akka: hierarchies, supervision, `a
 
 ## Install
 
-The package isn't on npm yet. The first release comes with milestone 3. Until then, clone the repo:
-
 ```bash
-git clone https://github.com/Fours/troupe.git
-cd troupe
-npm install
-npm run example
+npm install @kylewillett/troupe
 ```
 
-Once it's released, it will be `npm install @kylewillett/troupe`. It needs Node 22.18 or later, and is ESM only. It's one package with several entry points:
+It needs Node 22.18 or later, and is ESM only. Each release is published from CI with [npm provenance](https://docs.npmjs.com/generating-provenance-statements), which ties it to the commit and the workflow run that built it ([0024](docs/decisions/0024-publish-from-ci-with-provenance.md)). It's one package with several entry points:
 
 | Entry point | What it has | Runs on |
 | --- | --- | --- |

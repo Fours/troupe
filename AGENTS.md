@@ -6,7 +6,7 @@ Guidance for coding agents working in this repo.
 
 Troupe is an actor framework for TypeScript, in the spirit of Akka. It has typed actors with supervision, event-sourced persistent actors, and later cluster sharding and deterministic simulation testing. It's a portfolio project meant to show systems depth, made visible through a browser inspector and a demo site.
 
-- Package: `@kylewillett/troupe`, one package with subpath exports ([0005](docs/decisions/0005-one-package-with-subpaths.md)). It stays `"private": true` until the milestone 3 release, which publishes from CI. Never `npm publish` by hand.
+- Package: `@kylewillett/troupe`, one package with subpath exports ([0005](docs/decisions/0005-one-package-with-subpaths.md)). It's on npm from 0.1.0. Releases publish from CI when a `v*` tag is pushed, and only after you approve the tag in chat ([0024](docs/decisions/0024-publish-from-ci-with-provenance.md)). Never `npm publish` by hand.
 - Full plan: [docs/roadmap.md](docs/roadmap.md)
 - Milestone specs: `docs/milestone-N.md`. **Work only on the current milestone.** Don't build features from later milestones early, but don't block them either.
 - Task status lives in the table at the top of each spec's "Tasks" section. When a task's "Done when" passes, mark it Done there and tick its `- [ ]` boxes in the same commit as the code. Fill in the Commit column with the short hash of the task's commit in the next commit, since a commit can't contain its own hash. When every task is done, update the milestone's row below and tick the spec's "Definition of done".
@@ -42,9 +42,11 @@ npm run demo:dev    # the demo site on Vite's dev server; demo:build builds it i
 npm run example:backstage  # opening night in Node with serveBackstage; prints the URL
 npm run test:e2e    # builds the package and the demo, then Playwright in Chromium
                     # (npx playwright install chromium)
+npm run check:package  # after build, from a clean dist/: the tarball, publint and attw
+scripts/smoke-published.sh [version|tgz]  # the README quick start from npm, in Docker
 ```
 
-Before you say a task is done, run lint, typecheck, test, test:integration, coverage and build, and make sure they all pass. When `demo/`, `backstage/`, `e2e/` or the server changed, run test:e2e too. The integration tests fail rather than skip when they can't reach Postgres, and in CI they need `TROUPE_POSTGRES_URL` set.
+Before you say a task is done, run lint, typecheck, test, test:integration, coverage, build and check:package, and make sure they all pass. When `demo/`, `backstage/`, `e2e/` or the server changed, run test:e2e too. The integration tests fail rather than skip when they can't reach Postgres, and in CI they need `TROUPE_POSTGRES_URL` set.
 
 ## Layout
 
@@ -98,7 +100,9 @@ e2e/                Playwright tests of the built demo, run by test:e2e, with it
                     server.spec.ts in its own, against examples/backstage on port 7071
 examples/           runnable examples, run by Node with type stripping, against dist/: box-office/
                     (npm run example) and backstage/ (npm run example:backstage)
-scripts/            build steps run by Node with type stripping: write-sql.ts ships table SQL in dist/
+scripts/            run by Node with type stripping: write-sql.ts ships table SQL in dist/,
+                    check-pack.ts checks the tarball, check-release-tag.ts the release tag,
+                    smoke-published.sh runs the quick start against the published package
 bench/              the benchmark (0019), run by Node with type stripping against dist/; results
                     go in bench/results/ (ignored) or, for a recorded run, docs/decisions/data/
 docs/               roadmap, milestone specs, decision records

@@ -245,7 +245,7 @@ export interface BackstageServer {
 
 As rate-limiter does it ([0025](https://github.com/Fours/rate-limiter/blob/main/docs/decisions/0025-publish-from-ci-with-provenance.md)):
 
-- **An API review first.** Every export of every entry point has TSDoc, and a package test reads `dist/`'s `.d.ts` files to check that each entry point exports exactly a written list. Anything that shouldn't be public is removed while that's still free. `publint` and `@arethetypeswrong/cli` (ESM only) check the package as npm users see it, and `scripts/check-pack.js` fails on any file in the tarball outside `dist/`, the README, the licence and the changelog. All run in CI.
+- **An API review first.** Every export of every entry point has TSDoc, and a package test reads `dist/`'s `.d.ts` files to check that each entry point exports exactly a written list. Anything that shouldn't be public is removed while that's still free. `publint` and `@arethetypeswrong/cli` (ESM only) check the package as npm users see it, and `scripts/check-pack.ts` fails on any file in the tarball outside `dist/`, the README, the licence and the changelog. All run in CI.
 - `package.json` loses `"private": true` and gains `homepage`, `repository` and `bugs`. The version becomes 0.1.0, and `CHANGELOG.md` starts there.
 - `.github/workflows/release.yml` runs on a `v*` tag. It runs all of CI (`ci.yml` becomes reusable), checks that the tag is exactly `v` plus the version and that the commit is on `main`, then publishes with OIDC trusted publishing from Node 24, so no npm token exists anywhere and npm adds provenance.
 - **You do two things by hand.** If npm needs the package to exist before trusted publishing can be set up, you publish a placeholder from your machine. Then you add this repository and workflow as the trusted publisher on npmjs.com. Agents never run `npm publish`.
@@ -308,7 +308,7 @@ Do these in order. Each one ends with passing tests.
 | T4. Demo foundation: opening night | Done | 650befd |
 | T5. The Backstage UI | Done, but for your check | 8ce9232 |
 | T6. The Node server | Done | f44fe65 |
-| T7. API review and the 0.1.0 release | Not started | |
+| T7. API review and the 0.1.0 release | In progress: waiting on npm setup and the tag | |
 | T8. The write-up | Not started | |
 | T9. Deploy and link | Not started | |
 
@@ -454,14 +454,24 @@ Write [0024](decisions/0024-publish-from-ci-with-provenance.md).
 
 **Done when:**
 
-- [ ] Every export of every entry point has TSDoc, and a package test checks each entry point's exact export list. Anything removed from the public API is listed in this section
-- [ ] `publint`, `attw --pack --profile esm-only` and `scripts/check-pack.js` pass, and run in CI
-- [ ] `package.json` has no `private`, and has `homepage`, `repository` and `bugs`, and version 0.1.0. `CHANGELOG.md` has a 0.1.0 entry
+- [x] Every export of every entry point has TSDoc, and a package test checks each entry point's exact export list. Anything removed from the public API is listed in this section
+- [x] `publint`, `attw --pack --profile esm-only` and `scripts/check-pack.ts` pass, and run in CI
+- [x] `package.json` has no `private`, and has `homepage`, `repository` and `bugs`, and version 0.1.0. `CHANGELOG.md` has a 0.1.0 entry
 - [ ] `release.yml` publishes on a `v*` tag only after every CI check passes, and refuses a tag that doesn't match the version or isn't on `main`
 - [ ] Trusted publishing is set up on npmjs.com (by you), and no workflow has an npm token
 - [ ] After your approval in chat, `v0.1.0` is tagged and published, and npm shows its provenance
 - [ ] In an empty folder, the published package's README quick start works on Node 22 and 24
-- [ ] AGENTS.md and the README no longer say the package is unpublished
+- [x] AGENTS.md and the README no longer say the package is unpublished
+
+**Found in T7:**
+
+- **The API review removed one thing: `TestProbe` is now a type only.** Its constructor took `ProbeHost`, an internal type, and probes only work when `kit.probe()` makes them, so the class stays internal. A type test fails if it becomes a value again. Nothing else was removed: the export lists already matched the specs, and each extra type is one a user needs to name a parameter or a wrapper.
+- **`realScheduler().now()` is whole milliseconds** (T6's question): `Math.floor(performance.now())`, which is still monotonic. On real time, an event's `at` and a `hello`'s `now` are now integers, as on virtual time. A `processed` event's `durationMs` is mostly 0 on real time, since most handlers take under a millisecond. The benchmark times itself, so it's unchanged (0019).
+- **No source maps ship.** They were half the tarball's files and pointed at `src/`, which doesn't ship, so the build makes none. `check-pack.ts` fails on a map, which also catches a `dist/` that an older build left them in: tsc never deletes files, so check the package from a clean `dist/`, as CI does.
+- **The TSDoc test missed `/backstage/server`.** It covers every entry point now. Its exports were already documented.
+- `check-pack.ts` reads the files to require from `exports`, so a new entry point can't be forgotten, and fails on any kind of dependency, not only runtime ones.
+- **The smoke test runs on a tarball too.** `scripts/smoke-published.sh` takes an `npm pack` file, so the quick start was checked on Node 22, 24 and 26 before anything was published. It runs the README's TypeScript as written, with Node's type stripping.
+- **The release checks the tarball again** in the publish job, on the exact build it publishes.
 
 ### T8. The write-up
 

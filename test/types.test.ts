@@ -1,5 +1,6 @@
 // Type tests: `npm run typecheck` checks these, since it type-checks test/. At runtime the
 // assertions do nothing, and @ts-expect-error lines fail the typecheck if they stop being errors.
+import * as testkit from '@kylewillett/troupe/testkit';
 import { describe, expectTypeOf, it } from 'vitest';
 import { actor } from '../src/actor.js';
 import { supervise, type SupervisorStrategy } from '../src/supervision.js';
@@ -201,5 +202,22 @@ describe('message events', () => {
       system.events.subscribe(() => {}, { message: true });
     };
     expectTypeOf(misuse).toBeFunction();
+  });
+});
+
+describe('the testkit entry point', () => {
+  it('exports TestProbe as a type only, so probes come from kit.probe()', () => {
+    const probe = () => testkit.createTestKit().probe<A>();
+    expectTypeOf(probe).returns.toEqualTypeOf<testkit.TestProbe<A>>();
+    // The arguments are valid, so the only error is that TestProbe has no value. Lint can't type
+    // what doesn't resolve, which is the point.
+    /* eslint-disable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return,
+       @typescript-eslint/no-unnecessary-type-assertion */
+    const construct = () =>
+      // @ts-expect-error TestProbe is exported with `export type`, so it has no value to call.
+      new testkit.TestProbe<A>('/temp/probe-x', 'probe-x', {} as never);
+    /* eslint-enable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return,
+       @typescript-eslint/no-unnecessary-type-assertion */
+    expectTypeOf(construct).toBeFunction();
   });
 });

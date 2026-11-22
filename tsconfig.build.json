@@ -13,8 +13,9 @@
     "rootDir": "src",
     "outDir": "dist",
     "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true
+    // No maps: they would point at src/, which doesn't ship (scripts/check-pack.ts).
+    "declarationMap": false,
+    "sourceMap": false
   },
   // src/node/ needs Node types, so tsconfig.build.node.json builds it.
   "include": ["src"],

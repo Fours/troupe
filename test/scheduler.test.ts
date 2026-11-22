@@ -45,4 +45,17 @@ describe('realScheduler', () => {
     await sleep(5);
     expect(scheduler.now()).toBeGreaterThan(a);
   });
+
+  it('reads whole milliseconds, never a fraction, and never goes back', async () => {
+    const scheduler = realScheduler();
+    // performance.now() almost always has a fraction, so this many readings would catch one.
+    let last = scheduler.now();
+    for (let i = 0; i < 200; i++) {
+      const now = scheduler.now();
+      expect(Number.isInteger(now)).toBe(true);
+      expect(now).toBeGreaterThanOrEqual(last);
+      last = now;
+      if (i % 50 === 0) await sleep(1);
+    }
+  });
 });

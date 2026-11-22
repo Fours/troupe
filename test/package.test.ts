@@ -39,14 +39,15 @@ const MAIN_TYPES = [
   'SystemEvent',
   'Timers',
 ];
-const TESTKIT_VALUES = [
-  'ManualScheduler',
-  'SettleTimeoutError',
+const TESTKIT_VALUES = ['ManualScheduler', 'SettleTimeoutError', 'createTestKit', 'seededRandom'];
+// TestProbe is a type only since T7's API review: probes come from kit.probe().
+const TESTKIT_TYPES = [
+  'LogEntry',
+  'ManualSchedulerOptions',
+  'TestKit',
+  'TestKitOptions',
   'TestProbe',
-  'createTestKit',
-  'seededRandom',
 ];
-const TESTKIT_TYPES = ['LogEntry', 'ManualSchedulerOptions', 'TestKit', 'TestKitOptions'];
 // The milestone 2 spec's T1 and T2 names, plus NewSnapshot: the backend stamps a snapshot's
 // timestamp.
 const PERSISTENCE_VALUES = [

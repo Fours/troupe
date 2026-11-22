@@ -1,9 +1,11 @@
 name: CI
 
 on:
+  # Branches only: a v* tag runs these same jobs through release.yml, before it publishes.
   push:
     branches: ['**']
   pull_request:
+  workflow_call:
 
 jobs:
   check:
@@ -46,6 +48,11 @@ jobs:
       # Runs unit and integration together, and enforces the 90% line threshold.
       - run: npm run coverage
       - run: npm run build
+      # What npm users get: only dist/, the README, the licence and the changelog ship, with every
+      # entry point, the table SQL and the Backstage UI, and no dependencies (scripts/check-pack.ts);
+      # package.json and its exports are valid (publint); and every entry point's types resolve
+      # for ESM consumers (attw).
+      - run: npm run check:package
       # The milestone demo, on SQLite, on every Node line: node:sqlite differs between them.
       - run: npm run example
       # One small run of each in-memory scenario, so the benchmark can't rot. The numbers from
