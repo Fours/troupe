@@ -36,3 +36,4 @@ When you change a decision, update its record in the same commit as the code.
 | [0016](0016-postgres-appends-take-a-journal-lock.md) | Postgres appends take a journal-wide lock, so tag offsets commit in order | Accepted | 2 |
 | [0017](0017-backends-add-no-dependencies.md) | Backends add no dependencies: `node:sqlite`, and a structurally typed `pg` pool | Accepted | 2 |
 | [0018](0018-standard-schema-and-upcasters.md) | Event schemas use Standard Schema, with one upcaster per version step | Accepted | 2 |
+| [0019](0019-how-the-benchmark-measures.md) | The benchmark is a baseline for later milestones, measured in-process with medians of 10 runs | Proposed | 3 |

@@ -6,3 +6,4 @@ coverage/
 .env
 *.local
 .troupe/
+bench/results/

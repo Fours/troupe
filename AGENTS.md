@@ -36,6 +36,7 @@ npm run postgres:up # the test Postgres from docker-compose.test.yml, on port 54
 npm run test:integration  # the Postgres backend; needs postgres:up or TROUPE_POSTGRES_URL
 npm run coverage    # unit and integration together, enforces 90% lines on src/
 npm run build       # tsc → dist/
+npm run bench       # the benchmark, against dist/ (build first); --quick for a smoke run
 npm run postgres:down
 ```
 
@@ -75,6 +76,8 @@ test/               mirrors src/; helpers/ holds deferred() and test actors (tre
                     integration/ needs Postgres: its own Vitest project, run by test:integration
 examples/           runnable examples, run by Node with type stripping
 scripts/            build steps run by Node with type stripping: write-sql.ts ships table SQL in dist/
+bench/              the benchmark (0019), run by Node with type stripping against dist/; results
+                    go in bench/results/ (ignored) or, for a recorded run, docs/decisions/data/
 docs/               roadmap, milestone specs, decision records
 ```
 

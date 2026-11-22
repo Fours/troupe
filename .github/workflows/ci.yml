@@ -48,3 +48,7 @@ jobs:
       - run: npm run build
       # The milestone demo, on SQLite, on every Node line: node:sqlite differs between them.
       - run: npm run example
+      # One small run of each in-memory scenario, so the benchmark can't rot. The numbers from
+      # shared runners mean nothing and are never kept (decision 0019).
+      - run: npm run bench -- --quick
+        timeout-minutes: 1
