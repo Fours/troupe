@@ -56,8 +56,9 @@ src/
   globals.d.ts      the runtime globals src/ may use (0004); in the build config only
   testkit/          the /testkit entry point: ManualScheduler, seededRandom, createTestKit, TestProbe
   persistence/      the /persistence entry point: the store interfaces, the JSON-value check (0014),
-                    the in-memory backend, persistentActor (actor.ts: effects, recovery, schemas
-                    and upcasters), and the copied Standard Schema interface (0018)
+                    the in-memory backend, persistentActor (actor.ts: effects, recovery, schemas,
+                    upcasters and tags), projection (projection.ts), and the copied Standard
+                    Schema interface (0018)
 test/               mirrors src/; helpers/ holds deferred() and test actors (tree, watcher, idle),
                     the persistent account, and faultyJournal() and faultySnapshots() for holding
                     and failing calls

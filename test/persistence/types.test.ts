@@ -5,6 +5,8 @@ import { z } from 'zod';
 import { persistentActor } from '../../src/persistence/actor.js';
 import type { Effect, PersistentContext, PersistentState } from '../../src/persistence/actor.js';
 import { inMemoryPersistence } from '../../src/persistence/memory.js';
+import { projection, type ProjectionState } from '../../src/persistence/projection.js';
+import type { StoredEvent } from '../../src/persistence/types.js';
 import { createActorSystem } from '../../src/system.js';
 import type { ActorDef, ActorRef } from '../../src/types.js';
 
@@ -121,5 +123,41 @@ describe('persistentActor types', () => {
       onCommand: (_s, _c, { none }) => none(),
       onEvent: (s) => s,
     });
+  });
+
+  it('passes tags() the event type', () => {
+    persistentActor<Cmd, Ev, Total>({
+      id: 'total',
+      persistence,
+      initial: { total: 0 },
+      onCommand: (_state, _cmd, { none }) => none(),
+      onEvent: (state, event) => ({ total: state.total + event.n }),
+      tags(event) {
+        expectTypeOf(event).toEqualTypeOf<Ev>();
+        return ['total'];
+      },
+    });
+  });
+});
+
+describe('projection types', () => {
+  it('is an actor that takes no messages, and hands handle stored events', () => {
+    const def = projection({
+      name: 'totals',
+      persistence,
+      tag: 'total',
+      handle(event) {
+        expectTypeOf(event).toEqualTypeOf<StoredEvent>();
+      },
+    });
+    expectTypeOf(def).toEqualTypeOf<ActorDef<never, ProjectionState>>();
+    // Never called: spawning would start a projection on the real scheduler.
+    const spawn = () => {
+      const ref = createActorSystem().spawn(def);
+      expectTypeOf(ref).toEqualTypeOf<ActorRef<never>>();
+      // @ts-expect-error nothing outside can tell a projection anything
+      ref.tell({ type: 'poll' });
+    };
+    expectTypeOf(spawn).toBeFunction();
   });
 });

@@ -425,8 +425,8 @@ Do these in order. Each one ends with passing tests.
 | T1. Persistence entry point, stores and the in-memory backend | Done | 65f1df6 |
 | T2. Persistent actors: commands, effects and recovery | Done | 1af2f66 |
 | T3. Snapshots | Done | 22fc8e9 |
-| T4. Event schemas and upcasters | Done | |
-| T5. Projections | Not started | |
+| T4. Event schemas and upcasters | Done | b271f32 |
+| T5. Projections | Done | |
 | T6. SQLite backend | Not started | |
 | T7. Postgres backend | Not started | |
 | T8. Persistent box office and README | Not started | |
@@ -501,11 +501,11 @@ Do these in order. Each one ends with passing tests.
 
 **Done when** tests cover:
 
-- [ ] A projection handles every tagged event once, in offset order, across several entities.
-- [ ] It saves its offset after each batch, and a new projection with the same name starts after it.
-- [ ] A full batch reads again at once, and a short one waits `pollMs` of virtual time.
-- [ ] A failure in `handle` restarts the projection from the stored offset, so the batch repeats.
-- [ ] A bad tag from `tags()` fails the persist with `TypeError`.
+- [x] A projection handles every tagged event once, in offset order, across several entities.
+- [x] It saves its offset after each batch, and a new projection with the same name starts after it.
+- [x] A full batch reads again at once, and a short one waits `pollMs` of virtual time.
+- [x] A failure in `handle` restarts the projection from the stored offset, so the batch repeats.
+- [x] A bad tag from `tags()` fails the persist with `TypeError`.
 
 ### T6. SQLite backend
 

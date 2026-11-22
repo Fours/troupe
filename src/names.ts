@@ -3,6 +3,11 @@ import { ActorNameError } from './errors.js';
 // URL-safe, so paths can go on the wire unescaped in milestone 4.
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._~-]{0,63}$/;
 
+/** Whether `value` matches the actor name pattern. Persistence tags use it too. */
+export function isValidName(value: unknown): value is string {
+  return typeof value === 'string' && NAME.test(value);
+}
+
 /**
  * The names in use under one parent, and the counter for generated names (`$1`, `$2`, ...).
  * Generated names start with `$`, which a caller can't pass in, so they never clash with chosen

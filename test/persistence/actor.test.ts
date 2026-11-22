@@ -501,7 +501,7 @@ describe('persistentActor', () => {
 
     it.each<[string, unknown, RegExp]>([
       ['not an object', null, /options must be an object/],
-      ['an unknown key', { ...valid, tags: () => [] }, /unknown option "tags"/],
+      ['an unknown key', { ...valid, stash: true }, /unknown option "stash"/],
       [
         'snapshots without a snapshot store',
         { ...valid, persistence: { journal: persistence.journal }, snapshots: { every: 10 } },

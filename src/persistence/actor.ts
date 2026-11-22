@@ -1,5 +1,6 @@
 import { checkInt, checkKeys, describe } from '../checks.js';
 import { internalsOf, START, type WithStart } from '../internal.js';
+import { isValidName } from '../names.js';
 import type { ActorContext, ActorDef, ActorRef, Signal } from '../types.js';
 import { EventValidationError, EventVersionError, JournalSequenceError } from './errors.js';
 import { jsonProblem } from './json.js';
@@ -113,6 +114,14 @@ export interface PersistentActorDef<C, E, S> {
   onEvent(state: S, event: E): S;
   /** Lifecycle signals, for side effects only. Optional. */
   onSignal?(state: S, signal: PersistentSignal, ctx: PersistentContext<C, E, S>): void;
+  /**
+   * The tags to store with an event, for projections to follow it by. Optional. It gets the
+   * schema's output, as `onEvent` does. Each tag matches the actor name pattern: 1 to 64 letters,
+   * digits, ".", "_", "~" or "-", starting with a letter or digit, and an event's tags don't
+   * repeat. A tag that breaks these rules fails the command with a `TypeError`, and nothing is
+   * written.
+   */
+  tags?(event: E): readonly string[];
   /** Runtime checks and versions for events. Optional. */
   events?: EventOptions<E>;
   /**
@@ -141,6 +150,7 @@ const OPTIONS = new Set([
   'onCommand',
   'onEvent',
   'onSignal',
+  'tags',
   'events',
   'snapshots',
 ]);
@@ -282,10 +292,32 @@ export function persistentActor<C, E, S>(
   };
 
   /** Appends, then applies and runs the steps. The cell holds the mailbox until it settles. */
+  /** An event's tags, checked so a bad one fails the command instead of the append. */
+  const tagsFor = (event: E, i: number): readonly string[] => {
+    if (def.tags === undefined) return [];
+    const tags: unknown = def.tags(event);
+    if (!Array.isArray(tags)) {
+      throw new TypeError(`${id}: tags() must return an array for event ${String(i)}`);
+    }
+    const seen = new Set<string>();
+    for (const tag of tags as readonly unknown[]) {
+      if (!isValidName(tag)) {
+        throw new TypeError(
+          `${id}: tags() returned ${describe(tag)} for event ${String(i)}, but a tag must be 1 ` +
+            'to 64 letters, digits, ".", "_", "~" or "-", starting with a letter or digit',
+        );
+      }
+      if (seen.has(tag)) {
+        throw new TypeError(`${id}: tags() repeats "${tag}" for event ${String(i)}`);
+      }
+      seen.add(tag);
+    }
+    return [...seen];
+  };
+
   const persistThen = async (
     current: PersistentState<S>,
     effect: EffectImpl<E, S>,
-    batch: readonly NewEvent[],
     ctx: ActorContext<C>,
   ): Promise<PersistentState<S>> => {
     // If this rejects, the actor can't know what the journal holds, so it applies nothing. A
@@ -299,6 +331,13 @@ export function persistentActor<C, E, S>(
       for (const event of effect.events) checked.push(await check(schema, event, undefined));
       applied = checked;
     }
+    // Stored as persist got it (decision 0018), but tagged from the schema's output, so tags see
+    // the value onEvent folds. `applied` has one entry per event, in the same order.
+    const batch = effect.events.map((event, i): NewEvent => ({
+      event,
+      version,
+      tags: tagsFor(applied[i] as E, i),
+    }));
     await journal.append(id, current.seq, batch);
     let state = current.state;
     // The schema's output, as recovery will see it, so a write and its replay fold the same value.
@@ -425,15 +464,14 @@ export function persistentActor<C, E, S>(
         runSteps(made, current.state, ctx);
         return current;
       }
-      const batch = made.events.map((event, i): NewEvent => {
+      made.events.forEach((event, i) => {
         // Checked here, so the failure lands in the command that made the event (decision 0014).
         const problem = jsonProblem(event);
         if (problem !== undefined) {
           throw new TypeError(`${id}: event ${String(i)} is not a JSON value: ${problem}`);
         }
-        return { event, version, tags: [] };
       });
-      return persistThen(current, made, batch, ctx);
+      return persistThen(current, made, ctx);
     },
     [START]: recover,
   };
@@ -465,8 +503,10 @@ function checkDef(def: unknown): void {
       throw new TypeError(`persistentActor: ${key} must be a function, got ${describe(d[key])}`);
     }
   }
-  if (d.onSignal !== undefined && typeof d.onSignal !== 'function') {
-    throw new TypeError('persistentActor: onSignal must be a function when it is set');
+  for (const key of ['onSignal', 'tags']) {
+    if (d[key] !== undefined && typeof d[key] !== 'function') {
+      throw new TypeError(`persistentActor: ${key} must be a function when it is set`);
+    }
   }
   if (d.events !== undefined) checkEvents(d.events);
   if (d.snapshots !== undefined) checkSnapshots(d.snapshots, persistence);

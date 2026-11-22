@@ -41,6 +41,7 @@ export function account(
     id?: string;
     log?: string[];
     snapshots?: PersistentActorDef<AccountCmd, AccountEvent, Account>['snapshots'];
+    tags?: PersistentActorDef<AccountCmd, AccountEvent, Account>['tags'];
   } = {},
 ) {
   const log = opts.log ?? [];
@@ -48,6 +49,7 @@ export function account(
     id: opts.id ?? 'account-1',
     persistence,
     ...(opts.snapshots === undefined ? {} : { snapshots: opts.snapshots }),
+    ...(opts.tags === undefined ? {} : { tags: opts.tags }),
     initial: { balance: 0, closed: false },
     onCommand(state, cmd, { persist, reply, none, lastSeq }) {
       const receipt = (s: Account): Receipt => ({ ok: true, balance: s.balance });

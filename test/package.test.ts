@@ -52,6 +52,7 @@ const PERSISTENCE_VALUES = [
   'JournalSequenceError',
   'inMemoryPersistence',
   'persistentActor',
+  'projection',
 ];
 const PERSISTENCE_TYPES = [
   'Effect',
@@ -66,6 +67,8 @@ const PERSISTENCE_TYPES = [
   'PersistentContext',
   'PersistentSignal',
   'PersistentState',
+  'ProjectionOptions',
+  'ProjectionState',
   'Snapshot',
   'SnapshotStore',
   'StandardSchemaV1',

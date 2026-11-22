@@ -15,6 +15,7 @@ export {
   JournalSequenceError,
 } from './errors.js';
 export { inMemoryPersistence, type InMemoryPersistence } from './memory.js';
+export { projection, type ProjectionOptions, type ProjectionState } from './projection.js';
 export type { StandardSchemaV1 } from './standard-schema.js';
 export type {
   Journal,
