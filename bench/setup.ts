@@ -9,6 +9,17 @@ export const ROOT = resolve(import.meta.dirname, '..');
 /** Where benchmark results go, relative to ROOT. Untracked output there is not a code change. */
 export const DATA_PATHS = ['docs/decisions/data', 'bench/results'];
 
+/** The compose database from docker-compose.test.yml, as the integration tests use it. */
+const DEFAULT_POSTGRES_URL = 'postgres://troupe:troupe@localhost:5440/troupe';
+/** pg's own default, written down so the record says what the Postgres rows ran with. */
+export const POOL_MAX = 10;
+
+/** The Postgres rows' database: `TROUPE_POSTGRES_URL`, or the compose database. */
+export function postgresUrl(env: Readonly<Record<string, string | undefined>>): string {
+  const url = env['TROUPE_POSTGRES_URL'];
+  return url === undefined || url === '' ? DEFAULT_POSTGRES_URL : url;
+}
+
 /** Runs git from `cwd` and returns its trimmed stdout. */
 function git(args: readonly string[], cwd: string): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();

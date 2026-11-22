@@ -1,5 +1,8 @@
 // The benchmark (decision 0019): `npm run bench`. Runs against dist/, through the package's own
-// name, so build first. Prints each scenario's median and spread, and writes a results folder.
+// name, so build first. Each timed run is a fresh process (bench/child.ts), so the spread
+// includes how much V8's optimisation varies between processes, and no scenario's type feedback
+// leaks into another's. Prints each scenario's median and spread, and writes a results folder.
+import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import pg from 'pg';
@@ -13,44 +16,35 @@ import {
   type ScenarioResult,
 } from './report.ts';
 import { scenarios, type Sample } from './scenarios.ts';
-import { commandLine, ROOT, setup } from './setup.ts';
-
-/** The compose database from docker-compose.test.yml, as the integration tests use it. */
-const DEFAULT_POSTGRES_URL = 'postgres://troupe:troupe@localhost:5440/troupe';
-/** pg's own default, written down so the record says what the Postgres rows ran with. */
-const POOL_MAX = 10;
+import { commandLine, POOL_MAX, postgresUrl, ROOT, setup } from './setup.ts';
 
 const argv = process.argv.slice(2);
 const args = parseArgs(argv);
 const command = commandLine(argv, process.env, process.execArgv);
 
-const tmpDir = join(ROOT, '.troupe', 'bench');
-mkdirSync(tmpDir, { recursive: true });
-const postgresUrl = process.env['TROUPE_POSTGRES_URL'] || DEFAULT_POSTGRES_URL;
-let pool: pg.Pool | undefined;
-const env = {
-  tmpDir,
-  pool: () => (pool ??= new pg.Pool({ connectionString: postgresUrl, max: POOL_MAX })),
+// The parent only lists scenarios and starts children, so it never needs a pool or a directory.
+const noEnv = {
+  tmpDir: '',
+  pool: (): pg.Pool => {
+    throw new Error('the parent process opens no pool');
+  },
 };
-
-const selected = scenarios(env).filter(
+const selected = scenarios(noEnv).filter(
   (s) =>
     (!args.quick || s.quick !== undefined) &&
     (args.only.length === 0 || args.only.some((prefix) => s.name.startsWith(prefix))),
 );
 if (selected.length === 0) throw new Error(`no scenario matches --only ${args.only.join(',')}`);
 
-// With --expose-gc (npm run bench passes it), each run starts after a full collection, so one
-// run's garbage isn't collected on the next one's time.
-const gc = (globalThis as { gc?: () => void }).gc;
-if (gc === undefined)
-  console.warn('Running without --expose-gc: runs may pay for earlier garbage.');
+if (!process.execArgv.includes('--expose-gc')) {
+  console.warn("Running without --expose-gc: runs may pay for their warm-ups' garbage.");
+}
 
-const usesPostgres = selected.some((s) => s.name.startsWith('journal-postgres'));
 let postgresVersion: string | undefined;
-if (usesPostgres) {
+if (selected.some((s) => s.name.startsWith('journal-postgres'))) {
+  const pool = new pg.Pool({ connectionString: postgresUrl(process.env), max: 1 });
   try {
-    const { rows } = await env.pool().query<{ server_version: string }>('SHOW server_version');
+    const { rows } = await pool.query<{ server_version: string }>('SHOW server_version');
     postgresVersion = rows[0]?.server_version;
   } catch (error) {
     throw new Error(
@@ -58,32 +52,48 @@ if (usesPostgres) {
         `leave them out with --only. Cause: ${String(error)}`,
       { cause: error },
     );
+  } finally {
+    await pool.end();
   }
 }
 
+/** One timed run, in its own process. Its stderr goes to the terminal. */
+function runChild(name: string): Sample {
+  const stdout = execFileSync(
+    process.execPath,
+    [
+      ...process.execArgv,
+      join(ROOT, 'bench', 'child.ts'),
+      name,
+      String(args.warmup),
+      args.quick ? 'quick' : 'full',
+    ],
+    {
+      cwd: ROOT,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'inherit'],
+      // An ask run's latencies are 100,000 numbers.
+      maxBuffer: 64 * 1024 * 1024,
+    },
+  );
+  return JSON.parse(stdout) as Sample;
+}
+
 const results: ScenarioResult[] = [];
-try {
-  for (const scenario of selected) {
-    const size = args.quick ? (scenario.quick ?? scenario.full) : scenario.full;
-    const samples: Sample[] = [];
-    for (let i = 0; i < args.warmup + args.runs; i++) {
-      gc?.();
-      const sample = await scenario.run(size);
-      if (i >= args.warmup) samples.push(sample);
-    }
-    const result = summarise(
-      { name: scenario.name, group: scenario.group, unit: scenario.unit, size },
-      samples,
-    );
-    results.push(result);
-    const s = result.summary.perSecond;
-    console.error(
-      `${scenario.name}: ${Math.round(s.median).toLocaleString('en-US')} ${scenario.unit} ` +
-        `(spread ${s.spreadPct.toFixed(1)}%)`,
-    );
-  }
-} finally {
-  await pool?.end();
+for (const scenario of selected) {
+  const size = args.quick ? (scenario.quick ?? scenario.full) : scenario.full;
+  const samples: Sample[] = [];
+  for (let i = 0; i < args.runs; i++) samples.push(runChild(scenario.name));
+  const result = summarise(
+    { name: scenario.name, group: scenario.group, unit: scenario.unit, size },
+    samples,
+  );
+  results.push(result);
+  const s = result.summary.perSecond;
+  console.error(
+    `${scenario.name}: ${Math.round(s.median).toLocaleString('en-US')} ${scenario.unit} ` +
+      `(spread ${s.spreadPct.toFixed(1)}%)`,
+  );
 }
 
 const all: Results = { scenarios: results };
@@ -113,8 +123,8 @@ if (out !== undefined) {
     join(dir, 'summary.md'),
     `# Benchmark: ${record.versions.node}\n\n` +
       `\`${command}\` on ${record.host.cpu}, commit ${record.git.commit.slice(0, 7)} ` +
-      `(src/ at ${record.git.srcCommit.slice(0, 7)}). Medians of ${String(args.runs)} runs after ` +
-      `${String(args.warmup)} warm-up, with the lowest and highest run. Spread is (max − min) / median.\n\n` +
+      `(src/ at ${record.git.srcCommit.slice(0, 7)}). Medians of ${String(args.runs)} runs, each in a fresh ` +
+      `process after ${String(args.warmup)} warm-ups there, with the lowest and highest run. Spread is (max − min) / median.\n\n` +
       `${table(all)}\n`,
   );
   console.error(`Results in ${out}`);

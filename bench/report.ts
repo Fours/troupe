@@ -211,8 +211,9 @@ export function parseArgs(argv: readonly string[]): Args {
   return {
     quick,
     only,
-    // A quick run checks that each scenario works, so one run with no warm-up is enough. Three
-    // warm-ups, because one left the in-memory journal still speeding up (decision 0019).
+    // A quick run checks that each scenario works, so one run with no warm-up is enough. Each
+    // full run's process warms up three times: after one, the in-memory journal was still
+    // speeding up (decision 0019).
     runs: runs ?? (quick ? 1 : 10),
     warmup: warmup ?? (quick ? 0 : 3),
     ...(out === undefined ? {} : { out }),
