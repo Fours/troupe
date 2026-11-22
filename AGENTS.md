@@ -54,16 +54,20 @@ src/
   actor.ts, names.ts, events.ts, logger.ts, errors.ts, queue.ts
   scheduler.ts      Scheduler and realScheduler (0003)
   globals.d.ts      the runtime globals src/ may use (0004); in the build config only
+  node/             Node-only entry points, built by tsconfig.build.node.json with Node types, and
+                    the only place lint allows Node built-ins: sqlite/ is /persistence/sqlite (0017)
   testkit/          the /testkit entry point: ManualScheduler, seededRandom, createTestKit, TestProbe
   persistence/      the /persistence entry point: the store interfaces, the JSON-value check (0014),
-                    the in-memory backend, persistentActor (actor.ts: effects, recovery, schemas,
-                    upcasters and tags), projection (projection.ts), and the copied Standard
-                    Schema interface (0018)
+                    backend.ts (the argument checks every backend shares), the in-memory backend,
+                    persistentActor (actor.ts: effects, recovery, schemas, upcasters and tags),
+                    projection (projection.ts), and the copied Standard Schema interface (0018)
 test/               mirrors src/; helpers/ holds deferred() and test actors (tree, watcher, idle),
                     the persistent account, and faultyJournal() and faultySnapshots() for holding
                     and failing calls
-                    persistence/contract.ts is the journal contract every backend runs
+                    persistence/contract.ts is the journal contract every backend runs;
+                    node/ tests the Node-only backends, lint.test.ts the lint config's boundaries
 examples/           runnable examples, run by Node with type stripping
+scripts/            build steps run by Node with type stripping: write-sql.ts ships table SQL in dist/
 docs/               roadmap, milestone specs, decision records
 ```
 

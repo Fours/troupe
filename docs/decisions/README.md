@@ -33,4 +33,5 @@ When you change a decision, update its record in the same commit as the code.
 | [0013](0013-sequence-check-is-the-single-writer-backstop.md) | The journal's sequence check is the single-writer backstop, and a failed write is settled by recovery | Accepted | 2 |
 | [0014](0014-events-are-json.md) | Events and snapshot states are JSON values, checked before they're written | Accepted | 2 |
 | [0015](0015-journal-timestamps-come-from-an-injected-clock.md) | Journal timestamps come from an injected wall clock, and never order anything | Accepted | 2 |
+| [0017](0017-backends-add-no-dependencies.md) | Backends add no dependencies: `node:sqlite`, and a structurally typed `pg` pool | Proposed | 2 |
 | [0018](0018-standard-schema-and-upcasters.md) | Event schemas use Standard Schema, with one upcaster per version step | Accepted | 2 |

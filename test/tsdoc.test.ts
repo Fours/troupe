@@ -6,6 +6,7 @@ const ENTRIES = [
   `${root}src/index.ts`,
   `${root}src/testkit/index.ts`,
   `${root}src/persistence/index.ts`,
+  `${root}src/node/sqlite/index.ts`,
 ];
 
 function documented(symbol: ts.Symbol, checker: ts.TypeChecker): boolean {

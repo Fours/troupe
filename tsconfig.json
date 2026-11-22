@@ -26,10 +26,11 @@
     "paths": {
       "@kylewillett/troupe": ["./src/index.ts"],
       "@kylewillett/troupe/testkit": ["./src/testkit/index.ts"],
-      "@kylewillett/troupe/persistence": ["./src/persistence/index.ts"]
+      "@kylewillett/troupe/persistence": ["./src/persistence/index.ts"],
+      "@kylewillett/troupe/persistence/sqlite": ["./src/node/sqlite/index.ts"]
     }
   },
-  "include": ["src", "test", "examples", "*.config.ts"],
+  "include": ["src", "test", "examples", "scripts", "*.config.ts"],
   // Node's types already declare these globals, and skipLibCheck would hide any clash, so the
   // editor and tests see only Node's. The build config puts the file back.
   "exclude": ["src/globals.d.ts"]

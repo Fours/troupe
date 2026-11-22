@@ -1,4 +1,8 @@
 import { execFileSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { exportsOf, program, root } from './helpers/exports.js';
 
@@ -74,6 +78,9 @@ const PERSISTENCE_TYPES = [
   'StandardSchemaV1',
   'StoredEvent',
 ];
+// The milestone 2 spec's T6 names.
+const SQLITE_VALUES = ['sqlitePersistence'];
+const SQLITE_TYPES = ['SqlitePersistence'];
 
 /**
  * Every module URL Node resolves while it imports `specifier` from the package, in a separate
@@ -113,33 +120,43 @@ describe('the built package', () => {
       const main = await import('@kylewillett/troupe');
       const testkit = await import('@kylewillett/troupe/testkit');
       const persistence = await import('@kylewillett/troupe/persistence');
+      const sqlite = await import('@kylewillett/troupe/persistence/sqlite');
       console.log(JSON.stringify({
         main: Object.keys(main),
         testkit: Object.keys(testkit),
         persistence: Object.keys(persistence),
+        sqlite: Object.keys(sqlite),
       }));
     `;
     const out = execFileSync(process.execPath, ['--input-type=module', '-e', script], {
       cwd: root,
       encoding: 'utf8',
     });
-    const loaded = JSON.parse(out) as { main: string[]; testkit: string[]; persistence: string[] };
+    const loaded = JSON.parse(out) as Record<
+      'main' | 'testkit' | 'persistence' | 'sqlite',
+      string[]
+    >;
     expect(sorted(loaded.main)).toEqual(sorted(MAIN_VALUES));
     expect(sorted(loaded.testkit)).toEqual(sorted(TESTKIT_VALUES));
     expect(sorted(loaded.persistence)).toEqual(sorted(PERSISTENCE_VALUES));
+    expect(sorted(loaded.sqlite)).toEqual(sorted(SQLITE_VALUES));
   });
 
   it('declares exactly the spec’s names, types included', () => {
     const main = `${root}dist/index.d.ts`;
     const testkit = `${root}dist/testkit/index.d.ts`;
     const persistence = `${root}dist/persistence/index.d.ts`;
-    const prog = program([main, testkit, persistence]);
+    const sqlite = `${root}dist/node/sqlite/index.d.ts`;
+    const prog = program([main, testkit, persistence, sqlite]);
     expect(sorted(exportsOf(prog, main).keys())).toEqual(sorted([...MAIN_VALUES, ...MAIN_TYPES]));
     expect(sorted(exportsOf(prog, testkit).keys())).toEqual(
       sorted([...TESTKIT_VALUES, ...TESTKIT_TYPES]),
     );
     expect(sorted(exportsOf(prog, persistence).keys())).toEqual(
       sorted([...PERSISTENCE_VALUES, ...PERSISTENCE_TYPES]),
+    );
+    expect(sorted(exportsOf(prog, sqlite).keys())).toEqual(
+      sorted([...SQLITE_VALUES, ...SQLITE_TYPES]),
     );
   });
 
@@ -154,5 +171,42 @@ describe('the built package', () => {
     const loaded = loadedBy('@kylewillett/troupe/persistence');
     expect(loaded).toContain(`file://${root}dist/persistence/index.js`);
     expect(loaded.every((url) => url.startsWith(`file://${root}dist/`))).toBe(true);
+  });
+
+  it('loads /persistence/sqlite from dist/ and node:sqlite', () => {
+    const loaded = loadedBy('@kylewillett/troupe/persistence/sqlite');
+    expect(loaded).toContain(`file://${root}dist/node/sqlite/index.js`);
+    // The check below means something only if the hook sees node:sqlite when it does load.
+    expect(loaded).toContain('node:sqlite');
+    expect(loaded.filter((url) => !url.startsWith(`file://${root}dist/`))).toEqual(['node:sqlite']);
+  });
+
+  it('loads node:sqlite from neither the core nor /persistence', () => {
+    for (const specifier of ['@kylewillett/troupe', '@kylewillett/troupe/persistence']) {
+      const loaded = loadedBy(specifier);
+      expect(loaded.filter((url) => url.startsWith('node:'))).toEqual([]);
+      expect(loaded.filter((url) => url.includes('/dist/node/'))).toEqual([]);
+    }
+  });
+
+  it('ships the SQLite table SQL, which makes a database the backend can use', async () => {
+    const sql = readFileSync(`${root}dist/node/sqlite/schema.sql`, 'utf8');
+    const dir = mkdtempSync(join(tmpdir(), 'troupe-schema-'));
+    try {
+      const path = join(dir, 'migrated.db');
+      // As someone who manages migrations would: run the file, then open the backend on it.
+      const raw = new DatabaseSync(path);
+      raw.exec(sql);
+      raw.close();
+      const { sqlitePersistence } = (await import(
+        `${root}dist/node/sqlite/index.js`
+      )) as typeof import('@kylewillett/troupe/persistence/sqlite');
+      const p = sqlitePersistence({ path, clock: () => 1 });
+      await p.journal.append('a', 0, [{ event: 'x', version: 1, tags: ['t'] }]);
+      expect((await p.journal.readByTag('t', 0, 1)).map((e) => e.event)).toEqual(['x']);
+      p.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

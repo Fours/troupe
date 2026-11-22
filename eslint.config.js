@@ -2,6 +2,12 @@ import js from '@eslint/js';
 import prettier from 'eslint-config-prettier';
 import tseslint from 'typescript-eslint';
 
+const RESTRICTED_PROPERTIES = [
+  'error',
+  { object: 'Date', property: 'now', message: 'Read time from the injected Scheduler.' },
+  { object: 'Math', property: 'random', message: "Draw chance from the system's random." },
+];
+
 export default tseslint.config(
   // src/globals.d.ts is in the build config only (see tsconfig.json), where tsc checks it.
   { ignores: ['dist/', 'coverage/', 'node_modules/', 'src/globals.d.ts'] },
@@ -21,8 +27,10 @@ export default tseslint.config(
   },
   {
     // The core runs on any JavaScript runtime (decision 0004). The build has no Node types, so
-    // most slips fail to compile; this catches the ones that would still type-check.
+    // most slips fail to compile; this catches the ones that would still type-check. src/node/
+    // holds the Node-only entry points, the one place Node built-ins are allowed.
     files: ['src/**/*.ts'],
+    ignores: ['src/node/**'],
     rules: {
       'no-restricted-imports': [
         'error',
@@ -34,12 +42,14 @@ export default tseslint.config(
         { name: 'Buffer', message: 'src/ must not use Node globals.' },
         { name: 'setImmediate', message: 'Schedule work through the injected Scheduler.' },
       ],
-      'no-restricted-properties': [
-        'error',
-        { object: 'Date', property: 'now', message: 'Read time from the injected Scheduler.' },
-        { object: 'Math', property: 'random', message: "Draw chance from the system's random." },
-      ],
+      'no-restricted-properties': RESTRICTED_PROPERTIES,
     },
+  },
+  {
+    // Node-only code may use Node, but still reads time and chance only through what's injected
+    // (decision 0003).
+    files: ['src/node/**/*.ts'],
+    rules: { 'no-restricted-properties': RESTRICTED_PROPERTIES },
   },
   {
     files: ['**/*.js'],

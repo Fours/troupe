@@ -315,7 +315,7 @@ export interface PostgresPersistence extends Required<Persistence> {
 ```
 
 - **In-memory** lives in `/persistence`, not the testkit, because milestone 3's browser demo runs on it. It resolves every call on a microtask, and nothing waits on time.
-- **SQLite** uses Node's built-in `node:sqlite`, so it adds no dependency ([0017](decisions/0017-backends-add-no-dependencies.md)). `path` can be a file or `":memory:"`. File databases use WAL mode. An append runs in a `BEGIN IMMEDIATE` transaction, and a unique key on `(persistence_id, seq)` turns a lost race into `JournalConflictError`. Node 22 prints an experimental warning the first time `node:sqlite` loads, and Node 24 and later don't. The README says so.
+- **SQLite** uses Node's built-in `node:sqlite`, so it adds no dependency ([0017](decisions/0017-backends-add-no-dependencies.md)). `path` can be a file or `":memory:"`. File databases use WAL mode. An append runs in a `BEGIN IMMEDIATE` transaction, which takes the write lock before it checks the stream's last sequence number, so a lost race is `JournalConflictError`. The unique key on `(persistence_id, seq)` stays as an integrity guard ([0017](decisions/0017-backends-add-no-dependencies.md)). A connection waits up to 5 s for another's write lock, blocking the thread, since `node:sqlite` is synchronous. Node 22 prints an experimental warning the first time `node:sqlite` loads, and Node 24 and later don't. The README says so.
 - **Postgres** takes the caller's `pg` pool, typed structurally as `PgPool` (`query` and `connect`), so the entry point never imports `pg` and needs no peer dependency. `pg` is a devDependency for the tests. Tables live in `schema`, default `troupe`. An append runs in a transaction that takes a journal-wide advisory lock before it assigns offsets, so offsets commit in order ([0016](decisions/0016-postgres-appends-take-a-journal-lock.md)). A unique violation on `(persistence_id, seq)` becomes `JournalConflictError`.
 - The SQL that creates each backend's tables ships alongside it, for people who manage migrations themselves.
 
@@ -426,8 +426,8 @@ Do these in order. Each one ends with passing tests.
 | T2. Persistent actors: commands, effects and recovery | Done | 1af2f66 |
 | T3. Snapshots | Done | 22fc8e9 |
 | T4. Event schemas and upcasters | Done | b271f32 |
-| T5. Projections | Done | |
-| T6. SQLite backend | Not started | |
+| T5. Projections | Done | dcc6056 |
+| T6. SQLite backend | Done | |
 | T7. Postgres backend | Not started | |
 | T8. Persistent box office and README | Not started | |
 
@@ -514,11 +514,11 @@ Do these in order. Each one ends with passing tests.
 
 **Done when:**
 
-- [ ] The contract suite passes on `:memory:` and on a temp file, on Node 22, 24 and 26 in CI.
-- [ ] Two `sqlitePersistence` instances on one file, used in turn, keep one stream intact, and the stale one gets `JournalConflictError`.
-- [ ] Reopening a file finds everything a closed instance wrote.
-- [ ] Package tests: the entry point loads from `dist/`, and `/persistence` doesn't load `node:sqlite`.
-- [ ] `src/node/` is the only place lint allows Node imports.
+- [x] The contract suite passes on `:memory:` and on a temp file, on Node 22, 24 and 26 in CI.
+- [x] Two `sqlitePersistence` instances on one file, used in turn, keep one stream intact, and the stale one gets `JournalConflictError`.
+- [x] Reopening a file finds everything a closed instance wrote.
+- [x] Package tests: the entry point loads from `dist/`, and `/persistence` doesn't load `node:sqlite`.
+- [x] `src/node/` is the only place lint allows Node imports.
 
 ### T7. Postgres backend
 

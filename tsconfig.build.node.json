@@ -1,0 +1,14 @@
+{
+  // Builds the Node-only entry points in src/node/, with Node types. tsconfig.build.json builds
+  // everything else without them (decision 0004). The shared modules src/node/ imports are built
+  // by both, to the same output.
+  "extends": "./tsconfig.build.json",
+  "compilerOptions": {
+    "types": ["node"],
+    // Node's own declarations would be checked otherwise. The core build still checks
+    // src/globals.d.ts, which this build leaves out.
+    "skipLibCheck": true
+  },
+  "include": ["src/node"],
+  "exclude": []
+}

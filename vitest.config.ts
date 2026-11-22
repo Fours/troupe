@@ -18,6 +18,10 @@ export default defineConfig({
         find: /^@kylewillett\/troupe\/persistence$/,
         replacement: fileURLToPath(new URL('./src/persistence/index.ts', import.meta.url)),
       },
+      {
+        find: /^@kylewillett\/troupe\/persistence\/sqlite$/,
+        replacement: fileURLToPath(new URL('./src/node/sqlite/index.ts', import.meta.url)),
+      },
     ],
   },
   test: {
@@ -31,6 +35,7 @@ export default defineConfig({
         'src/index.ts',
         'src/testkit/index.ts',
         'src/persistence/index.ts',
+        'src/node/sqlite/index.ts',
         'src/**/*.d.ts',
       ],
       thresholds: { lines: 90 },

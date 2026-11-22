@@ -1,10 +1,16 @@
-import { checkInt, checkKeys, describe } from '../checks.js';
+import { checkKeys } from '../checks.js';
+import {
+  checkAppend,
+  checkId,
+  checkOffsetSave,
+  checkRead,
+  checkReadByTag,
+  serializeSnapshot,
+  wallClock,
+} from './backend.js';
 import { JournalConflictError } from './errors.js';
-import { jsonProblem } from './json.js';
 import type {
   Journal,
-  NewEvent,
-  NewSnapshot,
   OffsetStore,
   Persistence,
   Snapshot,
@@ -52,14 +58,7 @@ export function inMemoryPersistence(opts: { clock?: () => number } = {}): InMemo
   // The default wall clock for timestamps, which never order anything (decision 0015).
   // eslint-disable-next-line no-restricted-properties
   const { clock = Date.now } = opts;
-  if (typeof clock !== 'function') {
-    throw new TypeError(`inMemoryPersistence: clock must be a function, got ${describe(clock)}`);
-  }
-  const now = (): number => {
-    const time = clock();
-    checkInt(time, 'inMemoryPersistence: clock()', { min: 0 });
-    return time;
-  };
+  const now = wallClock(clock, 'inMemoryPersistence');
 
   const all: Row[] = [];
   const streams = new Map<string, Row[]>();
@@ -70,11 +69,8 @@ export function inMemoryPersistence(opts: { clock?: () => number } = {}): InMemo
 
   const journal: Journal = {
     async append(persistenceId, expectedSeq, events) {
-      checkId(persistenceId, 'append: persistenceId');
-      checkInt(expectedSeq, 'append: expectedSeq', { min: 0 });
-      if (!Array.isArray(events)) throw new TypeError('append: events must be an array');
       // Check and serialize the whole batch before touching the stream, so it's all or none.
-      const batch = events.map((event: unknown, i) => serializeEvent(event, i));
+      const batch = checkAppend(persistenceId, expectedSeq, events);
       await Promise.resolve();
       const stream = streams.get(persistenceId) ?? [];
       if (stream.length !== expectedSeq) {
@@ -104,18 +100,14 @@ export function inMemoryPersistence(opts: { clock?: () => number } = {}): InMemo
     },
 
     async read(persistenceId, fromSeq, limit) {
-      checkId(persistenceId, 'read: persistenceId');
-      checkInt(fromSeq, 'read: fromSeq');
-      checkInt(limit, 'read: limit');
+      checkRead(persistenceId, fromSeq, limit);
       await Promise.resolve();
       const stream = streams.get(persistenceId) ?? [];
       return stream.slice(fromSeq - 1, fromSeq - 1 + limit).map(toStored);
     },
 
     async readByTag(tag, afterOffset, limit) {
-      checkId(tag, 'readByTag: tag');
-      checkInt(afterOffset, 'readByTag: afterOffset', { min: 0 });
-      checkInt(limit, 'readByTag: limit');
+      checkReadByTag(tag, afterOffset, limit);
       await Promise.resolve();
       const rows = byTag.get(tag) ?? [];
       const start = firstAfter(rows, afterOffset);
@@ -125,8 +117,7 @@ export function inMemoryPersistence(opts: { clock?: () => number } = {}): InMemo
 
   const snapshotStore: SnapshotStore = {
     async save(persistenceId, snapshot) {
-      checkId(persistenceId, 'snapshots.save: persistenceId');
-      const { seq, version, json } = serializeSnapshot(snapshot);
+      const { seq, version, json } = serializeSnapshot(persistenceId, snapshot);
       await Promise.resolve();
       const stored = snapshots.get(persistenceId);
       // Saves don't hold the mailbox, so an older one can land after a newer one.
@@ -157,8 +148,7 @@ export function inMemoryPersistence(opts: { clock?: () => number } = {}): InMemo
     },
 
     async save(name, offset) {
-      checkId(name, 'offsets.save: name');
-      checkInt(offset, 'offsets.save: offset', { min: 0 });
+      checkOffsetSave(name, offset);
       await Promise.resolve();
       offsets.set(name, offset);
     },
@@ -171,46 +161,6 @@ export function inMemoryPersistence(opts: { clock?: () => number } = {}): InMemo
     events: (persistenceId) =>
       (persistenceId === undefined ? all : (streams.get(persistenceId) ?? [])).map(toStored),
   };
-}
-
-function checkId(value: unknown, what: string): void {
-  if (typeof value !== 'string' || value === '') {
-    throw new TypeError(`${what} must be a non-empty string, got ${describe(value)}`);
-  }
-}
-
-function serializeEvent(
-  value: unknown,
-  index: number,
-): { version: number; tags: readonly string[]; json: string } {
-  const where = `append: events[${String(index)}]`;
-  if (typeof value !== 'object' || value === null) {
-    throw new TypeError(`${where} must be an object`);
-  }
-  const { event, version, tags } = value as Partial<NewEvent>;
-  checkInt(version, `${where}.version`);
-  if (!Array.isArray(tags)) throw new TypeError(`${where}.tags must be an array`);
-  const seen = new Set<string>();
-  for (const tag of tags as readonly unknown[]) {
-    checkId(tag, `${where}.tags[]`);
-    if (seen.has(tag as string)) throw new TypeError(`${where}.tags repeats "${tag as string}"`);
-    seen.add(tag as string);
-  }
-  const problem = jsonProblem(event);
-  if (problem !== undefined) throw new TypeError(`${where}.event is not JSON: ${problem}`);
-  return { version: version as number, tags: [...seen], json: JSON.stringify(event) };
-}
-
-function serializeSnapshot(value: unknown): { seq: number; version: number; json: string } {
-  if (typeof value !== 'object' || value === null) {
-    throw new TypeError('snapshots.save: snapshot must be an object');
-  }
-  const { seq, version, state } = value as Partial<NewSnapshot>;
-  checkInt(seq, 'snapshots.save: seq');
-  checkInt(version, 'snapshots.save: version');
-  const problem = jsonProblem(state);
-  if (problem !== undefined) throw new TypeError(`snapshots.save: state is not JSON: ${problem}`);
-  return { seq: seq as number, version: version as number, json: JSON.stringify(state) };
 }
 
 /** A fresh copy each time, so nothing a reader holds can change what's stored. */

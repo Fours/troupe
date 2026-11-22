@@ -16,6 +16,7 @@
     "declarationMap": true,
     "sourceMap": true
   },
+  // src/node/ needs Node types, so tsconfig.build.node.json builds it.
   "include": ["src"],
-  "exclude": []
+  "exclude": ["src/node"]
 }
