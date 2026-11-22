@@ -232,6 +232,7 @@ export interface BackstageServer {
 - Each scenario warms up, then runs 10 times. The output is the median and the spread, with the machine, Node version, commit and exact command in a `setup.json` beside it.
 - Results go in `docs/decisions/data/0019-.../`, one folder per run, as the decisions README asks.
 - **The baseline comes first.** T1 runs it on milestone 2's code, before message events exist, so T2 can show that with no message subscriber, ping-pong is within the run-to-run spread of the baseline.
+- **Found in T1: the yield timer sets the pace.** With the default `yieldAfter` of 1,000, a busy pair of actors spends most of its time in the dispatcher's zero-delay yield ([0007](decisions/0007-microtask-wake-macrotask-yield.md)), which Node clamps to about 1 ms. So ping-pong and fan-out also run as `-noyield`, with `yieldAfter` out of reach, and the message-events rows run that way. T2's check compares `events-none`, whose spread is a few percent, not the yield-paced `ping-pong`. Whether the yield should change is a question for the write-up (see 0019), not this milestone.
 - The Postgres rows with 100 parallel streams answer milestone 2's open question 3, the cost of the journal-wide lock ([0016](decisions/0016-postgres-appends-take-a-journal-lock.md)). If the lock turns out to be the bottleneck, that's a finding for the write-up and milestone 4, not a change in this milestone.
 - CI runs `npm run bench -- --quick` (one small run of each in-memory scenario) so the benchmark can't rot. CI's numbers are never recorded.
 
@@ -296,7 +297,7 @@ Do these in order. Each one ends with passing tests.
 
 | Task | Status | Commit |
 | --- | --- | --- |
-| T1. The benchmark and its baseline | Not started | |
+| T1. The benchmark and its baseline | In progress | |
 | T2. Message events and inspection hooks | Not started | |
 | T3. The Backstage protocol and in-process source | Not started | |
 | T4. Demo foundation: opening night | Not started | |
@@ -315,11 +316,12 @@ Write [0019](decisions/0019-how-the-benchmark-measures.md).
 
 **Done when:**
 
-- [ ] Every scenario in the table runs, and prints the median and spread of 10 runs
+- [x] Every scenario in the table runs, and prints the median and spread of 10 runs
 - [ ] Each recorded run has a `setup.json` with the machine, Node version, commit and command, and rerunning that command reproduces it within its spread
-- [ ] The baseline is recorded on Node 22, 24 and 26, on milestone 2's last commit
-- [ ] The Postgres parallel-streams rows are recorded, and milestone 2's open question 3 has its answer
-- [ ] `npm run bench -- --quick` runs in CI in under a minute
+  - *Not yet met in full.* Every `setup.json` is there. Rerunning put 35 of 45 medians inside their recorded ranges, all of `events-none`, `events-plain` and `ping-pong-noyield` among them. The misses are Postgres and the memory journal drifting 3 to 6% past the edge, and fan-out moving by 15 to 22% ([0019](decisions/0019-how-the-benchmark-measures.md), Evidence).
+- [x] The baseline is recorded on Node 22, 24 and 26, on milestone 2's last commit
+- [x] The Postgres parallel-streams rows are recorded, and milestone 2's open question 3 has its answer
+- [x] `npm run bench -- --quick` runs in CI in under a minute
 
 ### T2. Message events and inspection hooks
 
@@ -338,7 +340,7 @@ Write [0020](decisions/0020-message-events-are-opt-in.md).
 - [ ] The tree walk shows each actor's path, status, depth and state through a spawn, a restart and a stop
 - [ ] `stateAt(n)` equals the state after `n` events, for every `n` of the box office's journal, including upcast events, and doesn't touch the live actor
 - [ ] Determinism: with a message subscriber, two runs with the same seed give identical events
-- [ ] The benchmark shows ping-pong with no message subscriber within T1's spread. The numbers with one are recorded
+- [ ] The benchmark shows ping-pong with no message subscriber (`events-none`) within T1's spread. The numbers with one are recorded
 
 ### T3. The Backstage protocol and in-process source
 

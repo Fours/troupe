@@ -1,0 +1,27 @@
+{
+  "date": "2026-11-22T17:01:58.414Z",
+  "command": "npm run bench -- --out docs/decisions/data/0019-baseline-node22-2026-11-22",
+  "git": {
+    "commit": "4003682568ff7b7f8ff8d4cfd68f14b5debc5641",
+    "srcCommit": "dbf9ad9d03cc06e5674663a7cc3985062a019ad2",
+    "uncommittedChanges": false
+  },
+  "host": {
+    "os": "Darwin 25.4.0 arm64",
+    "cpu": "Apple M5 Pro",
+    "cores": 18,
+    "memoryGiB": 24
+  },
+  "versions": {
+    "node": "v22.23.5",
+    "v8": "12.4.254.21-node.57",
+    "sqlite": "3.54.1",
+    "postgres": "18.7 (Debian 18.7-1.pgdg13+5)"
+  },
+  "config": {
+    "runs": 10,
+    "warmup": 3,
+    "quick": false,
+    "pgPoolMax": 10
+  }
+}
