@@ -29,10 +29,20 @@
       "@kylewillett/troupe/persistence": ["./src/persistence/index.ts"],
       "@kylewillett/troupe/persistence/sqlite": ["./src/node/sqlite/index.ts"],
       "@kylewillett/troupe/persistence/postgres": ["./src/persistence/postgres/index.ts"],
-      "@kylewillett/troupe/backstage": ["./src/backstage/index.ts"]
+      "@kylewillett/troupe/backstage": ["./src/backstage/index.ts"],
+      "@kylewillett/troupe/backstage/server": ["./src/node/backstage/index.ts"]
     }
   },
-  "include": ["src", "test", "examples", "scripts", "bench", "demo/vite.config.ts", "*.config.ts"],
+  "include": [
+    "src",
+    "test",
+    "examples",
+    "scripts",
+    "bench",
+    "demo/vite.config.ts",
+    "backstage/vite.config.ts",
+    "*.config.ts"
+  ],
   // Node's types already declare these globals, and skipLibCheck would hide any clash, so the
   // editor and tests see only Node's. The build config puts the file back.
   "exclude": ["src/globals.d.ts", "e2e"]

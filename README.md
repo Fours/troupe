@@ -28,6 +28,8 @@ Once it's released, it will be `npm install @kylewillett/troupe`. It needs Node 
 | `@kylewillett/troupe/persistence` | persistent actors, projections, the in-memory backend | any runtime |
 | `@kylewillett/troupe/persistence/sqlite` | the SQLite backend, on `node:sqlite` | Node |
 | `@kylewillett/troupe/persistence/postgres` | the Postgres backend, on your own `pg` pool | any runtime with a pool |
+| `@kylewillett/troupe/backstage` | Backstage, the inspector: its protocol and an in-process source | any runtime |
+| `@kylewillett/troupe/backstage/server` | `serveBackstage`, the inspector's UI over HTTP | Node |
 
 None of them has a runtime dependency.
 
@@ -328,6 +330,27 @@ That's where supervision comes in. A restart replays the journal, so the loser c
 
 - **Don't await an `ask` inside `receive` to an actor that might ask you back.** An async `receive` holds the mailbox until it settles. If the other actor asks this one in turn, neither can answer until the ask times out. Use `pipeToSelf` for requests between actors: the mailbox stays open while the reply is on its way. Under the testkit, a piped ask also runs entirely on virtual time ([0010](docs/decisions/0010-piped-asks-stay-on-the-scheduler.md)). An awaited ask that can only time out makes `settle` throw.
 - **Timers keep a Node process alive.** A system with active timers stops Node from exiting until you call `system.terminate()`, which cancels them.
+
+## Backstage
+
+Backstage is an inspector for a running system: the live actor tree with each mailbox's depth, the selected actor's state, messages and failures, and a persistent actor's journal, which you can scrub back through to see its state after any event. It only watches. Nothing in it can send a message or stop an actor ([0021](docs/decisions/0021-backstage-only-watches.md)).
+
+In Node, `serveBackstage` serves it on localhost:
+
+```ts
+import { serveBackstage } from '@kylewillett/troupe/backstage/server';
+
+const backstage = await serveBackstage(system); // { port: 7070, host: '127.0.0.1' } by default
+console.log(`Backstage: ${backstage.url}`);
+// ...
+await backstage.close();
+```
+
+Open the URL in a browser. The UI ships in the package, so it needs nothing else and works offline. `port: 0` picks a free port. It streams the system with server-sent events, and reconnects by itself if the process restarts ([0023](docs/decisions/0023-backstage-server-uses-sse.md)).
+
+> **Backstage shows every message and every state.** Keep it on a loopback address, as it is by default. Binding `host` to anything else shows them to whoever can reach that address. On loopback, it refuses requests whose `Host` header isn't a name for the address it serves, which stops other sites in your browser from reaching it through DNS rebinding, and it sends no CORS headers.
+
+`npm run example:backstage` builds the package and runs [examples/backstage](examples/backstage): the demo's opening night on real time and SQLite, with Backstage on <http://127.0.0.1:7070/>. Ten seconds in, `hamlet` gets a bad request, so there's a crash and a restart to look at.
 
 ## The box office example
 

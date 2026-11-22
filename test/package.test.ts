@@ -100,6 +100,9 @@ const BACKSTAGE_TYPES = [
   'WireEvent',
   'WireValue',
 ];
+// The milestone 3 spec's server.
+const SERVER_VALUES = ['serveBackstage'];
+const SERVER_TYPES = ['BackstageServer', 'BackstageServerOptions'];
 const ENTRY_POINTS = [
   '@kylewillett/troupe',
   '@kylewillett/troupe/testkit',
@@ -149,6 +152,7 @@ describe('the built package', () => {
       const sqlite = await import('@kylewillett/troupe/persistence/sqlite');
       const postgres = await import('@kylewillett/troupe/persistence/postgres');
       const backstage = await import('@kylewillett/troupe/backstage');
+      const server = await import('@kylewillett/troupe/backstage/server');
       console.log(JSON.stringify({
         main: Object.keys(main),
         testkit: Object.keys(testkit),
@@ -156,6 +160,7 @@ describe('the built package', () => {
         sqlite: Object.keys(sqlite),
         postgres: Object.keys(postgres),
         backstage: Object.keys(backstage),
+        server: Object.keys(server),
       }));
     `;
     const out = execFileSync(process.execPath, ['--input-type=module', '-e', script], {
@@ -163,7 +168,7 @@ describe('the built package', () => {
       encoding: 'utf8',
     });
     const loaded = JSON.parse(out) as Record<
-      'main' | 'testkit' | 'persistence' | 'sqlite' | 'postgres' | 'backstage',
+      'main' | 'testkit' | 'persistence' | 'sqlite' | 'postgres' | 'backstage' | 'server',
       string[]
     >;
     expect(sorted(loaded.main)).toEqual(sorted(MAIN_VALUES));
@@ -172,6 +177,7 @@ describe('the built package', () => {
     expect(sorted(loaded.sqlite)).toEqual(sorted(SQLITE_VALUES));
     expect(sorted(loaded.postgres)).toEqual(sorted(POSTGRES_VALUES));
     expect(sorted(loaded.backstage)).toEqual(sorted(BACKSTAGE_VALUES));
+    expect(sorted(loaded.server)).toEqual(sorted(SERVER_VALUES));
   });
 
   it('declares exactly the spec’s names, types included', () => {
@@ -181,7 +187,8 @@ describe('the built package', () => {
     const sqlite = `${root}dist/node/sqlite/index.d.ts`;
     const postgres = `${root}dist/persistence/postgres/index.d.ts`;
     const backstage = `${root}dist/backstage/index.d.ts`;
-    const prog = program([main, testkit, persistence, sqlite, postgres, backstage]);
+    const server = `${root}dist/node/backstage/index.d.ts`;
+    const prog = program([main, testkit, persistence, sqlite, postgres, backstage, server]);
     expect(sorted(exportsOf(prog, main).keys())).toEqual(sorted([...MAIN_VALUES, ...MAIN_TYPES]));
     expect(sorted(exportsOf(prog, testkit).keys())).toEqual(
       sorted([...TESTKIT_VALUES, ...TESTKIT_TYPES]),
@@ -197,6 +204,9 @@ describe('the built package', () => {
     );
     expect(sorted(exportsOf(prog, backstage).keys())).toEqual(
       sorted([...BACKSTAGE_VALUES, ...BACKSTAGE_TYPES]),
+    );
+    expect(sorted(exportsOf(prog, server).keys())).toEqual(
+      sorted([...SERVER_VALUES, ...SERVER_TYPES]),
     );
   });
 
@@ -261,6 +271,65 @@ describe('the built package', () => {
         loaded.filter((url) => url.includes('/dist/backstage/')),
         specifier,
       ).toEqual([]);
+    }
+  });
+
+  it('loads /backstage/server from dist/ and Node built-ins alone', () => {
+    const loaded = loadedBy('@kylewillett/troupe/backstage/server');
+    expect(loaded).toContain(`file://${root}dist/node/backstage/index.js`);
+    // The check below means something only if the hook sees node:http when it does load.
+    expect(loaded).toContain('node:http');
+    expect(
+      loaded.filter((url) => !url.startsWith(`file://${root}dist/`) && !url.startsWith('node:')),
+    ).toEqual([]);
+  });
+
+  it('loads node:http and /backstage/server from no other entry point', () => {
+    for (const specifier of [...ENTRY_POINTS, '@kylewillett/troupe/backstage']) {
+      const loaded = loadedBy(specifier);
+      expect(loaded, specifier).not.toContain('node:http');
+      expect(
+        loaded.filter((url) => url.includes('/dist/node/backstage/')),
+        specifier,
+      ).toEqual([]);
+    }
+  });
+
+  it('packs the built UI, and serves it from dist/', async () => {
+    const out = execFileSync('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], {
+      cwd: root,
+      encoding: 'utf8',
+    });
+    const [pack] = JSON.parse(out) as { files: { path: string }[] }[];
+    const files = (pack?.files ?? []).map((f) => f.path);
+    expect(files).toContain('dist/backstage-ui/index.html');
+    const assets = files.filter((f) => f.startsWith('dist/backstage-ui/assets/'));
+    expect(assets.some((f) => f.endsWith('.js'))).toBe(true);
+    expect(assets.some((f) => f.endsWith('.css'))).toBe(true);
+
+    // The built server finds the built UI beside it, and the page's script is there too.
+    const { serveBackstage } = (await import(
+      `${root}dist/node/backstage/index.js`
+    )) as typeof import('@kylewillett/troupe/backstage/server');
+    const { createActorSystem, silentLogger } = (await import(
+      `${root}dist/index.js`
+    )) as typeof import('@kylewillett/troupe');
+    const system = createActorSystem({ name: 'packed', logger: silentLogger });
+    const server = await serveBackstage(system, { port: 0 });
+    try {
+      const page = await fetch(server.url);
+      expect(page.status).toBe(200);
+      const html = await page.text();
+      expect(html).toContain('<title>Backstage · Troupe</title>');
+      const script = /src="\.\/(assets\/[^"]+\.js)"/.exec(html)?.[1];
+      expect(script).toBeDefined();
+      expect(files).toContain(`dist/backstage-ui/${String(script)}`);
+      const js = await fetch(new URL(String(script), server.url));
+      expect(js.status).toBe(200);
+      expect(js.headers.get('content-type')).toBe('text/javascript; charset=utf-8');
+    } finally {
+      await server.close();
+      await system.terminate();
     }
   });
 

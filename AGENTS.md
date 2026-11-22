@@ -39,10 +39,12 @@ npm run build       # tsc → dist/
 npm run bench       # the benchmark, against dist/ (build first); --quick for a smoke run
 npm run postgres:down
 npm run demo:dev    # the demo site on Vite's dev server; demo:build builds it into demo/dist/
-npm run test:e2e    # builds the demo, then Playwright in Chromium (npx playwright install chromium)
+npm run example:backstage  # opening night in Node with serveBackstage; prints the URL
+npm run test:e2e    # builds the package and the demo, then Playwright in Chromium
+                    # (npx playwright install chromium)
 ```
 
-Before you say a task is done, run lint, typecheck, test, test:integration, coverage and build, and make sure they all pass. When `demo/` or `e2e/` changed, run test:e2e too. The integration tests fail rather than skip when they can't reach Postgres, and in CI they need `TROUPE_POSTGRES_URL` set.
+Before you say a task is done, run lint, typecheck, test, test:integration, coverage and build, and make sure they all pass. When `demo/`, `backstage/`, `e2e/` or the server changed, run test:e2e too. The integration tests fail rather than skip when they can't reach Postgres, and in CI they need `TROUPE_POSTGRES_URL` set.
 
 ## Layout
 
@@ -61,7 +63,8 @@ src/
   scheduler.ts      Scheduler and realScheduler (0003)
   globals.d.ts      the runtime globals src/ may use (0004); in the build config only
   node/             Node-only entry points, built by tsconfig.build.node.json with Node types, and
-                    the only place lint allows Node built-ins: sqlite/ is /persistence/sqlite (0017)
+                    the only place lint allows Node built-ins: sqlite/ is /persistence/sqlite (0017),
+                    backstage/ is /backstage/server, serveBackstage() on node:http (0023)
   backstage/        the /backstage entry point (any runtime): backstage() the in-process source,
                     the protocol types, encode() the wire encoding, and the read-only requests (0021)
   testkit/          the /testkit entry point: ManualScheduler, seededRandom, createTestKit, TestProbe
@@ -81,16 +84,20 @@ test/               mirrors src/; helpers/ holds deferred() and test actors (tre
                     demo/ tests the demo's domain on the testkit and its driven clock
                     backstage-ui/ tests the Backstage UI's store and diff, with no browser
 backstage/          the Backstage UI (React, plain CSS), with its own tsconfig for the browser.
-                    Ships only as built files. src/store/ turns frames into a view model with no
-                    React and no clock of its own; src/ui/ draws it against a BackstageClient
+                    Ships only as built files: npm run build puts index.html and src/standalone/,
+                    the page serveBackstage serves, in dist/backstage-ui/. src/store/ turns frames
+                    into a view model with no React and no clock of its own; src/ui/ draws it
+                    against a BackstageClient: the demo's in-process one, or src/http-client.ts
 demo/               the demo site (Vite, React, plain CSS), with its own tsconfig for the browser
   src/domain/       opening night, with no React: shows, the crowd, the sales board, the faulty
                     journal, the driven clock (0022), the log's narration, and the Backstage client
                     that follows a restart. No Date.now or Math.random: it runs on virtual time
                     and seeded chance
 e2e/                Playwright tests of the built demo, run by test:e2e, with its own tsconfig for
-                    the DOM. frames.spec.ts runs in its own project, after the others
-examples/           runnable examples, run by Node with type stripping
+                    the DOM. frames.spec.ts runs in its own project, after the others, and
+                    server.spec.ts in its own, against examples/backstage on port 7071
+examples/           runnable examples, run by Node with type stripping, against dist/: box-office/
+                    (npm run example) and backstage/ (npm run example:backstage)
 scripts/            build steps run by Node with type stripping: write-sql.ts ships table SQL in dist/
 bench/              the benchmark (0019), run by Node with type stripping against dist/; results
                     go in bench/results/ (ignored) or, for a recorded run, docs/decisions/data/

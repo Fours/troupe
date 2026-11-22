@@ -1,5 +1,5 @@
-// What the UI talks to. The in-process source implements it as it is, and T6's HTTP client will
-// too, so the demo page and `serveBackstage` run the same UI.
+// What the UI talks to. The in-process source implements it as it is, and http-client.ts over
+// HTTP, so the demo page and `serveBackstage` run the same UI.
 
 import type { BackstageRequest, BackstageResponse, Frame } from '@kylewillett/troupe/backstage';
 

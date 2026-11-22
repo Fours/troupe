@@ -1,5 +1,5 @@
-// The Backstage UI, for a page that runs it: the demo now, and the page `serveBackstage` serves
-// in T6. Not part of the package's API: it ships only as built files.
+// The Backstage UI, for a page that runs it, such as the demo. The page `serveBackstage` serves
+// is src/standalone/. Not part of the package's API: it ships only as built files.
 
 export type { BackstageClient } from './client.ts';
 export { Backstage, type BackstageProps, type Panel } from './ui/Backstage.tsx';

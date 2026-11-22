@@ -1,0 +1,72 @@
+/* The standalone page around Backstage, which brings its own tokens. */
+:root {
+  --bg: #ffffff;
+  --fg: #1c1b22;
+  --muted: #5d5b66;
+  --line: #e3e1ea;
+  --live: #2f7d4f;
+  --warn: #b86e00;
+  color-scheme: light dark;
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    sans-serif;
+  line-height: 1.5;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #17161c;
+    --fg: #ecebf1;
+    --muted: #a3a1ad;
+    --line: #2f2d38;
+    --live: #7fcf9c;
+    --warn: #f0b45a;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+main {
+  max-width: 120rem;
+  margin: 0 auto;
+  padding: 1rem 1rem 3rem;
+}
+
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 1rem;
+  padding-bottom: 0.75rem;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid var(--line);
+}
+
+h1 {
+  margin: 0;
+  font-size: 1.5rem;
+}
+
+.status {
+  margin: 0;
+  color: var(--muted);
+}
+
+.status-open {
+  color: var(--live);
+}
+
+.status-reconnecting,
+.status-closed {
+  color: var(--warn);
+}

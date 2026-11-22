@@ -306,8 +306,8 @@ Do these in order. Each one ends with passing tests.
 | T2. Message events and inspection hooks | Done | 921fd59 |
 | T3. The Backstage protocol and in-process source | Done | 7d012b0 |
 | T4. Demo foundation: opening night | Done | 650befd |
-| T5. The Backstage UI | Done, but for your check | |
-| T6. The Node server | Not started | |
+| T5. The Backstage UI | Done, but for your check | 8ce9232 |
+| T6. The Node server | Done | |
 | T7. API review and the 0.1.0 release | Not started | |
 | T8. The write-up | Not started | |
 | T9. Deploy and link | Not started | |
@@ -430,12 +430,22 @@ Write [0023](decisions/0023-backstage-server-uses-sse.md).
 
 **Done when** tests cover:
 
-- [ ] `GET /` serves the UI, `GET /events` streams a `hello` then batched events, and `POST /request` answers
-- [ ] A reconnect gets a fresh `hello`
-- [ ] A request with another `Host` header is refused, and no CORS headers are sent
-- [ ] `close()` ends every stream and closes the source, and `port: 0` reports the port it got
-- [ ] Playwright opens `example:backstage`'s URL and sees the tree
-- [ ] A package test: the entry point loads from `dist/`, and `dist/backstage-ui/` is in the tarball
+- [x] `GET /` serves the UI, `GET /events` streams a `hello` then batched events, and `POST /request` answers
+- [x] A reconnect gets a fresh `hello`
+- [x] A request with another `Host` header is refused, and no CORS headers are sent
+- [x] `close()` ends every stream and closes the source, and `port: 0` reports the port it got
+- [x] Playwright opens `example:backstage`'s URL and sees the tree
+- [x] A package test: the entry point loads from `dist/`, and `dist/backstage-ui/` is in the tarball
+
+**Found in T6:**
+
+- **"The address it serves" means any name for it.** A loopback server answers `localhost`, `127.x.x.x` and `[::1]`, with its port, since refusing `localhost:7070` for a server on `127.0.0.1` would protect nothing. A server on `0.0.0.0` or `::` answers IP addresses and `localhost`, never another name, which is what DNS rebinding needs. Agreed in planning, and recorded in [0023](decisions/0023-backstage-server-uses-sse.md).
+- **A stalled tab is dropped.** Past 1 MB unsent on one connection, the server destroys it. `EventSource` reconnects and gets a fresh `hello`, so a tab left in the background can't grow the server's memory.
+- **`POST /request` needs `application/json`**, which no cross-origin form or simple `fetch` can send, and the page gets a `default-src 'self'` CSP. The Playwright test fails on any console error, so a CSP that blocked the UI would show.
+- **A stream ends on the response's `close`, not the request's.** A GET's request closes as soon as its empty body is read, which would end every stream at once.
+- **The example sends `hamlet` one bad request ten seconds in**, so the failure history has something in it over HTTP, and Playwright checks it.
+- `npm run build` now ends with the UI's Vite build, and `test:e2e` builds the package before the demo, since the example runs against `dist/`.
+- **For T7's API review:** `realScheduler().now()` is `performance.now()`, which has a fraction, so on real time an event's `at` and a `hello`'s `now` aren't whole milliseconds, against "integer milliseconds everywhere". The UI doesn't mind. It's milestone 1's, and worth deciding in the review.
 
 ### T7. API review and the 0.1.0 release
 
