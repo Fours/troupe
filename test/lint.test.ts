@@ -37,4 +37,19 @@ describe('lint config', () => {
       expect(await severity(file, 'no-restricted-properties')).toBe(2);
     }
   });
+
+  it('bans Node built-ins and globals in the demo, and Date.now and Math.random in its domain', async () => {
+    for (const file of ['demo/src/main.tsx', 'demo/src/domain/clock.ts']) {
+      expect(await severity(file, 'no-restricted-imports')).toBe(2);
+      expect(await severity(file, 'no-restricted-globals')).toBe(2);
+    }
+    expect(await severity('demo/src/domain/clock.ts', 'no-restricted-properties')).toBe(2);
+    // The page reads real time, from animation frames.
+    expect(await severity('demo/src/main.tsx', 'no-restricted-properties')).toBe(0);
+    expect(await severity('demo/vite.config.ts', 'no-restricted-imports')).toBe(0);
+  });
+
+  it("applies the rules of hooks to the demo's React code", async () => {
+    expect(await severity('demo/src/App.tsx', 'react-hooks/rules-of-hooks')).toBe(2);
+  });
 });

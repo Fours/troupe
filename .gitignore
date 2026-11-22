@@ -7,3 +7,7 @@ coverage/
 *.local
 .troupe/
 bench/results/
+# The demo's build (npm run demo:build) and Playwright's output (npm run test:e2e).
+demo/dist/
+test-results/
+playwright-report/

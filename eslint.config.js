@@ -1,5 +1,6 @@
 import js from '@eslint/js';
 import prettier from 'eslint-config-prettier';
+import reactHooks from 'eslint-plugin-react-hooks';
 import tseslint from 'typescript-eslint';
 
 const RESTRICTED_PROPERTIES = [
@@ -10,7 +11,17 @@ const RESTRICTED_PROPERTIES = [
 
 export default tseslint.config(
   // src/globals.d.ts is in the build config only (see tsconfig.json), where tsc checks it.
-  { ignores: ['dist/', 'coverage/', 'node_modules/', 'src/globals.d.ts'] },
+  {
+    ignores: [
+      'dist/',
+      'coverage/',
+      'node_modules/',
+      'src/globals.d.ts',
+      'demo/dist/',
+      'test-results/',
+      'playwright-report/',
+    ],
+  },
   js.configs.recommended,
   ...tseslint.configs.strictTypeChecked,
   {
@@ -50,6 +61,32 @@ export default tseslint.config(
     // (decision 0003).
     files: ['src/node/**/*.ts'],
     rules: { 'no-restricted-properties': RESTRICTED_PROPERTIES },
+  },
+  {
+    // The demo runs in the browser: no Node built-ins or globals. Its config file runs in Node.
+    files: ['demo/src/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        { patterns: [{ group: ['node:*'], message: 'The demo runs in the browser.' }] },
+      ],
+      'no-restricted-globals': [
+        'error',
+        { name: 'process', message: 'The demo runs in the browser.' },
+        { name: 'Buffer', message: 'The demo runs in the browser.' },
+      ],
+    },
+  },
+  {
+    // The domain runs on the system's virtual time and seeded random, so a seed tells the same
+    // story every time (decision 0022).
+    files: ['demo/src/domain/**/*.ts'],
+    rules: { 'no-restricted-properties': RESTRICTED_PROPERTIES },
+  },
+  {
+    // The rules of hooks, and effects that list what they depend on.
+    files: ['demo/**/*.tsx'],
+    ...reactHooks.configs.flat.recommended,
   },
   {
     files: ['**/*.js'],

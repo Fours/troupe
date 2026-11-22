@@ -52,3 +52,18 @@ jobs:
       # shared runners mean nothing and are never kept (decision 0019).
       - run: npm run bench -- --quick
         timeout-minutes: 1
+
+  # The demo in a real browser: Playwright on Chromium against the built site. A job of its own,
+  # so Chromium installs once, not once per Node version.
+  demo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.x
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e

@@ -38,9 +38,11 @@ npm run coverage    # unit and integration together, enforces 90% lines on src/
 npm run build       # tsc → dist/
 npm run bench       # the benchmark, against dist/ (build first); --quick for a smoke run
 npm run postgres:down
+npm run demo:dev    # the demo site on Vite's dev server; demo:build builds it into demo/dist/
+npm run test:e2e    # builds the demo, then Playwright in Chromium (npx playwright install chromium)
 ```
 
-Before you say a task is done, run lint, typecheck, test, test:integration, coverage and build, and make sure they all pass. The integration tests fail rather than skip when they can't reach Postgres, and in CI they need `TROUPE_POSTGRES_URL` set.
+Before you say a task is done, run lint, typecheck, test, test:integration, coverage and build, and make sure they all pass. When `demo/` or `e2e/` changed, run test:e2e too. The integration tests fail rather than skip when they can't reach Postgres, and in CI they need `TROUPE_POSTGRES_URL` set.
 
 ## Layout
 
@@ -76,6 +78,12 @@ test/               mirrors src/; helpers/ holds deferred() and test actors (tre
                     persistence/contract.ts is the journal contract every backend runs;
                     node/ tests the Node-only backends, lint.test.ts the lint config's boundaries
                     integration/ needs Postgres: its own Vitest project, run by test:integration
+                    demo/ tests the demo's domain on the testkit and its driven clock
+demo/               the demo site (Vite, React, plain CSS), with its own tsconfig for the browser
+  src/domain/       opening night, with no React: shows, the crowd, the sales board, the faulty
+                    journal, the driven clock (0022) and the log's narration. No Date.now or
+                    Math.random: it runs on virtual time and seeded chance
+e2e/                Playwright tests of the built demo, run by test:e2e
 examples/           runnable examples, run by Node with type stripping
 scripts/            build steps run by Node with type stripping: write-sql.ts ships table SQL in dist/
 bench/              the benchmark (0019), run by Node with type stripping against dist/; results

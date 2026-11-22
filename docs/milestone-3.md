@@ -191,7 +191,7 @@ A React app with plain CSS, in `backstage/`. It's written against a small client
 The demo domain is the box office, grown to be worth watching (open question 1). It's plain TypeScript in `demo/src/domain/`, with no React, and it uses the repo's own `src/` through the package name.
 
 - **Actors.** A `box-office` with one persistent show per production (four shows, 40 to 120 seats). A `crowd` actor that spawns a `customer` actor for each arrival, at most 12 at a time. Each customer asks for a hold, waits a moment, then confirms or walks away, and stops. A `sales-board` projection follows the `sale` tag and keeps seats sold per show. So the tree has long-lived actors, short-lived ones churning, persistent ones and a projection.
-- **Time** runs on a `ManualScheduler` from the testkit, which the page advances from `requestAnimationFrame` by the elapsed time times the speed: paused, ¼×, 1× or 4×. Pausing freezes the system, not just the UI ([0022](decisions/0022-demo-drives-virtual-time.md)). `advanceTo` runs timers synchronously, but the journal resolves on microtasks, so one big jump would fire timers ahead of writes that should have finished first. Each frame therefore advances in steps of at most 10 ms, letting promises settle between steps. T4 probes this before building on it. The random is `seededRandom`, so a given seed tells the same story.
+- **Time** runs on a `ManualScheduler` from the testkit, which the page advances from `requestAnimationFrame` by the elapsed time times the speed: paused, ¼×, 1× or 4×. Pausing freezes the system, not just the UI ([0022](decisions/0022-demo-drives-virtual-time.md)). `advanceTo` runs timers synchronously, but the journal resolves on microtasks, so one big jump would fire timers ahead of writes that should have finished first. Each frame therefore advances one due time at a time, letting promises settle at each, as the testkit's `advance` does. (The first plan was steps of at most 10 ms. T4's probe showed those still lose writes to timers, and tell a different story at a different frame rate.) The random is `seededRandom`, so a given seed tells the same story.
 - **Persistence** is `inMemoryPersistence()`, behind a wrapper in the demo that can fail every call.
 - **Buttons:**
   - *Rush:* 30 customers at once, so mailboxes fill.
@@ -304,8 +304,8 @@ Do these in order. Each one ends with passing tests.
 | --- | --- | --- |
 | T1. The benchmark and its baseline | Done | d28e83d, 4003682, 2d65cea |
 | T2. Message events and inspection hooks | Done | 921fd59 |
-| T3. The Backstage protocol and in-process source | Done | |
-| T4. Demo foundation: opening night | Not started | |
+| T3. The Backstage protocol and in-process source | Done | 7d012b0 |
+| T4. Demo foundation: opening night | Done | |
 | T5. The Backstage UI | Not started | |
 | T6. The Node server | Not started | |
 | T7. API review and the 0.1.0 release | Not started | |
@@ -384,11 +384,20 @@ Write [0022](decisions/0022-demo-drives-virtual-time.md).
 
 **Done when:**
 
-- [ ] Unit tests on the testkit: customers hold, confirm and walk away; holds expire; the sales board counts sales; each button does what the Design section says
-- [ ] Journal down makes every show fail and back off, and journal up lets each one recover with its sales intact
-- [ ] Two runs with the same seed tell the same story, event for event
-- [ ] Pause stops the system's time. ¼× and 4× change how fast it passes
-- [ ] The built page runs in Chromium, as a Playwright smoke test in CI
+- [x] Unit tests on the testkit: customers hold, confirm and walk away; holds expire; the sales board counts sales; each button does what the Design section says
+- [x] Journal down makes every show fail and back off, and journal up lets each one recover with its sales intact
+- [x] Two runs with the same seed tell the same story, event for event
+- [x] Pause stops the system's time. ¼× and 4× change how fast it passes
+- [x] The built page runs in Chromium, as a Playwright smoke test in CI
+
+**Found in T4:**
+
+- Steps of at most 10 ms weren't enough. Time moves one due time at a time, settling at each, so the story doesn't depend on frame timing ([0022](decisions/0022-demo-drives-virtual-time.md), Evidence).
+- Button presses, asks and restarts queue on the clock with its ticks, so a press lands between due times. The system is created at once, but its actors spawn in the clock's first turn, so an inspector attached straight away sees every spawn.
+- A `pipeToSelf` message's `delivered` event carries the raw `Result`, since its mapping runs as it's taken. So replies say what they answer (`kind`, `show` and `seats`), and the log is narrated from events alone.
+- The sales board is a plain actor fed by a child projection, and skips offsets it has already counted. Its projection keeps offsets per system, so a new system's board counts every sale again.
+- The steady stream rarely reaches 12 customers at these rates. The cap is a backstop, and a rush goes past it.
+- A sold-out show writes nothing, so Journal down can't fail it. Sales are slowed to about a seat a second, so lear sells out in about three minutes at 1× and the whole house in about ten. T5 decides whether the night needs a way to go on, such as returns or a new night.
 
 ### T5. The Backstage UI
 

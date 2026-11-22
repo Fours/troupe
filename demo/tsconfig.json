@@ -1,0 +1,33 @@
+{
+  // The demo's own settings: browser APIs and JSX. The root tsconfig covers the tests, which
+  // import the domain's files too, so demo code imports with explicit .ts extensions.
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "types": ["vite/client"],
+    // As in demo/vite.config.ts: the package by name is this checkout's src/.
+    "paths": {
+      "@kylewillett/troupe": ["../src/index.ts"],
+      "@kylewillett/troupe/testkit": ["../src/testkit/index.ts"],
+      "@kylewillett/troupe/persistence": ["../src/persistence/index.ts"],
+      "@kylewillett/troupe/backstage": ["../src/backstage/index.ts"]
+    }
+  },
+  "include": ["src"]
+}
