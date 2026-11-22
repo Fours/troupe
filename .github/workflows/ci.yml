@@ -14,6 +14,24 @@ jobs:
       matrix:
         # Every supported LTS line. Keep in step with engines in package.json.
         node: [22.x, 24.x, 26.x]
+    # For npm run test:integration. The same image and port as docker-compose.test.yml.
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: troupe
+          POSTGRES_PASSWORD: troupe
+          POSTGRES_DB: troupe
+        ports:
+          - 5440:5432
+        options: >-
+          --health-cmd "pg_isready -U troupe -d troupe"
+          --health-interval 1s
+          --health-timeout 3s
+          --health-retries 30
+    # Required in CI: without it, the integration tests fail rather than guess (test/helpers).
+    env:
+      TROUPE_POSTGRES_URL: postgres://troupe:troupe@localhost:5440/troupe
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -24,5 +42,7 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
+      - run: npm run test:integration
+      # Runs unit and integration together, and enforces the 90% line threshold.
       - run: npm run coverage
       - run: npm run build

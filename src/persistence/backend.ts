@@ -34,10 +34,22 @@ export function wallClock(clock: unknown, where: string): () => number {
   };
 }
 
-/** Throws unless `value` is a non-empty string: a persistence id, tag or projection name. */
+// U+0000, or a surrogate with no partner. Postgres text can't hold the first, and neither
+// database's UTF-8 can hold the second, so an id with either would be stored as something else.
+// The `u` flag makes a valid pair one code point, which \p{Cs} doesn't match.
+// eslint-disable-next-line no-control-regex -- U+0000 is the point.
+const UNSTORABLE = /[\u0000\p{Cs}]/u;
+
+/**
+ * Throws unless `value` is a non-empty string that every backend can store as it is: a persistence
+ * id, tag or projection name.
+ */
 export function checkId(value: unknown, what: string): void {
   if (typeof value !== 'string' || value === '') {
     throw new TypeError(`${what} must be a non-empty string, got ${describe(value)}`);
+  }
+  if (UNSTORABLE.test(value)) {
+    throw new TypeError(`${what} must not contain U+0000 or a lone surrogate`);
   }
 }
 

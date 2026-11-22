@@ -16,7 +16,12 @@ async function severity(file: string, rule: string): Promise<number> {
 
 describe('lint config', () => {
   // A file under src/ outside src/node/, in each part of the package.
-  const anywhere = ['src/system.ts', 'src/persistence/memory.ts', 'src/testkit/kit.ts'];
+  const anywhere = [
+    'src/system.ts',
+    'src/persistence/memory.ts',
+    'src/persistence/postgres/postgres.ts',
+    'src/testkit/kit.ts',
+  ];
 
   it('bans Node built-ins and Node globals in src/, except in src/node/', async () => {
     for (const file of anywhere) {

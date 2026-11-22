@@ -81,6 +81,10 @@ const PERSISTENCE_TYPES = [
 // The milestone 2 spec's T6 names.
 const SQLITE_VALUES = ['sqlitePersistence'];
 const SQLITE_TYPES = ['SqlitePersistence'];
+// The milestone 2 spec's T7 names, plus the pool's client and the query method they share, so
+// a wrapper around a pool can be typed.
+const POSTGRES_VALUES = ['postgresPersistence'];
+const POSTGRES_TYPES = ['PgPool', 'PgPoolClient', 'PgQueryable', 'PostgresPersistence'];
 
 /**
  * Every module URL Node resolves while it imports `specifier` from the package, in a separate
@@ -121,11 +125,13 @@ describe('the built package', () => {
       const testkit = await import('@kylewillett/troupe/testkit');
       const persistence = await import('@kylewillett/troupe/persistence');
       const sqlite = await import('@kylewillett/troupe/persistence/sqlite');
+      const postgres = await import('@kylewillett/troupe/persistence/postgres');
       console.log(JSON.stringify({
         main: Object.keys(main),
         testkit: Object.keys(testkit),
         persistence: Object.keys(persistence),
         sqlite: Object.keys(sqlite),
+        postgres: Object.keys(postgres),
       }));
     `;
     const out = execFileSync(process.execPath, ['--input-type=module', '-e', script], {
@@ -133,13 +139,14 @@ describe('the built package', () => {
       encoding: 'utf8',
     });
     const loaded = JSON.parse(out) as Record<
-      'main' | 'testkit' | 'persistence' | 'sqlite',
+      'main' | 'testkit' | 'persistence' | 'sqlite' | 'postgres',
       string[]
     >;
     expect(sorted(loaded.main)).toEqual(sorted(MAIN_VALUES));
     expect(sorted(loaded.testkit)).toEqual(sorted(TESTKIT_VALUES));
     expect(sorted(loaded.persistence)).toEqual(sorted(PERSISTENCE_VALUES));
     expect(sorted(loaded.sqlite)).toEqual(sorted(SQLITE_VALUES));
+    expect(sorted(loaded.postgres)).toEqual(sorted(POSTGRES_VALUES));
   });
 
   it('declares exactly the spec’s names, types included', () => {
@@ -147,7 +154,8 @@ describe('the built package', () => {
     const testkit = `${root}dist/testkit/index.d.ts`;
     const persistence = `${root}dist/persistence/index.d.ts`;
     const sqlite = `${root}dist/node/sqlite/index.d.ts`;
-    const prog = program([main, testkit, persistence, sqlite]);
+    const postgres = `${root}dist/persistence/postgres/index.d.ts`;
+    const prog = program([main, testkit, persistence, sqlite, postgres]);
     expect(sorted(exportsOf(prog, main).keys())).toEqual(sorted([...MAIN_VALUES, ...MAIN_TYPES]));
     expect(sorted(exportsOf(prog, testkit).keys())).toEqual(
       sorted([...TESTKIT_VALUES, ...TESTKIT_TYPES]),
@@ -157,6 +165,9 @@ describe('the built package', () => {
     );
     expect(sorted(exportsOf(prog, sqlite).keys())).toEqual(
       sorted([...SQLITE_VALUES, ...SQLITE_TYPES]),
+    );
+    expect(sorted(exportsOf(prog, postgres).keys())).toEqual(
+      sorted([...POSTGRES_VALUES, ...POSTGRES_TYPES]),
     );
   });
 
@@ -187,6 +198,29 @@ describe('the built package', () => {
       expect(loaded.filter((url) => url.startsWith('node:'))).toEqual([]);
       expect(loaded.filter((url) => url.includes('/dist/node/'))).toEqual([]);
     }
+  });
+
+  it('loads /persistence/postgres from dist/ alone, never pg or a Node built-in', () => {
+    const loaded = loadedBy('@kylewillett/troupe/persistence/postgres');
+    expect(loaded).toContain(`file://${root}dist/persistence/postgres/index.js`);
+    expect(loaded.filter((url) => !url.startsWith(`file://${root}dist/`))).toEqual([]);
+    // The check above means something only if the hook sees pg when it does load.
+    expect(loadedBy('pg').some((url) => url.includes('/node_modules/pg/'))).toBe(true);
+  });
+
+  it('loads pg from neither the core nor /persistence', () => {
+    for (const specifier of ['@kylewillett/troupe', '@kylewillett/troupe/persistence']) {
+      const loaded = loadedBy(specifier);
+      expect(loaded.filter((url) => url.includes('/node_modules/'))).toEqual([]);
+      expect(loaded.filter((url) => url.includes('/dist/persistence/postgres/'))).toEqual([]);
+    }
+  });
+
+  it('ships the Postgres table SQL for the default schema', async () => {
+    const sql = readFileSync(`${root}dist/persistence/postgres/schema.sql`, 'utf8');
+    const { postgresSchemaSql } = await import('../src/persistence/postgres/schema.js');
+    expect(sql).toBe(postgresSchemaSql('troupe'));
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS "troupe".events');
   });
 
   it('ships the SQLite table SQL, which makes a database the backend can use', async () => {

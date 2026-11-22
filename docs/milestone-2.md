@@ -253,8 +253,8 @@ export interface StoredEvent extends NewEvent {
 - **Sequence numbers** start at 1 and have no gaps. `append` with `expectedSeq: 0` creates the stream. A conflict writes nothing.
 - **Offsets** increase across the journal, but may skip numbers. Once a reader has seen offset *n*, no event with a lower offset can appear later. That's what lets a projection store one number. Postgres needs work to keep this promise ([0016](decisions/0016-postgres-appends-take-a-journal-lock.md)).
 - **Timestamps** come from the backend's `clock` option, which defaults to `Date.now` ([0015](decisions/0015-journal-timestamps-come-from-an-injected-clock.md)). They're for people and projections, never for ordering. `scheduler.now()` can't serve, because it's monotonic and means nothing outside one process. The backend stamps snapshots too, so callers never pass a timestamp in.
-- **Invalid arguments** reject with `TypeError` and write nothing: an event or snapshot state that isn't JSON, a repeated tag on one event, an empty id or tag, or a sequence number, offset or limit that isn't a safe integer in range. Checking the tag *pattern* is the persistent actor's job (T5).
-- **JSON in, JSON out.** Every backend stores events and snapshot states as JSON, and gives back values that are deep-equal to what went in. Object key order isn't kept, since Postgres's `jsonb` reorders keys. The in-memory backend round-trips through JSON too, so a test on it sees what Postgres would.
+- **Invalid arguments** reject with `TypeError` and write nothing: an event or snapshot state that isn't JSON, a repeated tag on one event, an empty id or tag, an id or tag with U+0000 or a lone surrogate (which no database stores as they are), or a sequence number, offset or limit that isn't a safe integer in range. Checking the tag *pattern* is the persistent actor's job (T5).
+- **JSON in, JSON out.** Every backend stores events and snapshot states as JSON, and gives back values that are deep-equal to what went in. Object key order isn't promised. Postgres stores `json`, not `jsonb`, which would reject `\u0000` and lone surrogates in strings ([0017](decisions/0017-backends-add-no-dependencies.md)). The in-memory backend round-trips through JSON too, so a test on it sees what Postgres would.
 - Numbers from the database (`bigint` columns) come back as JavaScript numbers. They're always safe integers.
 
 ```ts
@@ -427,8 +427,8 @@ Do these in order. Each one ends with passing tests.
 | T3. Snapshots | Done | 22fc8e9 |
 | T4. Event schemas and upcasters | Done | b271f32 |
 | T5. Projections | Done | dcc6056 |
-| T6. SQLite backend | Done | |
-| T7. Postgres backend | Not started | |
+| T6. SQLite backend | Done | fa701a8 |
+| T7. Postgres backend | Done | |
 | T8. Persistent box office and README | Not started | |
 
 ### T1. Persistence entry point, stores and the in-memory backend
@@ -529,12 +529,12 @@ Do these in order. Each one ends with passing tests.
 
 **Done when:**
 
-- [ ] The contract suite passes against Postgres, locally and in CI.
-- [ ] `setup()` is safe to run twice, and `schema` keeps two journals apart in one database.
-- [ ] **Concurrent writers:** two pools append to one stream at once, many times. Each append either succeeds or gets `JournalConflictError`, and the stream has no gaps or duplicates.
-- [ ] **Offsets commit in order:** while two pools append to many streams at once, a reader following one tag never sees an offset lower than one it has already seen. Removing the advisory lock makes this test fail.
-- [ ] A package test: the entry point doesn't import `pg`.
-- [ ] The integration run fails, rather than skipping, when `CI` is set and `TROUPE_POSTGRES_URL` isn't.
+- [x] The contract suite passes against Postgres, locally and in CI.
+- [x] `setup()` is safe to run twice, and `schema` keeps two journals apart in one database.
+- [x] **Concurrent writers:** two pools append to one stream at once, many times. Each append either succeeds or gets `JournalConflictError`, and the stream has no gaps or duplicates.
+- [x] **Offsets commit in order:** while two pools append to many streams at once, a reader following one tag never sees an offset lower than one it has already seen. Removing the advisory lock makes this test fail.
+- [x] A package test: the entry point doesn't import `pg`.
+- [x] The integration run fails, rather than skipping, when `CI` is set and `TROUPE_POSTGRES_URL` isn't.
 
 ### T8. Persistent box office and README
 

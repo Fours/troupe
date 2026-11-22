@@ -24,6 +24,8 @@ function testClock(start = 1_700_000_000_000) {
   };
 }
 
+const seqs = (events: readonly { seq: number }[]) => events.map((e) => e.seq);
+
 const ev = (event: unknown, tags: readonly string[] = [], version = 1): NewEvent => ({
   event,
   version,
@@ -228,6 +230,10 @@ export function journalContract(name: string, backend: ContractBackend): void {
         flags: [true, false, null],
         nested: { list: [{ a: 1 }, [], {}], empty: '' },
         'odd key': 1,
+        // Postgres's jsonb rejects these two, which is why the backend stores json (0017).
+        nul: 'a\u0000b',
+        lone: '\ud800',
+        pair: '🎭',
       };
 
       it('gives events back deep-equal to what went in', () =>
@@ -280,6 +286,37 @@ export function journalContract(name: string, backend: ContractBackend): void {
           }
           expect(await journal.read('a', 1, 10)).toEqual([]);
           expect(await snapshots.load('a')).toBeUndefined();
+        }));
+    });
+
+    describe('ids and tags', () => {
+      it('accept any well-formed string, astral characters included', () =>
+        withBackend(async ({ journal, snapshots, offsets }) => {
+          await journal.append('🎭 show', 0, [ev(1, ['🎟️', 'ticket'])]);
+          await snapshots.save('🎭 show', { seq: 1, version: 1, state: 1 });
+          await offsets.save('🎭 log', 1);
+          expect(seqs(await journal.read('🎭 show', 1, 10))).toEqual([1]);
+          expect(seqs(await journal.readByTag('🎟️', 0, 10))).toEqual([1]);
+          expect((await snapshots.load('🎭 show'))?.seq).toBe(1);
+          expect(await offsets.load('🎭 log')).toBe(1);
+        }));
+
+      it('reject U+0000 and lone surrogates with TypeError, which no database stores as they are', () =>
+        withBackend(async ({ journal, snapshots, offsets }) => {
+          for (const bad of ['a\u0000b', '\ud800', 'x\udc00']) {
+            const calls: Promise<unknown>[] = [
+              journal.append(bad, 0, [ev(1)]),
+              journal.append('a', 0, [ev(1, [bad])]),
+              journal.read(bad, 1, 10),
+              journal.readByTag(bad, 0, 10),
+              snapshots.save(bad, { seq: 1, version: 1, state: 1 }),
+              snapshots.load(bad),
+              offsets.save(bad, 1),
+              offsets.load(bad),
+            ];
+            for (const call of calls) await expect(call).rejects.toBeInstanceOf(TypeError);
+          }
+          expect(await journal.read('a', 1, 10)).toEqual([]);
         }));
     });
 

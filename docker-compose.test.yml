@@ -1,0 +1,20 @@
+# Postgres for the integration tests: npm run postgres:up, then npm run test:integration.
+# Published on 5440, not 5432, so the tests can't reach a Postgres you use for anything else.
+# CI runs the same image as a service, on the same port.
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: troupe
+      POSTGRES_PASSWORD: troupe
+      POSTGRES_DB: troupe
+    # The data is disposable, so skip the flushes. Correctness under concurrency doesn't depend on
+    # them, and the tests run faster.
+    command: ['postgres', '-c', 'fsync=off', '-c', 'synchronous_commit=off']
+    ports:
+      - '5440:5432'
+    healthcheck:
+      test: ['CMD', 'pg_isready', '-U', 'troupe', '-d', 'troupe']
+      interval: 1s
+      timeout: 3s
+      retries: 30

@@ -22,11 +22,35 @@ export default defineConfig({
         find: /^@kylewillett\/troupe\/persistence\/sqlite$/,
         replacement: fileURLToPath(new URL('./src/node/sqlite/index.ts', import.meta.url)),
       },
+      {
+        find: /^@kylewillett\/troupe\/persistence\/postgres$/,
+        replacement: fileURLToPath(new URL('./src/persistence/postgres/index.ts', import.meta.url)),
+      },
     ],
   },
   test: {
     passWithNoTests: true,
-    include: ['test/**/*.test.ts'],
+    // `npm test` runs unit only and needs no database. `npm run test:integration` needs Postgres
+    // (npm run postgres:up). Coverage runs both, since the Postgres backend runs only there.
+    // `extends: true` gives each project the aliases above.
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: 'unit',
+          include: ['test/**/*.test.ts'],
+          exclude: ['test/integration/**'],
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: 'integration',
+          include: ['test/integration/**/*.test.ts'],
+          globalSetup: ['test/integration/setup.ts'],
+        },
+      },
+    ],
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts'],
@@ -36,6 +60,7 @@ export default defineConfig({
         'src/testkit/index.ts',
         'src/persistence/index.ts',
         'src/node/sqlite/index.ts',
+        'src/persistence/postgres/index.ts',
         'src/**/*.d.ts',
       ],
       thresholds: { lines: 90 },

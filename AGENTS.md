@@ -31,12 +31,15 @@ Troupe is an actor framework for TypeScript, in the spirit of Akka. It has typed
 npm install
 npm run lint
 npm run typecheck   # editor config, then the build config with no Node types
-npm test
-npm run coverage    # enforces 90% lines on src/
+npm test            # unit tests, no database needed
+npm run postgres:up # the test Postgres from docker-compose.test.yml, on port 5440
+npm run test:integration  # the Postgres backend; needs postgres:up or TROUPE_POSTGRES_URL
+npm run coverage    # unit and integration together, enforces 90% lines on src/
 npm run build       # tsc → dist/
+npm run postgres:down
 ```
 
-Before you say a task is done, run lint, typecheck, test, coverage and build, and make sure they all pass.
+Before you say a task is done, run lint, typecheck, test, test:integration, coverage and build, and make sure they all pass. The integration tests fail rather than skip when they can't reach Postgres, and in CI they need `TROUPE_POSTGRES_URL` set.
 
 ## Layout
 
@@ -61,11 +64,15 @@ src/
                     backend.ts (the argument checks every backend shares), the in-memory backend,
                     persistentActor (actor.ts: effects, recovery, schemas, upcasters and tags),
                     projection (projection.ts), and the copied Standard Schema interface (0018)
+    postgres/       the /persistence/postgres entry point: any runtime, on a structurally typed
+                    pg pool it never imports (0016, 0017)
 test/               mirrors src/; helpers/ holds deferred() and test actors (tree, watcher, idle),
-                    the persistent account, and faultyJournal() and faultySnapshots() for holding
-                    and failing calls
+                    the persistent account, faultyJournal() and faultySnapshots() for holding
+                    and failing calls, and postgres.ts (the test database, fresh schemas, and a
+                    pool that holds a COMMIT)
                     persistence/contract.ts is the journal contract every backend runs;
                     node/ tests the Node-only backends, lint.test.ts the lint config's boundaries
+                    integration/ needs Postgres: its own Vitest project, run by test:integration
 examples/           runnable examples, run by Node with type stripping
 scripts/            build steps run by Node with type stripping: write-sql.ts ships table SQL in dist/
 docs/               roadmap, milestone specs, decision records
