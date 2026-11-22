@@ -103,6 +103,11 @@ export interface EventStream {
   - a `processed` with `skipped: true`, for a timer message whose timer was cancelled after it was queued, whether it's taken or drained. Today these vanish without an event.
 - **The sender is best-effort** ([0020](decisions/0020-message-events-are-opt-in.md)). `from` is the path of the actor whose handler is running when the `tell` happens: in `initial`, `receive` or `onSignal`, before any `await`. The dispatcher already knows which cell it's running, so this needs no change to `tell`. After an `await`, the runtime-agnostic core can't know the sender, since there's no `AsyncLocalStorage` in every runtime, so `from` is absent. Persistent actors run their effect steps through an internal hook that sets the sender, so `thenReply` replies have one. Sends from outside any actor, and from timers, have none.
 - `message` is the object itself, not a copy. The encoder (below) decides what crosses a wire.
+- **Found in T2:**
+  - A piped ask's result is queued the moment the reply is told ([0010](decisions/0010-piped-asks-stay-on-the-scheduler.md)), so its `from` is the actor that replied.
+  - The `processed` for a persistent actor's command comes after its `persisted`.
+  - The sender also covers `recoveryCompleted`, which runs after recovery's `await`, the same way as effect steps.
+  - The first cut cost 7% with nobody watching, until the cell's hot path was reshaped for V8's inliner (0020, Evidence).
 
 ### Inspection hooks
 
@@ -298,7 +303,7 @@ Do these in order. Each one ends with passing tests.
 | Task | Status | Commit |
 | --- | --- | --- |
 | T1. The benchmark and its baseline | Done | d28e83d, 4003682, 2d65cea |
-| T2. Message events and inspection hooks | Not started | |
+| T2. Message events and inspection hooks | Done | 921fd59 |
 | T3. The Backstage protocol and in-process source | Not started | |
 | T4. Demo foundation: opening night | Not started | |
 | T5. The Backstage UI | Not started | |
@@ -332,15 +337,16 @@ Write [0020](decisions/0020-message-events-are-opt-in.md).
 
 **Done when** tests cover:
 
-- [ ] A subscriber with `{ messages: true }` gets a `delivered` and a `processed` for every mailbox message, with matching ids, and the right depths during a burst
-- [ ] A subscriber without it gets neither, and with no message subscriber none are built
-- [ ] `from` is set for a `tell` in `initial`, `receive`, `onSignal` and a persistent actor's `thenReply`, and absent after an `await`, from outside an actor, and from a timer
-- [ ] Every `delivered` ends exactly once: a `processed` (before the `failed`, when the handler throws), a `deadLetter` with its `id` when a stop drains it, or a skipped `processed` for a cancelled timer's message
-- [ ] `stateChanged` is true only when the handler returned a different object
-- [ ] The tree walk shows each actor's path, status, depth and state through a spawn, a restart and a stop
-- [ ] `stateAt(n)` equals the state after `n` events, for every `n` of the box office's journal, including upcast events, and doesn't touch the live actor
-- [ ] Determinism: with a message subscriber, two runs with the same seed give identical events
-- [ ] The benchmark shows ping-pong with no message subscriber (`events-none`) within T1's spread. The numbers with one are recorded
+- [x] A subscriber with `{ messages: true }` gets a `delivered` and a `processed` for every mailbox message, with matching ids, and the right depths during a burst
+- [x] A subscriber without it gets neither, and with no message subscriber none are built
+- [x] `from` is set for a `tell` in `initial`, `receive`, `onSignal` and a persistent actor's `thenReply`, and absent after an `await`, from outside an actor, and from a timer
+- [x] Every `delivered` ends exactly once: a `processed` (before the `failed`, when the handler throws), a `deadLetter` with its `id` when a stop drains it, or a skipped `processed` for a cancelled timer's message
+- [x] `stateChanged` is true only when the handler returned a different object
+- [x] The tree walk shows each actor's path, status, depth and state through a spawn, a restart and a stop
+- [x] `stateAt(n)` equals the state after `n` events, for every `n` of the box office's journal, including upcast events, and doesn't touch the live actor
+- [x] Determinism: with a message subscriber, two runs with the same seed give identical events
+- [x] The benchmark shows ping-pong with no message subscriber (`events-none`) within T1's spread. The numbers with one are recorded
+  - `events-none` is inside T1's range on Node 22, 24 and 26. Run alternately with T1's code in the same sitting, it's about 2% slower. With a message subscriber, ping-pong runs at about 56% of the speed ([0020](decisions/0020-message-events-are-opt-in.md), Evidence).
 
 ### T3. The Backstage protocol and in-process source
 
