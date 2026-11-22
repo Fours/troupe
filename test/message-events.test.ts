@@ -3,6 +3,7 @@ import { actor } from '../src/actor.js';
 import { EventBus } from '../src/events.js';
 import { persistentActor } from '../src/persistence/actor.js';
 import { inMemoryPersistence } from '../src/persistence/memory.js';
+import { projection } from '../src/persistence/projection.js';
 import { supervise } from '../src/supervision.js';
 import { createTestKit, type TestKit } from '../src/testkit/kit.js';
 import type { ActorRef, AnyRef, SystemEvent } from '../src/types.js';
@@ -323,6 +324,38 @@ describe('the sender', () => {
     expect(delivered(seen, '/user/target').map((d) => [d.message, d.from])).toEqual([
       ['preRestart', '/user/failing'],
       ['postStop', '/user/failing'],
+    ]);
+  });
+
+  it("is the projection for what its handle tells, until the handle's own await", async () => {
+    const kit = createTestKit();
+    const seen = withMessages(kit);
+    const persistence = inMemoryPersistence({ clock: () => 0 });
+    await persistence.journal.append('a', 0, [
+      { event: 'one', version: 1, tags: ['sale'] },
+      { event: 'two', version: 1, tags: ['sale'] },
+    ]);
+    const target = kit.system.spawn(sink, 'target');
+    kit.system.spawn(
+      projection({
+        name: 'feed',
+        persistence,
+        tag: 'sale',
+        // The read awaits the journal, so the handle runs outside the projection's turn.
+        handle: async (stored) => {
+          target.tell(stored.event);
+          await Promise.resolve();
+          target.tell(`after ${String(stored.event)}`);
+        },
+      }),
+      'feed',
+    );
+    await kit.settle();
+    expect(delivered(seen, '/user/target').map((d) => [d.message, d.from])).toEqual([
+      ['one', '/user/feed'],
+      ['after one', undefined],
+      ['two', '/user/feed'],
+      ['after two', undefined],
     ]);
   });
 

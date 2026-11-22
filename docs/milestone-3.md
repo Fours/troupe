@@ -307,7 +307,7 @@ Do these in order. Each one ends with passing tests.
 | T3. The Backstage protocol and in-process source | Done | 7d012b0 |
 | T4. Demo foundation: opening night | Done | 650befd |
 | T5. The Backstage UI | Done, but for your check | 8ce9232 |
-| T6. The Node server | Done | |
+| T6. The Node server | Done | f44fe65 |
 | T7. API review and the 0.1.0 release | Not started | |
 | T8. The write-up | Not started | |
 | T9. Deploy and link | Not started | |
@@ -445,6 +445,7 @@ Write [0023](decisions/0023-backstage-server-uses-sse.md).
 - **A stream ends on the response's `close`, not the request's.** A GET's request closes as soon as its empty body is read, which would end every stream at once.
 - **The example sends `hamlet` one bad request ten seconds in**, so the failure history has something in it over HTTP, and Playwright checks it.
 - `npm run build` now ends with the UI's Vite build, and `test:e2e` builds the package before the demo, since the example runs against `dist/`.
+- **The sales board's feed looked idle.** A projection's `handle` runs after its `await` on the journal, so what it told had no sender, and Backstage drew nothing from `feed` to `sales-board`. `projection` now runs `handle` through the same internal `asSender` hook as a persistent actor's effect steps (0020), so a sale shows as coming from `feed`. A `tell` after an `await` inside `handle` still has none, by 0020's rule. The demo's tree now also says in words what `feed` does.
 - **For T7's API review:** `realScheduler().now()` is `performance.now()`, which has a fraction, so on real time an event's `at` and a `hello`'s `now` aren't whole milliseconds, against "integer milliseconds everywhere". The UI doesn't mind. It's milestone 1's, and worth deciding in the review.
 
 ### T7. API review and the 0.1.0 release

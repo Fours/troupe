@@ -1,5 +1,5 @@
 import { checkInt, checkKeys, describe } from '../checks.js';
-import { START, type WithStart } from '../internal.js';
+import { internalsOf, START, type WithStart } from '../internal.js';
 import { isValidName } from '../names.js';
 import type { ActorContext, ActorDef } from '../types.js';
 import type { Journal, OffsetStore, Persistence, StoredEvent } from './types.js';
@@ -18,7 +18,8 @@ export interface ProjectionOptions {
   /**
    * Handles one event, and may return a promise, which is awaited before the next event. At least
    * once: after a failure, the batch runs again from its start, so an event can repeat. It gets
-   * the stored event as written, not upcast or checked, since a tag can span entity types.
+   * the stored event as written, not upcast or checked, since a tag can span entity types. In
+   * message events, what it tells before any `await` of its own has the projection as its sender.
    */
   handle(event: StoredEvent): void | Promise<void>;
   /** How long to wait after a batch that wasn't full, in ms. A positive integer. Default 1,000. */
@@ -73,8 +74,11 @@ export function projection(opts: ProjectionOptions): ActorDef<never, ProjectionS
     initial: { offset: 0 },
     async receive(current, _poll, ctx) {
       const batch = await journal.readByTag(tag, current.offset, batchSize);
-      // Called on opts, so a handle that uses `this` sees the object it was defined on.
-      for (const event of batch) await opts.handle(event);
+      // After the read's await, so outside the cell's turn: what handle tells names the projection
+      // as its sender only through the hook (decision 0020). Called on opts, so a handle that uses
+      // `this` sees the object it was defined on.
+      const internals = internalsOf(ctx);
+      for (const event of batch) await internals.asSender(() => opts.handle(event));
       const last = batch.at(-1);
       let next = current;
       if (last !== undefined) {

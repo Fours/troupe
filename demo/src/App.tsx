@@ -142,7 +142,7 @@ export function App() {
               selected={selected}
               onSelect={setSelected}
               explain={{
-                tree: 'Here: the box office and its four shows, the sales board, and the crowd, which sends a customer for each arrival.',
+                tree: "Here: the box office and its four shows, and the crowd, which sends a customer for each arrival. The sales board counts seats sold. Its feed reads each sale from the shows' journals and passes it on, so you'll see a line from feed to the board after every sale.",
                 timeline: "A show's journal holds every hold, sale, release and return.",
               }}
             />

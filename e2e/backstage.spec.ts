@@ -36,6 +36,16 @@ test("shows the selected actor's state, mailbox and messages", async ({ demo: pa
   await expect(row(page, 'crowd')).toHaveAttribute('aria-selected', 'true');
 });
 
+test('the sales board hears each sale from its feed', async ({ demo: page }) => {
+  await row(page, 'sales-board').click();
+  const sale = panel(page, 'Details: sales-board')
+    .getByRole('row')
+    .filter({ hasText: 'type: "sale"' })
+    .first();
+  // A sale needs a customer to hold and then buy, which takes a few seconds even at 4×.
+  await expect(sale.getByRole('cell').nth(1)).toHaveText('feed', { timeout: 15_000 });
+});
+
 test('Bad request shows the failure, the restart and its backoff', async ({ demo: page }) => {
   await page.getByRole('button', { name: 'Bad request' }).click();
   await expect(row(page, 'hamlet')).toContainText('×1');
