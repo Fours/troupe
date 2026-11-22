@@ -103,6 +103,8 @@ Scope:
 - A demo site at `troupe.kylewillett.com`, deployed the portfolio's way (S3, CloudFront, `npm run deploy`), with PostHog.
 - A design write-up built from `docs/decisions/`.
 
+Spec: [milestone-3.md](milestone-3.md).
+
 ### 4. Multi-node
 
 **Outcome:** several Node processes form a cluster. Entities are addressed by ID from any node, and each one lives on exactly one node at a time. When a node dies, its entities come back on the others, recovered from the journal.

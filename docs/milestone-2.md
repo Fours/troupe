@@ -429,7 +429,7 @@ Do these in order. Each one ends with passing tests.
 | T5. Projections | Done | dcc6056 |
 | T6. SQLite backend | Done | fa701a8 |
 | T7. Postgres backend | Done | dbf9ad9 |
-| T8. Persistent box office and README | Done | |
+| T8. Persistent box office and README | Done | bd15015 |
 
 ### T1. Persistence entry point, stores and the in-memory backend
 
