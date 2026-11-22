@@ -1,3 +1,5 @@
+import type { StandardSchemaV1 } from './standard-schema.js';
+
 /**
  * The reason `Journal.append` rejects when the stream's last sequence number isn't the expected
  * one: another writer got there first (decision 0013). Nothing was written. Backends throw it.
@@ -40,5 +42,60 @@ export class JournalSequenceError extends Error {
     this.persistenceId = persistenceId;
     this.expected = expected;
     this.got = got;
+  }
+}
+
+/**
+ * The reason a command or a recovery fails when an event doesn't pass its schema. On write it's
+ * thrown before the append, so nothing was written. On recovery it names the stored event.
+ */
+export class EventValidationError extends Error {
+  /** Always `"EventValidationError"`, so the error can be recognized without `instanceof`. */
+  override readonly name = 'EventValidationError';
+  /** The stream the event belongs to. */
+  readonly persistenceId: string;
+  /** The stored event's sequence number, on recovery. Undefined on write. */
+  readonly seq: number | undefined;
+  /** What the schema found wrong, as it reported it. */
+  readonly issues: readonly StandardSchemaV1.Issue[];
+
+  /** Creates the error for an event of `persistenceId`, at `seq` when it was read. */
+  constructor(
+    persistenceId: string,
+    seq: number | undefined,
+    issues: readonly StandardSchemaV1.Issue[],
+  ) {
+    const where = seq === undefined ? 'a new event' : `event ${String(seq)}`;
+    const first = issues[0]?.message ?? 'no issues reported';
+    super(`${where} of "${persistenceId}" failed its schema: ${first}`);
+    this.persistenceId = persistenceId;
+    this.seq = seq;
+    this.issues = issues;
+  }
+}
+
+/**
+ * The reason recovery fails when a stored event's version is newer than the actor's. It usually
+ * means an older deployment is reading events a newer one wrote.
+ */
+export class EventVersionError extends Error {
+  /** Always `"EventVersionError"`, so the error can be recognized without `instanceof`. */
+  override readonly name = 'EventVersionError';
+  /** The stream being read. */
+  readonly persistenceId: string;
+  /** The stored event's sequence number. */
+  readonly seq: number;
+  /** The stored event's version. */
+  readonly version: number;
+
+  /** Creates the error for event `seq` of `persistenceId`, stored at `version`. */
+  constructor(persistenceId: string, seq: number, version: number, current: number) {
+    super(
+      `event ${String(seq)} of "${persistenceId}" has version ${String(version)}, ` +
+        `newer than this actor's ${String(current)}`,
+    );
+    this.persistenceId = persistenceId;
+    this.seq = seq;
+    this.version = version;
   }
 }

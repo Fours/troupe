@@ -424,8 +424,8 @@ Do these in order. Each one ends with passing tests.
 | --- | --- | --- |
 | T1. Persistence entry point, stores and the in-memory backend | Done | 65f1df6 |
 | T2. Persistent actors: commands, effects and recovery | Done | 1af2f66 |
-| T3. Snapshots | Done | |
-| T4. Event schemas and upcasters | Not started | |
+| T3. Snapshots | Done | 22fc8e9 |
+| T4. Event schemas and upcasters | Done | |
 | T5. Projections | Not started | |
 | T6. SQLite backend | Not started | |
 | T7. Postgres backend | Not started | |
@@ -490,12 +490,12 @@ Do these in order. Each one ends with passing tests.
 
 **Done when** tests cover:
 
-- [ ] A schema rejects a bad event on write, before the append, with the schema's issues.
-- [ ] A schema rejects a bad stored event on recovery.
-- [ ] An async schema works on both paths.
-- [ ] A version-1 event in the journal is upcast to version 2 and passes the version-2 schema, and new events are stored at version 2.
-- [ ] A stored version above the current one fails recovery with `EventVersionError`.
-- [ ] Upcasters with a gap throw `TypeError` from `persistentActor()`.
+- [x] A schema rejects a bad event on write, before the append, with the schema's issues.
+- [x] A schema rejects a bad stored event on recovery.
+- [x] An async schema works on both paths.
+- [x] A version-1 event in the journal is upcast to version 2 and passes the version-2 schema, and new events are stored at version 2.
+- [x] A stored version above the current one fails recovery with `EventVersionError`.
+- [x] Upcasters with a gap throw `TypeError` from `persistentActor()`.
 
 ### T5. Projections
 

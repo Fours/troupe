@@ -1,6 +1,7 @@
 // Type tests for persistent actors: `npm run typecheck` checks these. At runtime the assertions do
 // nothing, and @ts-expect-error lines fail the typecheck if they stop being errors.
 import { describe, expectTypeOf, it } from 'vitest';
+import { z } from 'zod';
 import { persistentActor } from '../../src/persistence/actor.js';
 import type { Effect, PersistentContext, PersistentState } from '../../src/persistence/actor.js';
 import { inMemoryPersistence } from '../../src/persistence/memory.js';
@@ -91,5 +92,34 @@ describe('persistentActor types', () => {
 
   it('keeps an effect for one event type from standing in for another', () => {
     expectTypeOf<Effect<Ev, Total>>().not.toExtend<Effect<{ type: 'other' }, Total>>();
+  });
+
+  it('infers E from a schema, and rejects a schema for other events', () => {
+    const added = z.object({ type: z.literal('added'), n: z.number() });
+    const def = persistentActor({
+      id: 'total',
+      persistence,
+      initial: { total: 0 },
+      events: { schema: added },
+      onCommand(_state, cmd: Cmd, { persist, none }) {
+        expectTypeOf(persist).parameters.toEqualTypeOf<{ type: 'added'; n: number }[]>();
+        return cmd.type === 'add' ? persist({ type: 'added', n: cmd.n }) : none();
+      },
+      onEvent(state, event) {
+        expectTypeOf(event).toEqualTypeOf<{ type: 'added'; n: number }>();
+        return { total: state.total + event.n };
+      },
+    });
+    expectTypeOf(def).toEqualTypeOf<ActorDef<Cmd, PersistentState<Total>>>();
+
+    persistentActor<Cmd, Ev, Total>({
+      id: 'total',
+      persistence,
+      initial: { total: 0 },
+      // @ts-expect-error the schema's output must be the definition's events
+      events: { schema: z.object({ type: z.literal('removed'), n: z.number() }) },
+      onCommand: (_s, _c, { none }) => none(),
+      onEvent: (s) => s,
+    });
   });
 });

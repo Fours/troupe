@@ -1,9 +1,10 @@
 import { checkInt, checkKeys, describe } from '../checks.js';
 import { internalsOf, START, type WithStart } from '../internal.js';
 import type { ActorContext, ActorDef, ActorRef, Signal } from '../types.js';
-import { JournalSequenceError } from './errors.js';
+import { EventValidationError, EventVersionError, JournalSequenceError } from './errors.js';
 import { jsonProblem } from './json.js';
-import type { Journal, NewEvent, Persistence, SnapshotStore } from './types.js';
+import type { StandardSchemaV1 } from './standard-schema.js';
+import type { Journal, NewEvent, Persistence, SnapshotStore, StoredEvent } from './types.js';
 
 // These interfaces grow task by task through milestone 2: each one holds only what's built.
 
@@ -70,6 +71,28 @@ export interface PersistentContext<C, E, S> extends ActorContext<C> {
   readonly none: () => Effect<E, S>;
 }
 
+/**
+ * Runtime checks and versions for a persistent actor's events (decision 0018). Every event is
+ * stored as `persist` got it, with `version`. The schema checks it before the append, and again on
+ * recovery after the upcasters, and `onEvent` gets the schema's output both times.
+ */
+export interface EventOptions<E> {
+  /**
+   * Checks events on write, before the append, and on recovery, after upcasting. Any Standard
+   * Schema library works, sync or async. A failure is `EventValidationError`, with the issues.
+   */
+  schema?: StandardSchemaV1<unknown, E>;
+  /** The current event version, a positive integer, stored with every new event. Default 1. */
+  version?: number;
+  /**
+   * One function per old version, keyed by the version it upgrades from: `upcasters[n]` turns a
+   * version-n event into a version-(n + 1) one. They must cover every version from 1 to
+   * `version - 1`, and nothing else. A stored event runs through each of them from its own
+   * version up, then through the schema.
+   */
+  upcasters?: Readonly<Record<number, (event: unknown) => unknown>>;
+}
+
 /** A persistent actor: a command handler, an event handler and an initial state. */
 export interface PersistentActorDef<C, E, S> {
   /** The event stream's id in the journal: a non-empty string of at most 255 characters. */
@@ -90,6 +113,8 @@ export interface PersistentActorDef<C, E, S> {
   onEvent(state: S, event: E): S;
   /** Lifecycle signals, for side effects only. Optional. */
   onSignal?(state: S, signal: PersistentSignal, ctx: PersistentContext<C, E, S>): void;
+  /** Runtime checks and versions for events. Optional. */
+  events?: EventOptions<E>;
   /**
    * Snapshotting, so recovery doesn't replay the whole stream. Optional, and needs
    * `persistence.snapshots`. A snapshot is only a shortcut: events are never deleted after one, and
@@ -116,14 +141,14 @@ const OPTIONS = new Set([
   'onCommand',
   'onEvent',
   'onSignal',
+  'events',
   'snapshots',
 ]);
 const SNAPSHOT_OPTIONS = new Set(['every', 'version']);
+const EVENT_OPTIONS = new Set(['schema', 'version', 'upcasters']);
 const MAX_ID_LENGTH = 255;
 /** Events per read during recovery. */
 const PAGE_SIZE = 256;
-/** The event version until T4 adds schemas and upcasters. */
-const VERSION = 1;
 
 type Step<S> = (state: S, ctx: ActorContext<never>) => void;
 
@@ -201,6 +226,38 @@ export function persistentActor<C, E, S>(
   const { id } = def;
   const journal: Journal = def.persistence.journal;
   const snapshotting = snapshotPlan(def);
+  const { schema, version, upcasters } = eventPlan(def.events);
+
+  /** The schema's output for `event`. */
+  const check = async (
+    using: StandardSchemaV1<unknown, E>,
+    event: unknown,
+    seq: number | undefined,
+  ): Promise<E> => {
+    const result = await using['~standard'].validate(event);
+    if (result.issues) throw new EventValidationError(id, seq, result.issues);
+    return result.value;
+  };
+
+  /** A stored event raised to the current version, not yet checked. */
+  const upcast = (stored: StoredEvent): unknown => {
+    if (stored.version > version) {
+      throw new EventVersionError(id, stored.seq, stored.version, version);
+    }
+    let event = stored.event;
+    for (let v = stored.version; v < version; v++) {
+      const up = upcasters[v];
+      // Only a backend that broke its contract stores a version below 1.
+      if (up === undefined) {
+        throw new TypeError(
+          `${id}: event ${String(stored.seq)} has version ${String(stored.version)}, ` +
+            'which no upcaster covers',
+        );
+      }
+      event = up(event);
+    }
+    return event;
+  };
 
   const persist = (...events: E[]): Effect<E, S> =>
     events.length === 0 ? NONE : new EffectImpl<E, S>(events, []);
@@ -233,9 +290,19 @@ export function persistentActor<C, E, S>(
   ): Promise<PersistentState<S>> => {
     // If this rejects, the actor can't know what the journal holds, so it applies nothing. A
     // restart recovers from the journal, which settles it (decision 0013).
+    // Checked before the append, so an event that fails its schema is never written. In order,
+    // one at a time, so an async schema's failures are deterministic. Without a schema nothing
+    // awaits, so the append starts in the same turn as the command.
+    let applied = effect.events;
+    if (schema !== undefined) {
+      const checked: E[] = [];
+      for (const event of effect.events) checked.push(await check(schema, event, undefined));
+      applied = checked;
+    }
     await journal.append(id, current.seq, batch);
     let state = current.state;
-    for (const event of effect.events) state = def.onEvent(state, event);
+    // The schema's output, as recovery will see it, so a write and its replay fold the same value.
+    for (const event of applied) state = def.onEvent(state, event);
     const next: PersistentState<S> = { seq: current.seq + batch.length, state };
     internalsOf(ctx).publish({
       type: 'persisted',
@@ -319,7 +386,12 @@ export function persistentActor<C, E, S>(
       const page = await journal.read(id, seq + 1, PAGE_SIZE);
       for (const stored of page) {
         if (stored.seq !== seq + 1) throw new JournalSequenceError(id, seq + 1, stored.seq);
-        state = def.onEvent(state, stored.event as E);
+        const event = upcast(stored);
+        // Without a schema, the definition's types are the only claim about the event's shape.
+        state = def.onEvent(
+          state,
+          schema === undefined ? (event as E) : await check(schema, event, stored.seq),
+        );
         seq = stored.seq;
       }
       if (page.length < PAGE_SIZE) break;
@@ -359,7 +431,7 @@ export function persistentActor<C, E, S>(
         if (problem !== undefined) {
           throw new TypeError(`${id}: event ${String(i)} is not a JSON value: ${problem}`);
         }
-        return { event, version: VERSION, tags: [] };
+        return { event, version, tags: [] };
       });
       return persistThen(current, made, batch, ctx);
     },
@@ -396,7 +468,76 @@ function checkDef(def: unknown): void {
   if (d.onSignal !== undefined && typeof d.onSignal !== 'function') {
     throw new TypeError('persistentActor: onSignal must be a function when it is set');
   }
+  if (d.events !== undefined) checkEvents(d.events);
   if (d.snapshots !== undefined) checkSnapshots(d.snapshots, persistence);
+}
+
+function checkEvents(events: unknown): void {
+  checkKeys(events, EVENT_OPTIONS, 'persistentActor: events');
+  const { schema, version = 1, upcasters } = events as Record<string, unknown>;
+  if (schema !== undefined && !isStandardSchema(schema)) {
+    throw new TypeError(
+      'persistentActor: events.schema must be a Standard Schema, with ~standard.validate',
+    );
+  }
+  checkInt(version, 'persistentActor: events.version');
+  const current = version as number;
+  if (upcasters === undefined) {
+    if (current > 1) {
+      throw new TypeError(
+        `persistentActor: events.version is ${String(current)}, so events.upcasters must ` +
+          `cover versions 1 to ${String(current - 1)}`,
+      );
+    }
+    return;
+  }
+  if (typeof upcasters !== 'object' || upcasters === null || Array.isArray(upcasters)) {
+    throw new TypeError('persistentActor: events.upcasters must be an object');
+  }
+  const ups = upcasters as Record<string, unknown>;
+  // A key outside 1 to version - 1 usually means the version wasn't bumped with the upcaster.
+  for (const key of Object.keys(ups)) {
+    const from = Number(key);
+    if (!Number.isSafeInteger(from) || String(from) !== key || from < 1 || from >= current) {
+      throw new TypeError(
+        `persistentActor: events.upcasters has a key "${key}", but upcasters run from each ` +
+          `version below events.version (${String(current)}), starting at 1`,
+      );
+    }
+  }
+  for (let from = 1; from < current; from++) {
+    if (typeof ups[String(from)] !== 'function') {
+      throw new TypeError(
+        `persistentActor: events.upcasters has no function for version ${String(from)}, so ` +
+          `events stored at it can't reach version ${String(current)}`,
+      );
+    }
+  }
+}
+
+function isStandardSchema(value: unknown): value is StandardSchemaV1 {
+  if ((typeof value !== 'object' && typeof value !== 'function') || value === null) return false;
+  const props = (value as { '~standard'?: unknown })['~standard'];
+  return (
+    typeof props === 'object' &&
+    props !== null &&
+    typeof (props as { validate?: unknown }).validate === 'function'
+  );
+}
+
+interface EventPlan<E> {
+  readonly schema: StandardSchemaV1<unknown, E> | undefined;
+  readonly version: number;
+  readonly upcasters: Readonly<Record<number, (event: unknown) => unknown>>;
+}
+
+/** The checked event options, with their defaults. */
+function eventPlan<E>(events: EventOptions<E> | undefined): EventPlan<E> {
+  return {
+    schema: events?.schema,
+    version: events?.version ?? 1,
+    upcasters: events?.upcasters ?? {},
+  };
 }
 
 function checkSnapshots(snapshots: unknown, persistence: Persistence): void {

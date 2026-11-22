@@ -46,6 +46,8 @@ const TESTKIT_TYPES = ['LogEntry', 'ManualSchedulerOptions', 'TestKit', 'TestKit
 // The milestone 2 spec's T1 and T2 names, plus NewSnapshot: the backend stamps a snapshot's
 // timestamp.
 const PERSISTENCE_VALUES = [
+  'EventValidationError',
+  'EventVersionError',
   'JournalConflictError',
   'JournalSequenceError',
   'inMemoryPersistence',
@@ -53,6 +55,7 @@ const PERSISTENCE_VALUES = [
 ];
 const PERSISTENCE_TYPES = [
   'Effect',
+  'EventOptions',
   'InMemoryPersistence',
   'Journal',
   'NewEvent',
@@ -65,6 +68,7 @@ const PERSISTENCE_TYPES = [
   'PersistentState',
   'Snapshot',
   'SnapshotStore',
+  'StandardSchemaV1',
   'StoredEvent',
 ];
 

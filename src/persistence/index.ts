@@ -2,13 +2,20 @@
 export {
   persistentActor,
   type Effect,
+  type EventOptions,
   type PersistentActorDef,
   type PersistentContext,
   type PersistentSignal,
   type PersistentState,
 } from './actor.js';
-export { JournalConflictError, JournalSequenceError } from './errors.js';
+export {
+  EventValidationError,
+  EventVersionError,
+  JournalConflictError,
+  JournalSequenceError,
+} from './errors.js';
 export { inMemoryPersistence, type InMemoryPersistence } from './memory.js';
+export type { StandardSchemaV1 } from './standard-schema.js';
 export type {
   Journal,
   NewEvent,
