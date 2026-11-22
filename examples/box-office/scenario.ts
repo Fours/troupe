@@ -1,33 +1,49 @@
-// The box office story. main.ts runs it on real time, and the example test runs it under the
-// testkit, so the demo can't rot.
+// The box office story, in two acts on one journal. main.ts runs it on real time and SQLite, and
+// the example test runs it under the testkit on the in-memory backend, so the demo can't rot.
 import type { ActorRef, ActorSystem, Result } from '@kylewillett/troupe';
-import { boxOffice, HOLD_MS, type CustomerRequest } from './box-office.ts';
+import type { Persistence } from '@kylewillett/troupe/persistence';
+import {
+  boxOffice,
+  HOLD_MS,
+  type ConfirmReply,
+  type CustomerRequest,
+  type HoldReply,
+  type StatusReply,
+} from './box-office.ts';
 import type { Narrator } from './narrate.ts';
 
-/** Where the scenario runs: a system, a way to let time pass, and someone to tell. */
-export interface Stage {
+/** One act: a system, the storage its shows persist to, and a way to let time pass. */
+export interface Act {
   readonly system: ActorSystem;
+  readonly persistence: Persistence;
   readonly narrator: Narrator;
   /** Lets `ms` pass, and everything due in that time happen. */
   sleep(ms: number): Promise<void>;
-  /** Terminates the system and waits for every actor to stop. */
+  /** Terminates the system, waits for every actor to stop, and lets go of the storage. */
   shutdown(): Promise<void>;
+}
+
+/** Where the scenario runs. */
+export interface Stage {
+  /** Starts a new system on the same storage as every act before it. Called once per act. */
+  open(): Act;
 }
 
 /** The shows on sale, by name, with their number of seats. */
 export const SHOWS = { hamlet: 4, macbeth: 2 };
 
-export async function runScenario(stage: Stage): Promise<void> {
-  const { system, narrator } = stage;
-  const seats = (n: number) => `${String(n)} ${n === 1 ? 'seat' : 'seats'}`;
+const seats = (n: number) => `${String(n)} ${n === 1 ? 'seat' : 'seats'}`;
+
+/** Opens the box office in `act`, and returns what customers can do there. */
+function open(act: Act) {
+  const { system, narrator } = act;
   const say = (line: string) => {
     narrator.say(line);
   };
   system.events.subscribe((event) => {
     narrator.event(event);
   });
-
-  const office = system.spawn(boxOffice(SHOWS), 'box-office');
+  const office = system.spawn(boxOffice(SHOWS, act.persistence), 'box-office');
 
   /**
    * Asks the box office, then lets `waitMs` pass. The reply is turned into a Result at once, so a
@@ -43,15 +59,19 @@ export async function runScenario(stage: Stage): Promise<void> {
         (value): Result<R> => ({ ok: true, value }),
         (error: unknown): Result<R> => ({ ok: false, error }),
       );
-    await stage.sleep(opts.waitMs ?? 0);
+    await act.sleep(opts.waitMs ?? 0);
     return reply;
   }
 
   async function hold(customer: string, show: string, count: number): Promise<string | undefined> {
     say(`${customer} asks to hold ${seats(count)} for ${show}`);
-    const reply = await request<{ ok: true; holdId: string } | { ok: false; reason: string }>(
-      (replyTo) => ({ type: 'hold', show, customer, seats: count, replyTo }),
-    );
+    const reply = await request<HoldReply>((replyTo) => ({
+      type: 'hold',
+      show,
+      customer,
+      seats: count,
+      replyTo,
+    }));
     if (!reply.ok) throw reply.error;
     if (!reply.value.ok) {
       say(`${customer} is turned away: ${reply.value.reason}`);
@@ -63,9 +83,12 @@ export async function runScenario(stage: Stage): Promise<void> {
 
   async function confirm(customer: string, show: string, holdId: string): Promise<void> {
     say(`${customer} confirms ${holdId}`);
-    const reply = await request<{ ok: true; seats: number } | { ok: false; reason: string }>(
-      (replyTo) => ({ type: 'confirm', show, holdId, replyTo }),
-    );
+    const reply = await request<ConfirmReply>((replyTo) => ({
+      type: 'confirm',
+      show,
+      holdId,
+      replyTo,
+    }));
     if (!reply.ok) throw reply.error;
     say(
       reply.value.ok
@@ -74,33 +97,68 @@ export async function runScenario(stage: Stage): Promise<void> {
     );
   }
 
-  await stage.sleep(0);
+  async function status(show: string): Promise<void> {
+    const reply = await request<StatusReply>((replyTo) => ({ type: 'status', show, replyTo }));
+    if (!reply.ok) throw reply.error;
+    if (!reply.value.ok) throw new Error(reply.value.reason);
+    const { capacity, sold, held } = reply.value;
+    say(`${show} has sold ${String(sold)} of ${seats(capacity)}, with ${String(held)} held`);
+  }
 
-  // A hold that's confirmed in time.
-  const alice = await hold('alice', 'hamlet', 2);
-  if (alice !== undefined) await confirm('alice', 'hamlet', alice);
+  return { say, request, hold, confirm, status };
+}
 
-  // A hold that expires on its timer.
-  const bob = await hold('bob', 'macbeth', 2);
-  await hold('dave', 'macbeth', 1);
-  say(`bob gets distracted for ${String(HOLD_MS + 100)} ms`);
-  await stage.sleep(HOLD_MS + 100);
-  if (bob !== undefined) await confirm('bob', 'macbeth', bob);
-  await hold('dave', 'macbeth', 1);
+export async function runScenario(stage: Stage): Promise<void> {
+  // Act 1: the milestone 1 story, on a journal.
+  const first = stage.open();
+  {
+    const { say, request, hold, confirm } = open(first);
+    // Lets the shows recover. Their journals are empty, so there's nothing to replay.
+    await first.sleep(0);
 
-  // A malformed request crashes the show, and its parent restarts it with backoff.
-  const carol = await hold('carol', 'hamlet', 1);
-  say('mallory sends a malformed request to hamlet, for -1 seats');
-  const mallory = await request(
-    (replyTo) => ({ type: 'hold', show: 'hamlet', customer: 'mallory', seats: -1, replyTo }),
-    { timeoutMs: 500, waitMs: 600 },
-  );
-  say(mallory.ok ? 'mallory got a reply?' : `mallory never hears back: ${String(mallory.error)}`);
+    // A hold that's confirmed in time.
+    const alice = await hold('alice', 'hamlet', 2);
+    if (alice !== undefined) await confirm('alice', 'hamlet', alice);
 
-  // The restarted show is a new incarnation, with the initial state.
-  if (carol !== undefined) await confirm('carol', 'hamlet', carol);
-  say("hamlet's restart wiped its holds and sales. Persistent actors, in milestone 2, fix that.");
+    // A hold that expires on its timer.
+    const bob = await hold('bob', 'macbeth', 2);
+    await hold('dave', 'macbeth', 1);
+    say(`bob gets distracted for ${String(HOLD_MS + 100)} ms`);
+    await first.sleep(HOLD_MS + 100);
+    if (bob !== undefined) await confirm('bob', 'macbeth', bob);
+    await hold('dave', 'macbeth', 1);
 
-  await stage.shutdown();
-  say('the box office is closed');
+    // A malformed request crashes the show, and its parent restarts it with backoff.
+    const carol = await hold('carol', 'hamlet', 1);
+    say('mallory sends a malformed request to hamlet, for -1 seats');
+    const mallory = await request(
+      (replyTo) => ({ type: 'hold', show: 'hamlet', customer: 'mallory', seats: -1, replyTo }),
+      { timeoutMs: 500, waitMs: 600 },
+    );
+    say(mallory.ok ? 'mallory got a reply?' : `mallory never hears back: ${String(mallory.error)}`);
+
+    // The restarted show replayed its journal, so carol's hold is still there.
+    if (carol !== undefined) await confirm('carol', 'hamlet', carol);
+    say("hamlet's restart replayed its journal, so carol's hold survived the crash");
+
+    await first.shutdown();
+    say('the box office closes for the night');
+  }
+
+  // Act 2: a new system on the same journal. Every show comes back with its sales.
+  const second = stage.open();
+  second.narrator.say('the next morning, a new system opens the same journal');
+  {
+    const { say, status } = open(second);
+    await second.sleep(0);
+    for (const show of Object.keys(SHOWS)) await status(show);
+
+    // Holds come back too, each with a fresh timer, since they don't remember how long they had.
+    say(`dave's recovered hold gets a fresh ${String(HOLD_MS)} ms, and he never comes back`);
+    await second.sleep(HOLD_MS + 100);
+    await status('macbeth');
+
+    await second.shutdown();
+    say('the box office is closed');
+  }
 }

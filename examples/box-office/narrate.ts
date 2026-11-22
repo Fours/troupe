@@ -39,9 +39,14 @@ function describe(event: SystemEvent): string {
     case 'restarted':
       return `${event.path} restarted after a ${String(event.delayMs)} ms backoff (attempt ${String(event.attempt)})`;
     case 'persisted':
-      return `${event.path} persisted events ${String(event.fromSeq)} to ${String(event.toSeq)}`;
+      return event.fromSeq === event.toSeq
+        ? `${event.path} persisted event ${String(event.toSeq)}`
+        : `${event.path} persisted events ${String(event.fromSeq)} to ${String(event.toSeq)}`;
     case 'recovered':
-      return `${event.path} recovered to event ${String(event.lastSeq)}`;
+      if (event.lastSeq === 0) return `${event.path} recovered: its journal is empty`;
+      return event.snapshotSeq === 0
+        ? `${event.path} recovered to event ${String(event.lastSeq)}`
+        : `${event.path} recovered to event ${String(event.lastSeq)}, from a snapshot at ${String(event.snapshotSeq)}`;
     case 'deadLetter':
       return `dead letter for ${event.recipient} (${event.reason})`;
   }

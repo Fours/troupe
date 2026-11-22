@@ -428,8 +428,8 @@ Do these in order. Each one ends with passing tests.
 | T4. Event schemas and upcasters | Done | b271f32 |
 | T5. Projections | Done | dcc6056 |
 | T6. SQLite backend | Done | fa701a8 |
-| T7. Postgres backend | Done | |
-| T8. Persistent box office and README | Not started | |
+| T7. Postgres backend | Done | dbf9ad9 |
+| T8. Persistent box office and README | Done | |
 
 ### T1. Persistence entry point, stores and the in-memory backend
 
@@ -554,18 +554,18 @@ Do these in order. Each one ends with passing tests.
 
 **Done when:**
 
-- [ ] The demo described in "Outcome" works from a clean clone: `npm ci && npm run example`.
-- [ ] The example test passes, and fails if the show stops persisting holds.
+- [x] The demo described in "Outcome" works from a clean clone: `npm ci && npm run example`.
+- [x] The example test passes, and fails if the show stops persisting holds.
 
 ## Definition of done
 
-- [ ] T1 to T8 are complete.
-- [ ] `npm run lint`, `typecheck`, `test`, `test:integration`, `coverage` and `build` all pass, locally and in CI.
-- [ ] Line coverage is at least 90% for `src/`.
-- [ ] There are no runtime dependencies, and no peer dependencies.
-- [ ] Everything outside `src/node/` builds with no Node types and imports no Node built-ins.
-- [ ] Every backend passes the journal contract suite.
-- [ ] The public API is exported only from the entry points' `index.ts` files, and every export has a TSDoc comment.
+- [x] T1 to T8 are complete.
+- [x] `npm run lint`, `typecheck`, `test`, `test:integration`, `coverage` and `build` all pass, locally and in CI.
+- [x] Line coverage is at least 90% for `src/`.
+- [x] There are no runtime dependencies, and no peer dependencies.
+- [x] Everything outside `src/node/` builds with no Node types and imports no Node built-ins.
+- [x] Every backend passes the journal contract suite.
+- [x] The public API is exported only from the entry points' `index.ts` files, and every export has a TSDoc comment.
 
 ## Decision records
 
@@ -588,4 +588,4 @@ The tasks add these records, as Proposed, and accept them once their tests pass.
 2. **Journal timeouts.** A backend call that never settles leaves the actor busy for good, like milestone 1's open question 3. A timeout on the scheduler can't fire under the testkit while the actor is busy, because `settle()` won't finish. Milestone 5's simulated journal, which resolves on the scheduler, needs the same fix that [0010](decisions/0010-piped-asks-stay-on-the-scheduler.md) gave piped asks. Deferred to milestone 5, where the problem first bites.
 3. **The cost of the Postgres lock.** One lock serialises every append in a journal. That's simple and correct, but it caps throughput. Milestone 3's benchmark should measure it. If it's too slow, the alternative is Akka-style gap detection in the reader.
 4. **Snapshot schemas.** A version mismatch throws a snapshot away. Should snapshots also get a schema and upcasters? Not until a real migration needs one.
-5. **Testing `onCommand` alone.** The builders live on `ctx`, so a unit test of `onCommand` needs a context. If that's painful, the testkit could offer a small `commandHarness(def)`. Decide in T8 from how the example's tests read.
+5. **Testing `onCommand` alone.** The builders live on `ctx`, so a unit test of `onCommand` needs a context. If that's painful, the testkit could offer a small `commandHarness(def)`. **Decided in T8: no harness for now.** The example's tests drive the shows through a system on the testkit and the in-memory backend, and read as well as milestone 1's: a command, its reply and its journal entries in a few lines, with recovery and timers included, which a harness would leave out. Revisit if an aggregate with many commands makes that slow to write.

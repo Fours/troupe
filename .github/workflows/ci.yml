@@ -46,3 +46,5 @@ jobs:
       # Runs unit and integration together, and enforces the 90% line threshold.
       - run: npm run coverage
       - run: npm run build
+      # The milestone demo, on SQLite, on every Node line: node:sqlite differs between them.
+      - run: npm run example
