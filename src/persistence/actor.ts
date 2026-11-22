@@ -1,9 +1,9 @@
-import { checkKeys, describe } from '../checks.js';
+import { checkInt, checkKeys, describe } from '../checks.js';
 import { internalsOf, START, type WithStart } from '../internal.js';
 import type { ActorContext, ActorDef, ActorRef, Signal } from '../types.js';
 import { JournalSequenceError } from './errors.js';
 import { jsonProblem } from './json.js';
-import type { Journal, NewEvent, Persistence } from './types.js';
+import type { Journal, NewEvent, Persistence, SnapshotStore } from './types.js';
 
 // These interfaces grow task by task through milestone 2: each one holds only what's built.
 
@@ -90,9 +90,35 @@ export interface PersistentActorDef<C, E, S> {
   onEvent(state: S, event: E): S;
   /** Lifecycle signals, for side effects only. Optional. */
   onSignal?(state: S, signal: PersistentSignal, ctx: PersistentContext<C, E, S>): void;
+  /**
+   * Snapshotting, so recovery doesn't replay the whole stream. Optional, and needs
+   * `persistence.snapshots`. A snapshot is only a shortcut: events are never deleted after one, and
+   * recovery replays every event when it can't use it.
+   */
+  snapshots?: {
+    /**
+     * Saves a snapshot after any persist that takes `lastSeq` across a multiple of `every`, at the
+     * new `lastSeq`. A positive integer.
+     */
+    every: number;
+    /**
+     * The state's schema version, a positive integer. Default 1. Recovery ignores a snapshot with
+     * another version, so bump it whenever the state's shape changes.
+     */
+    version?: number;
+  };
 }
 
-const OPTIONS = new Set(['id', 'persistence', 'initial', 'onCommand', 'onEvent', 'onSignal']);
+const OPTIONS = new Set([
+  'id',
+  'persistence',
+  'initial',
+  'onCommand',
+  'onEvent',
+  'onSignal',
+  'snapshots',
+]);
+const SNAPSHOT_OPTIONS = new Set(['every', 'version']);
 const MAX_ID_LENGTH = 255;
 /** Events per read during recovery. */
 const PAGE_SIZE = 256;
@@ -174,6 +200,7 @@ export function persistentActor<C, E, S>(
   checkDef(def);
   const { id } = def;
   const journal: Journal = def.persistence.journal;
+  const snapshotting = snapshotPlan(def);
 
   const persist = (...events: E[]): Effect<E, S> =>
     events.length === 0 ? NONE : new EffectImpl<E, S>(events, []);
@@ -218,13 +245,75 @@ export function persistentActor<C, E, S>(
       toSeq: next.seq,
     });
     runSteps(effect, state, ctx);
+    if (snapshotting !== undefined && snapshotDue(current.seq, next.seq, snapshotting.every)) {
+      saveSnapshot(snapshotting, next, ctx);
+    }
     return next;
   };
 
-  const recover = async (
+  /** Starts a save without waiting for it: the events are safe, so a snapshot is only a shortcut. */
+  const saveSnapshot = (
+    plan: SnapshotPlan,
+    { seq, state }: PersistentState<S>,
+    ctx: ActorContext<C>,
+  ): void => {
+    // Checked here rather than left to the backend, so a state that breaks decision 0001 is an
+    // error under the actor's path, not a failed save.
+    const problem = jsonProblem(state);
+    if (problem !== undefined) {
+      ctx.log.error(`${id}: state is not a JSON value, so no snapshot was saved: ${problem}`, {
+        persistenceId: id,
+        seq,
+      });
+      return;
+    }
+    const saving = plan.store.save(id, { seq, version: plan.version, state }).then(
+      () => {},
+      (error: unknown) => {
+        ctx.log.warn(`${id}: saving the snapshot at ${String(seq)} failed`, {
+          persistenceId: id,
+          seq,
+          error,
+        });
+      },
+    );
+    internalsOf(ctx).track(saving);
+  };
+
+  /** The state to replay from: the latest usable snapshot, or `start` when there isn't one. */
+  const startFrom = async (
     start: PersistentState<S>,
     ctx: ActorContext<C>,
   ): Promise<PersistentState<S>> => {
+    if (snapshotting === undefined) return start;
+    let snapshot;
+    try {
+      snapshot = await snapshotting.store.load(id);
+    } catch (error) {
+      ctx.log.warn(`${id}: loading the snapshot failed, so recovery replays every event`, {
+        persistenceId: id,
+        error,
+      });
+      return start;
+    }
+    if (snapshot === undefined) return start;
+    if (snapshot.version !== snapshotting.version) {
+      ctx.log.info(
+        `${id}: ignoring the snapshot at ${String(snapshot.seq)}, which has version ` +
+          `${String(snapshot.version)}, not ${String(snapshotting.version)}`,
+        { persistenceId: id, seq: snapshot.seq },
+      );
+      return start;
+    }
+    // The version matches, so the stored state has this definition's shape.
+    return { seq: snapshot.seq, state: snapshot.state as S };
+  };
+
+  const recover = async (
+    initial: PersistentState<S>,
+    ctx: ActorContext<C>,
+  ): Promise<PersistentState<S>> => {
+    const start = await startFrom(initial, ctx);
     let { seq, state } = start;
     for (;;) {
       const page = await journal.read(id, seq + 1, PAGE_SIZE);
@@ -307,6 +396,47 @@ function checkDef(def: unknown): void {
   if (d.onSignal !== undefined && typeof d.onSignal !== 'function') {
     throw new TypeError('persistentActor: onSignal must be a function when it is set');
   }
+  if (d.snapshots !== undefined) checkSnapshots(d.snapshots, persistence);
+}
+
+function checkSnapshots(snapshots: unknown, persistence: Persistence): void {
+  checkKeys(snapshots, SNAPSHOT_OPTIONS, 'persistentActor: snapshots');
+  const { every, version } = snapshots as Record<string, unknown>;
+  checkInt(every, 'persistentActor: snapshots.every');
+  if (version !== undefined) checkInt(version, 'persistentActor: snapshots.version');
+  if (!isSnapshotStore(persistence.snapshots)) {
+    throw new TypeError(
+      'persistentActor: snapshots needs persistence.snapshots, with save and load',
+    );
+  }
+}
+
+interface SnapshotPlan {
+  readonly store: SnapshotStore;
+  readonly every: number;
+  readonly version: number;
+}
+
+/** The checked snapshot options, with their defaults, or undefined when there are none. */
+function snapshotPlan(def: {
+  readonly snapshots?: { readonly every: number; readonly version?: number };
+  readonly persistence: Persistence;
+}): SnapshotPlan | undefined {
+  const { snapshots } = def;
+  const store = def.persistence.snapshots;
+  if (snapshots === undefined || store === undefined) return undefined;
+  return { store, every: snapshots.every, version: snapshots.version ?? 1 };
+}
+
+/** Whether a persist from `fromSeq` to `toSeq` crossed a multiple of `every`. */
+function snapshotDue(fromSeq: number, toSeq: number, every: number): boolean {
+  return Math.floor(fromSeq / every) < Math.floor(toSeq / every);
+}
+
+function isSnapshotStore(value: unknown): value is SnapshotStore {
+  if (typeof value !== 'object' || value === null) return false;
+  const s = value as Record<string, unknown>;
+  return typeof s.save === 'function' && typeof s.load === 'function';
 }
 
 function isPersistence(value: unknown): value is Persistence {

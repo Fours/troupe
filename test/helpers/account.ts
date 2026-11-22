@@ -1,4 +1,5 @@
 import { persistentActor } from '../../src/persistence/actor.js';
+import type { PersistentActorDef } from '../../src/persistence/actor.js';
 import type { Persistence } from '../../src/persistence/types.js';
 import type { ActorRef } from '../../src/types.js';
 
@@ -34,11 +35,19 @@ export interface Account {
 /**
  * A persistent bank account. `log` records its steps and signals, so tests can check their order.
  */
-export function account(persistence: Persistence, opts: { id?: string; log?: string[] } = {}) {
+export function account(
+  persistence: Persistence,
+  opts: {
+    id?: string;
+    log?: string[];
+    snapshots?: PersistentActorDef<AccountCmd, AccountEvent, Account>['snapshots'];
+  } = {},
+) {
   const log = opts.log ?? [];
   return persistentActor<AccountCmd, AccountEvent, Account>({
     id: opts.id ?? 'account-1',
     persistence,
+    ...(opts.snapshots === undefined ? {} : { snapshots: opts.snapshots }),
     initial: { balance: 0, closed: false },
     onCommand(state, cmd, { persist, reply, none, lastSeq }) {
       const receipt = (s: Account): Receipt => ({ ok: true, balance: s.balance });

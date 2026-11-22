@@ -210,6 +210,13 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
       publish: (body) => {
         host.events.publish(body);
       },
+      track: (promise) => {
+        host.trackBusy(1);
+        const done = (): void => {
+          host.trackBusy(-1);
+        };
+        Promise.resolve(promise).then(done, done);
+      },
     };
     this.ref = host.makeRef(path, (msg: M) => {
       this.#enqueue(msg);

@@ -423,8 +423,8 @@ Do these in order. Each one ends with passing tests.
 | Task | Status | Commit |
 | --- | --- | --- |
 | T1. Persistence entry point, stores and the in-memory backend | Done | 65f1df6 |
-| T2. Persistent actors: commands, effects and recovery | Done | |
-| T3. Snapshots | Not started | |
+| T2. Persistent actors: commands, effects and recovery | Done | 1af2f66 |
+| T3. Snapshots | Done | |
 | T4. Event schemas and upcasters | Not started | |
 | T5. Projections | Not started | |
 | T6. SQLite backend | Not started | |
@@ -490,22 +490,22 @@ Do these in order. Each one ends with passing tests.
 
 **Done when** tests cover:
 
-- [x] A schema rejects a bad event on write, before the append, with the schema's issues.
-- [x] A schema rejects a bad stored event on recovery.
-- [x] An async schema works on both paths.
-- [x] A version-1 event in the journal is upcast to version 2 and passes the version-2 schema, and new events are stored at version 2.
-- [x] A stored version above the current one fails recovery with `EventVersionError`.
-- [x] Upcasters with a gap throw `TypeError` from `persistentActor()`.
+- [ ] A schema rejects a bad event on write, before the append, with the schema's issues.
+- [ ] A schema rejects a bad stored event on recovery.
+- [ ] An async schema works on both paths.
+- [ ] A version-1 event in the journal is upcast to version 2 and passes the version-2 schema, and new events are stored at version 2.
+- [ ] A stored version above the current one fails recovery with `EventVersionError`.
+- [ ] Upcasters with a gap throw `TypeError` from `persistentActor()`.
 
 ### T5. Projections
 
 **Done when** tests cover:
 
-- [x] A projection handles every tagged event once, in offset order, across several entities.
-- [x] It saves its offset after each batch, and a new projection with the same name starts after it.
-- [x] A full batch reads again at once, and a short one waits `pollMs` of virtual time.
-- [x] A failure in `handle` restarts the projection from the stored offset, so the batch repeats.
-- [x] A bad tag from `tags()` fails the persist with `TypeError`.
+- [ ] A projection handles every tagged event once, in offset order, across several entities.
+- [ ] It saves its offset after each batch, and a new projection with the same name starts after it.
+- [ ] A full batch reads again at once, and a short one waits `pollMs` of virtual time.
+- [ ] A failure in `handle` restarts the projection from the stored offset, so the batch repeats.
+- [ ] A bad tag from `tags()` fails the persist with `TypeError`.
 
 ### T6. SQLite backend
 
@@ -514,11 +514,11 @@ Do these in order. Each one ends with passing tests.
 
 **Done when:**
 
-- [x] The contract suite passes on `:memory:` and on a temp file, on Node 22, 24 and 26 in CI.
-- [x] Two `sqlitePersistence` instances on one file, used in turn, keep one stream intact, and the stale one gets `JournalConflictError`.
-- [x] Reopening a file finds everything a closed instance wrote.
-- [x] Package tests: the entry point loads from `dist/`, and `/persistence` doesn't load `node:sqlite`.
-- [x] `src/node/` is the only place lint allows Node imports.
+- [ ] The contract suite passes on `:memory:` and on a temp file, on Node 22, 24 and 26 in CI.
+- [ ] Two `sqlitePersistence` instances on one file, used in turn, keep one stream intact, and the stale one gets `JournalConflictError`.
+- [ ] Reopening a file finds everything a closed instance wrote.
+- [ ] Package tests: the entry point loads from `dist/`, and `/persistence` doesn't load `node:sqlite`.
+- [ ] `src/node/` is the only place lint allows Node imports.
 
 ### T7. Postgres backend
 
@@ -529,12 +529,12 @@ Do these in order. Each one ends with passing tests.
 
 **Done when:**
 
-- [x] The contract suite passes against Postgres, locally and in CI.
-- [x] `setup()` is safe to run twice, and `schema` keeps two journals apart in one database.
-- [x] **Concurrent writers:** two pools append to one stream at once, many times. Each append either succeeds or gets `JournalConflictError`, and the stream has no gaps or duplicates.
-- [x] **Offsets commit in order:** while two pools append to many streams at once, a reader following one tag never sees an offset lower than one it has already seen. Removing the advisory lock makes this test fail.
-- [x] A package test: the entry point doesn't import `pg`.
-- [x] The integration run fails, rather than skipping, when `CI` is set and `TROUPE_POSTGRES_URL` isn't.
+- [ ] The contract suite passes against Postgres, locally and in CI.
+- [ ] `setup()` is safe to run twice, and `schema` keeps two journals apart in one database.
+- [ ] **Concurrent writers:** two pools append to one stream at once, many times. Each append either succeeds or gets `JournalConflictError`, and the stream has no gaps or duplicates.
+- [ ] **Offsets commit in order:** while two pools append to many streams at once, a reader following one tag never sees an offset lower than one it has already seen. Removing the advisory lock makes this test fail.
+- [ ] A package test: the entry point doesn't import `pg`.
+- [ ] The integration run fails, rather than skipping, when `CI` is set and `TROUPE_POSTGRES_URL` isn't.
 
 ### T8. Persistent box office and README
 
@@ -554,8 +554,8 @@ Do these in order. Each one ends with passing tests.
 
 **Done when:**
 
-- [x] The demo described in "Outcome" works from a clean clone: `npm ci && npm run example`.
-- [x] The example test passes, and fails if the show stops persisting holds.
+- [ ] The demo described in "Outcome" works from a clean clone: `npm ci && npm run example`.
+- [ ] The example test passes, and fails if the show stops persisting holds.
 
 ## Definition of done
 

@@ -27,6 +27,11 @@ export interface WithStart<M, S> {
 export interface CellInternals {
   /** Publishes a system event, stamped by the system's bus. */
   publish(body: EventBody): void;
+  /**
+   * Counts `promise` as busy work until it settles, without holding the mailbox, so the testkit's
+   * `settle` waits for it. The caller handles its rejection. Persistent actors' snapshot saves.
+   */
+  track(promise: PromiseLike<unknown>): void;
 }
 
 /** The internals of a `ctx` the system made. */

@@ -58,7 +58,8 @@ src/
   persistence/      the /persistence entry point: the store interfaces, the JSON-value check (0014),
                     the in-memory backend, and persistentActor (actor.ts: effects and recovery)
 test/               mirrors src/; helpers/ holds deferred() and test actors (tree, watcher, idle),
-                    the persistent account, and faultyJournal() for holding and failing calls
+                    the persistent account, and faultyJournal() and faultySnapshots() for holding
+                    and failing calls
                     persistence/contract.ts is the journal contract every backend runs
 examples/           runnable examples, run by Node with type stripping
 docs/               roadmap, milestone specs, decision records

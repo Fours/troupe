@@ -501,7 +501,35 @@ describe('persistentActor', () => {
 
     it.each<[string, unknown, RegExp]>([
       ['not an object', null, /options must be an object/],
-      ['an unknown key', { ...valid, snapshots: { every: 10 } }, /unknown option "snapshots"/],
+      ['an unknown key', { ...valid, tags: () => [] }, /unknown option "tags"/],
+      [
+        'snapshots without a snapshot store',
+        { ...valid, persistence: { journal: persistence.journal }, snapshots: { every: 10 } },
+        /snapshots needs persistence.snapshots/,
+      ],
+      [
+        'a snapshot store without load',
+        {
+          ...valid,
+          persistence: { journal: persistence.journal, snapshots: { save() {} } },
+          snapshots: { every: 10 },
+        },
+        /snapshots needs persistence.snapshots/,
+      ],
+      ['snapshots that isn’t an object', { ...valid, snapshots: 10 }, /options must be an object/],
+      [
+        'an unknown snapshot option',
+        { ...valid, snapshots: { every: 10, keep: 2 } },
+        /snapshots: unknown option "keep"/,
+      ],
+      ['no every', { ...valid, snapshots: {} }, /snapshots.every must be a positive integer/],
+      ['an every of 0', { ...valid, snapshots: { every: 0 } }, /got 0/],
+      ['a fractional every', { ...valid, snapshots: { every: 1.5 } }, /got 1.5/],
+      [
+        'a snapshot version of 0',
+        { ...valid, snapshots: { every: 10, version: 0 } },
+        /snapshots.version must be a positive integer, got 0/,
+      ],
       ['an empty id', { ...valid, id: '' }, /id must be a string of 1 to 255 characters/],
       ['an id that is too long', { ...valid, id: 'x'.repeat(256) }, /got one of 256/],
       ['an id that isn’t a string', { ...valid, id: 7 }, /got 7/],
@@ -523,6 +551,13 @@ describe('persistentActor', () => {
     ])('throws TypeError for %s', (_what, def, message) => {
       expect(() => persistentActor(def as never)).toThrow(TypeError);
       expect(() => persistentActor(def as never)).toThrow(message);
+    });
+
+    it('accepts snapshots with a store, with or without a version', () => {
+      expect(() => persistentActor({ ...valid, snapshots: { every: 1 } })).not.toThrow();
+      expect(() =>
+        persistentActor({ ...valid, snapshots: { every: 5, version: 3 } }),
+      ).not.toThrow();
     });
 
     it('accepts an id of 255 characters', () => {
