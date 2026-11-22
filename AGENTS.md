@@ -60,6 +60,8 @@ src/
   globals.d.ts      the runtime globals src/ may use (0004); in the build config only
   node/             Node-only entry points, built by tsconfig.build.node.json with Node types, and
                     the only place lint allows Node built-ins: sqlite/ is /persistence/sqlite (0017)
+  backstage/        the /backstage entry point (any runtime): backstage() the in-process source,
+                    the protocol types, encode() the wire encoding, and the read-only requests (0021)
   testkit/          the /testkit entry point: ManualScheduler, seededRandom, createTestKit, TestProbe
   persistence/      the /persistence entry point: the store interfaces, the JSON-value check (0014),
                     backend.ts (the argument checks every backend shares), the in-memory backend,

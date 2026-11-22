@@ -38,3 +38,4 @@ When you change a decision, update its record in the same commit as the code.
 | [0018](0018-standard-schema-and-upcasters.md) | Event schemas use Standard Schema, with one upcaster per version step | Accepted | 2 |
 | [0019](0019-how-the-benchmark-measures.md) | The benchmark is a baseline for later milestones: medians of 10 runs, each in a fresh process | Accepted | 3 |
 | [0020](0020-message-events-are-opt-in.md) | Message events are opt-in per subscriber, and the sender is best-effort | Accepted | 3 |
+| [0021](0021-backstage-only-watches.md) | Backstage only watches: a read-only protocol of JSON frames, with refs as paths | Accepted | 3 |

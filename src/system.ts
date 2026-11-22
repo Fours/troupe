@@ -163,6 +163,7 @@ export function createSystem(opts: ActorSystemOptions = {}): SystemHandle {
 
   const inspection: SystemInspection = Object.freeze({
     scheduler,
+    log,
     walk: () => walk(guardian.childCells, []),
   });
 

@@ -4,6 +4,7 @@
 // and Backstage uses them to read what the public API doesn't show (milestone 3).
 
 import type { EventBody } from './events.js';
+import type { Logger } from './logger.js';
 import type { Persistence } from './persistence/types.js';
 import type { Scheduler } from './scheduler.js';
 import type { ActorContext, ActorSystem } from './types.js';
@@ -79,6 +80,8 @@ export interface CellInspection {
 export interface SystemInspection {
   /** The scheduler the system runs on. */
   readonly scheduler: Scheduler;
+  /** The system's logger, wrapped so it never throws. For an inspector's own failures. */
+  readonly log: Logger;
   /** Every live actor under `/user`, depth first, each parent before its children in spawn order. */
   walk(): CellInspection[];
 }

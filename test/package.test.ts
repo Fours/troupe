@@ -85,6 +85,28 @@ const SQLITE_TYPES = ['SqlitePersistence'];
 // a wrapper around a pool can be typed.
 const POSTGRES_VALUES = ['postgresPersistence'];
 const POSTGRES_TYPES = ['PgPool', 'PgPoolClient', 'PgQueryable', 'PostgresPersistence'];
+// The milestone 3 spec's protocol, plus the types its frames and responses are made of.
+const BACKSTAGE_VALUES = ['backstage', 'encode'];
+const BACKSTAGE_TYPES = [
+  'ActorInfo',
+  'ActorStatus',
+  'BackstageError',
+  'BackstageOptions',
+  'BackstageRequest',
+  'BackstageResponse',
+  'BackstageSource',
+  'Frame',
+  'TimelineEvent',
+  'WireEvent',
+  'WireValue',
+];
+const ENTRY_POINTS = [
+  '@kylewillett/troupe',
+  '@kylewillett/troupe/testkit',
+  '@kylewillett/troupe/persistence',
+  '@kylewillett/troupe/persistence/sqlite',
+  '@kylewillett/troupe/persistence/postgres',
+];
 
 /**
  * Every module URL Node resolves while it imports `specifier` from the package, in a separate
@@ -126,12 +148,14 @@ describe('the built package', () => {
       const persistence = await import('@kylewillett/troupe/persistence');
       const sqlite = await import('@kylewillett/troupe/persistence/sqlite');
       const postgres = await import('@kylewillett/troupe/persistence/postgres');
+      const backstage = await import('@kylewillett/troupe/backstage');
       console.log(JSON.stringify({
         main: Object.keys(main),
         testkit: Object.keys(testkit),
         persistence: Object.keys(persistence),
         sqlite: Object.keys(sqlite),
         postgres: Object.keys(postgres),
+        backstage: Object.keys(backstage),
       }));
     `;
     const out = execFileSync(process.execPath, ['--input-type=module', '-e', script], {
@@ -139,7 +163,7 @@ describe('the built package', () => {
       encoding: 'utf8',
     });
     const loaded = JSON.parse(out) as Record<
-      'main' | 'testkit' | 'persistence' | 'sqlite' | 'postgres',
+      'main' | 'testkit' | 'persistence' | 'sqlite' | 'postgres' | 'backstage',
       string[]
     >;
     expect(sorted(loaded.main)).toEqual(sorted(MAIN_VALUES));
@@ -147,6 +171,7 @@ describe('the built package', () => {
     expect(sorted(loaded.persistence)).toEqual(sorted(PERSISTENCE_VALUES));
     expect(sorted(loaded.sqlite)).toEqual(sorted(SQLITE_VALUES));
     expect(sorted(loaded.postgres)).toEqual(sorted(POSTGRES_VALUES));
+    expect(sorted(loaded.backstage)).toEqual(sorted(BACKSTAGE_VALUES));
   });
 
   it('declares exactly the spec’s names, types included', () => {
@@ -155,7 +180,8 @@ describe('the built package', () => {
     const persistence = `${root}dist/persistence/index.d.ts`;
     const sqlite = `${root}dist/node/sqlite/index.d.ts`;
     const postgres = `${root}dist/persistence/postgres/index.d.ts`;
-    const prog = program([main, testkit, persistence, sqlite, postgres]);
+    const backstage = `${root}dist/backstage/index.d.ts`;
+    const prog = program([main, testkit, persistence, sqlite, postgres, backstage]);
     expect(sorted(exportsOf(prog, main).keys())).toEqual(sorted([...MAIN_VALUES, ...MAIN_TYPES]));
     expect(sorted(exportsOf(prog, testkit).keys())).toEqual(
       sorted([...TESTKIT_VALUES, ...TESTKIT_TYPES]),
@@ -168,6 +194,9 @@ describe('the built package', () => {
     );
     expect(sorted(exportsOf(prog, postgres).keys())).toEqual(
       sorted([...POSTGRES_VALUES, ...POSTGRES_TYPES]),
+    );
+    expect(sorted(exportsOf(prog, backstage).keys())).toEqual(
+      sorted([...BACKSTAGE_VALUES, ...BACKSTAGE_TYPES]),
     );
   });
 
@@ -213,6 +242,25 @@ describe('the built package', () => {
       const loaded = loadedBy(specifier);
       expect(loaded.filter((url) => url.includes('/node_modules/'))).toEqual([]);
       expect(loaded.filter((url) => url.includes('/dist/persistence/postgres/'))).toEqual([]);
+    }
+  });
+
+  it('loads /backstage from dist/ alone, never a Node built-in', () => {
+    const loaded = loadedBy('@kylewillett/troupe/backstage');
+    expect(loaded).toContain(`file://${root}dist/backstage/index.js`);
+    expect(loaded.filter((url) => !url.startsWith(`file://${root}dist/`))).toEqual([]);
+    expect(loaded.filter((url) => url.includes('/dist/node/'))).toEqual([]);
+  });
+
+  it('loads /backstage from no other entry point', () => {
+    for (const specifier of ENTRY_POINTS) {
+      const loaded = loadedBy(specifier);
+      // The check only means something if the hook saw the entry point's own modules.
+      expect(loaded.length, specifier).toBeGreaterThan(1);
+      expect(
+        loaded.filter((url) => url.includes('/dist/backstage/')),
+        specifier,
+      ).toEqual([]);
     }
   });
 

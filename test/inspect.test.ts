@@ -32,6 +32,24 @@ describe('the inspection hook', () => {
     expect(inspectSystem(kit.system).scheduler).toBe(kit.scheduler);
   });
 
+  it("gives the system's logger, which never throws", () => {
+    const seen: string[] = [];
+    const logger = {
+      debug: () => {},
+      info: () => {},
+      warn: () => {},
+      error: (msg: string) => {
+        seen.push(msg);
+        throw new Error('broken logger');
+      },
+    };
+    const system = createActorSystem({ logger });
+    expect(() => {
+      inspectSystem(system).log.error('an inspector failed');
+    }).not.toThrow();
+    expect(seen).toEqual(['an inspector failed']);
+  });
+
   it("isn't visible on the system, and only a real system has one", () => {
     const kit = createTestKit();
     expect(Object.getOwnPropertySymbols({ ...kit.system })).toEqual([]);

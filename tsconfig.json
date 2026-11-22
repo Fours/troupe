@@ -28,7 +28,8 @@
       "@kylewillett/troupe/testkit": ["./src/testkit/index.ts"],
       "@kylewillett/troupe/persistence": ["./src/persistence/index.ts"],
       "@kylewillett/troupe/persistence/sqlite": ["./src/node/sqlite/index.ts"],
-      "@kylewillett/troupe/persistence/postgres": ["./src/persistence/postgres/index.ts"]
+      "@kylewillett/troupe/persistence/postgres": ["./src/persistence/postgres/index.ts"],
+      "@kylewillett/troupe/backstage": ["./src/backstage/index.ts"]
     }
   },
   "include": ["src", "test", "examples", "scripts", "bench", "*.config.ts"],

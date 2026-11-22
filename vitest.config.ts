@@ -26,6 +26,10 @@ export default defineConfig({
         find: /^@kylewillett\/troupe\/persistence\/postgres$/,
         replacement: fileURLToPath(new URL('./src/persistence/postgres/index.ts', import.meta.url)),
       },
+      {
+        find: /^@kylewillett\/troupe\/backstage$/,
+        replacement: fileURLToPath(new URL('./src/backstage/index.ts', import.meta.url)),
+      },
     ],
   },
   test: {
@@ -61,6 +65,7 @@ export default defineConfig({
         'src/persistence/index.ts',
         'src/node/sqlite/index.ts',
         'src/persistence/postgres/index.ts',
+        'src/backstage/index.ts',
         'src/**/*.d.ts',
       ],
       thresholds: { lines: 90 },

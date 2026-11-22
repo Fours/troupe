@@ -304,7 +304,7 @@ Do these in order. Each one ends with passing tests.
 | --- | --- | --- |
 | T1. The benchmark and its baseline | Done | d28e83d, 4003682, 2d65cea |
 | T2. Message events and inspection hooks | Done | 921fd59 |
-| T3. The Backstage protocol and in-process source | Not started | |
+| T3. The Backstage protocol and in-process source | Done | |
 | T4. Demo foundation: opening night | Not started | |
 | T5. The Backstage UI | Not started | |
 | T6. The Node server | Not started | |
@@ -356,13 +356,22 @@ Write [0021](decisions/0021-backstage-only-watches.md).
 
 **Done when** tests cover:
 
-- [ ] `connect` gets a `hello` with every live actor and the recent history, then an `event` frame for each event
-- [ ] A connection made after a crash sees the crash in `history`, and `history` keeps at most its limit
-- [ ] Every frame and response survives `JSON.parse(JSON.stringify(...))` unchanged
-- [ ] `encode` handles each row of the encoding table, escapes `$` keys, and never throws, including on a property test of arbitrary values
-- [ ] `state`, `timeline` and `stateAt` answer correctly, and an unknown path, a plain actor or a `seq` past the end gives an error response
-- [ ] `close` turns message events off again, and ends every connection
-- [ ] A package test: `/backstage` loads, exports exactly its names, and loads no Node built-in, and the other entry points don't load it
+- [x] `connect` gets a `hello` with every live actor and the recent history, then an `event` frame for each event
+- [x] A connection made after a crash sees the crash in `history`, and `history` keeps at most its limit
+- [x] Every frame and response survives `JSON.parse(JSON.stringify(...))` unchanged
+- [x] `encode` handles each row of the encoding table, escapes `$` keys, and never throws, including on a property test of arbitrary values
+- [x] `state`, `timeline` and `stateAt` answer correctly, and an unknown path, a plain actor or a `seq` past the end gives an error response
+- [x] `close` turns message events off again, and ends every connection
+- [x] A package test: `/backstage` loads, exports exactly its names, and loads no Node built-in, and the other entry points don't load it
+
+**Found in T3:**
+
+- The encoder also stops after 10,000 values in one call. Without that, a value 200 wide and 8 deep is within every other limit ([0021](decisions/0021-backstage-only-watches.md)).
+- A string past the limit is `{ "$string": "<the first 2,000>", "$truncated": n }`.
+- Responses are `{ ok: true, type, ... }` or `{ ok: false, error: { name, message } }`. The names are `TypeError`, `RangeError`, `NotFoundError`, `NotPersistentError` and `ClosedError`, or a journal failure's own name.
+- `hello.actors` has no state, so the UI asks for it with `state`.
+- `timeline` finds `lastSeq` by reading on to the end of the stream, since the `Journal` has no call for it.
+- The inspection hook also gives the system's logger, for a connection that throws.
 
 ### T4. Demo foundation: opening night
 

@@ -46,6 +46,10 @@
     "./persistence/postgres": {
       "types": "./dist/persistence/postgres/index.d.ts",
       "import": "./dist/persistence/postgres/index.js"
+    },
+    "./backstage": {
+      "types": "./dist/backstage/index.d.ts",
+      "import": "./dist/backstage/index.js"
     }
   },
   "sideEffects": false,
