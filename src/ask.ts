@@ -1,7 +1,7 @@
 import { checkInt, checkKeys } from './checks.js';
 import { ActorSystemTerminatedError, AskTimeoutError } from './errors.js';
 import type { EventBus } from './events.js';
-import type { ActorRef, AskOptions, Result } from './types.js';
+import type { ActorRef, AnyRef, AskOptions, Result } from './types.js';
 
 const ASK_OPTIONS = new Set(['timeoutMs']);
 const TEMP_PATH = '/temp';
@@ -33,6 +33,11 @@ export class Asker {
   // Rejects each ask that's still waiting, for terminate().
   readonly #pending = new Set<(error: Error) => void>();
   readonly #outcomes = new WeakMap<object, Outcome>();
+  // Every ref this asker made, so the wire can refuse refs from another system (decision 0025).
+  readonly #made = new WeakSet<object>();
+  // The temporary refs of asks still waiting, by path, so a reply from another node can find
+  // its ask (decision 0025).
+  readonly #temps = new Map<string, AnyRef>();
   #generated = 0;
   #terminated = false;
 
@@ -47,7 +52,18 @@ export class Asker {
       tell,
       ask: <R>(build: (replyTo: ActorRef<R>) => M, opts?: AskOptions) => this.ask(ref, build, opts),
     });
+    this.#made.add(ref);
     return ref;
+  }
+
+  /** Whether this asker made `ref`: a cell's, an ask's, a probe's, or one made through `ref`. */
+  owns(ref: unknown): boolean {
+    return typeof ref === 'object' && ref !== null && this.#made.has(ref);
+  }
+
+  /** The temporary ref at `path`, while its ask waits for a reply or its timeout. */
+  temp(path: string): AnyRef | undefined {
+    return this.#temps.get(path);
   }
 
   /**
@@ -98,6 +114,7 @@ export class Asker {
         done = true;
         cancelTimer();
         this.#pending.delete(fail);
+        this.#temps.delete(path);
         return true;
       };
       const fail = (error: Error): void => {
@@ -128,6 +145,7 @@ export class Asker {
         fail(new AskTimeoutError(target.path, timeoutMs));
       }, timeoutMs);
       this.#pending.add(fail);
+      this.#temps.set(path, replyTo);
       target.tell(msg);
     });
     this.#outcomes.set(promise, outcome);

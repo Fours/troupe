@@ -16,7 +16,7 @@ Troupe is an actor framework for TypeScript, in the spirit of Akka. It has typed
 | 1 | Local typed actors: hierarchy, supervision, ask, timers, testkit with virtual time | Done — [spec](docs/milestone-1.md) |
 | 2 | Event-sourced persistent actors: journals, snapshots, recovery | Done — [spec](docs/milestone-2.md) |
 | 3 | Backstage inspector, demo app and site, first npm release | Done — [spec](docs/milestone-3.md) |
-| 4 | Multi-node: remoting, membership, cluster sharding | Not started — [spec](docs/milestone-4.md) |
+| 4 | Multi-node: remoting, membership, cluster sharding | In progress — [spec](docs/milestone-4.md) |
 | 5 | Rehearsal: deterministic simulation testing | Not started |
 
 ## Stack
@@ -61,7 +61,10 @@ src/
   supervision.ts    supervise, option checks, and the strategy decision (0006, 0008)
   ask.ts            refs, ask and its temporary refs under /temp (0009)
   timers.ts         keyed timers, checked by generation when their messages are dequeued
-  internal.ts       hooks for the other entry points, never exported: the start hook and ctx internals
+  internal.ts       hooks for the other entry points, never exported: the start hook, ctx internals,
+                    the inspection hook, and the cluster's (/system, lookup by path, makeRef) (0025)
+  json.ts           what a JSON value is, once: the check events use (0014), with a ref hook for
+                    the wire (0025)
   actor.ts, names.ts, events.ts, logger.ts, errors.ts, queue.ts
   scheduler.ts      Scheduler and realScheduler (0003)
   globals.d.ts      the runtime globals src/ may use (0004); in the build config only
@@ -71,7 +74,8 @@ src/
   backstage/        the /backstage entry point (any runtime): backstage() the in-process source,
                     the protocol types, encode() the wire encoding, and the read-only requests (0021)
   testkit/          the /testkit entry point: ManualScheduler, seededRandom, createTestKit, TestProbe
-  persistence/      the /persistence entry point: the store interfaces, the JSON-value check (0014),
+  cluster/          milestone 4's cluster, not yet an entry point: wire.ts, the wire format (0025)
+  persistence/      the /persistence entry point: the store interfaces,
                     backend.ts (the argument checks every backend shares), the in-memory backend,
                     persistentActor (actor.ts: effects, recovery, schemas, upcasters and tags),
                     projection (projection.ts), and the copied Standard Schema interface (0018)

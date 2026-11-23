@@ -340,7 +340,7 @@ Do these in order. Each one ends with passing tests.
 
 | Task | Status | Commit |
 | --- | --- | --- |
-| T1. The wire format and the core's hooks | Not started | |
+| T1. The wire format and the core's hooks | Done | |
 | T2. Remoting on the in-memory network | Not started | |
 | T3. The TCP transport | Not started | |
 | T4. Membership | Not started | |
@@ -361,12 +361,12 @@ Write [0025](#decision-records).
 
 **Done when** tests cover:
 
-- [ ] Every JSON value, and refs anywhere in one, round-trip through encode and decode, including a property test of arbitrary values
-- [ ] A value that isn't JSON plus refs is refused with the path to the first bad part, and `$` keys are escaped
-- [ ] A local ref encodes with this node's address and uid, and decodes back to the same ref on this node. A ref to a stopped actor, or another uid, decodes to one whose `tell` is a `stopped` dead letter
-- [ ] A temporary ask ref can be found by path while its ask waits, and not after
-- [ ] Actors under `/system` don't appear under `/user`, and `terminate()` stops them after `/user`
-- [ ] Nothing changes for a system with no cluster: the existing suite passes unchanged, and the benchmark's `events-none` stays within its spread
+- [x] Every JSON value, and refs anywhere in one, round-trip through encode and decode, including a property test of arbitrary values
+- [x] A value that isn't JSON plus refs is refused with the path to the first bad part, and `$` keys are escaped
+- [x] A local ref encodes with this node's address and uid, and decodes back to the same ref on this node. A ref to a stopped actor, or another uid, decodes to one whose `tell` is a `stopped` dead letter
+- [x] A temporary ask ref can be found by path while its ask waits, and not after
+- [x] Actors under `/system` don't appear under `/user`, and `terminate()` stops them after `/user`
+- [x] Nothing changes for a system with no cluster: the existing suite passes unchanged, and the benchmark's `events-none` stays within its spread
 
 ### T2. Remoting on the in-memory network
 

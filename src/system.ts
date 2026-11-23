@@ -4,7 +4,13 @@ import { checkInt, checkKeys, describe } from './checks.js';
 import { Dispatcher } from './dispatcher.js';
 import { ActorSystemTerminatedError, NotAChildError } from './errors.js';
 import { EventBus } from './events.js';
-import { INSPECT, type CellInspection, type SystemInspection } from './internal.js';
+import {
+  HOOKS,
+  INSPECT,
+  type CellInspection,
+  type SystemHooks,
+  type SystemInspection,
+} from './internal.js';
 import { consoleLogger, isLogger, safeLogger } from './logger.js';
 import { childPath, Names } from './names.js';
 import { realScheduler, type Scheduler } from './scheduler.js';
@@ -15,6 +21,7 @@ import type {
   ActorSystem,
   ActorSystemOptions,
   AnyRef,
+  DeadLetterReason,
   SpawnOptions,
 } from './types.js';
 
@@ -32,6 +39,8 @@ const STOP = supervise.stop();
 const MAILBOX_OPTIONS = new Set(['capacity']);
 const SYSTEM_NAME = /^[a-z0-9-]+$/;
 const USER_PATH = '/user';
+const SYSTEM_PATH = '/system';
+const TEMP_PATH = '/temp';
 
 /** The parts of a system that the testkit needs and the public API hides. */
 export interface SystemHandle {
@@ -110,18 +119,26 @@ export function createSystem(opts: ActorSystemOptions = {}): SystemHandle {
     resolveTerminated = resolve;
   });
 
-  // The parent of every top-level actor. terminate() stops it like any other parent.
-  const guardian: ParentNode = {
-    path: USER_PATH,
-    names: new Names(),
-    childCells: new Map<string, CellNode>(),
-    removeChild(child) {
-      this.childCells.delete(child.name);
-      this.names.release(child.name);
-      // The last stopped event is published right after this returns, before anyone awaiting
-      // whenTerminated can run.
-      if (terminating && this.childCells.size === 0) resolveTerminated();
-    },
+  // The parents of every top-level actor: the user's, and the system's own under /system, which
+  // the cluster uses (decision 0025). terminate() stops /user first, then /system, so a user
+  // actor's last messages can still go through the cluster.
+  const guardian = guardianAt(USER_PATH, () => {
+    if (terminating) stopSystemActors();
+  });
+  const systemGuardian = guardianAt(SYSTEM_PATH, () => {
+    if (terminating) checkTerminated();
+  });
+  // The last stopped event is published right after a removeChild returns, before anyone
+  // awaiting whenTerminated can run.
+  const checkTerminated = (): void => {
+    if (guardian.childCells.size === 0 && systemGuardian.childCells.size === 0) {
+      resolveTerminated();
+    }
+  };
+  const stopSystemActors = (): void => {
+    if (guardian.childCells.size > 0) return;
+    if (systemGuardian.childCells.size === 0) resolveTerminated();
+    for (const child of [...systemGuardian.childCells.values()]) child.requestStop();
   };
 
   const host: CellHost = {
@@ -186,13 +203,36 @@ export function createSystem(opts: ActorSystemOptions = {}): SystemHandle {
       terminating = true;
       // Pending asks fail now, so an actor awaiting one in an async receive can still stop.
       asker.terminate();
-      if (guardian.childCells.size === 0) resolveTerminated();
+      if (guardian.childCells.size === 0) stopSystemActors();
       for (const child of [...guardian.childCells.values()]) child.requestStop();
       return whenTerminated;
     },
   };
-  // Not enumerable, so spreading or logging a system doesn't show it.
+  const hooks: SystemHooks = Object.freeze({
+    scheduler,
+    random,
+    log,
+    spawnSystem<M, S>(def: ActorDef<M, S>, childName?: string, spawnOpts?: SpawnOptions) {
+      return host.spawn(systemGuardian, def, childName, spawnOpts);
+    },
+    lookup(path: string): AnyRef | undefined {
+      if (path.startsWith(`${TEMP_PATH}/`)) return asker.temp(path);
+      const root = path.startsWith(`${USER_PATH}/`)
+        ? guardian
+        : path.startsWith(`${SYSTEM_PATH}/`)
+          ? systemGuardian
+          : undefined;
+      return root === undefined ? undefined : find(root, path.slice(root.path.length + 1));
+    },
+    owns: (ref: unknown) => asker.owns(ref),
+    makeRef,
+    deadLetter(recipient: string, message: unknown, reason: DeadLetterReason) {
+      events.publish({ type: 'deadLetter', recipient, message, reason });
+    },
+  });
+  // Not enumerable, so spreading or logging a system doesn't show them.
   Object.defineProperty(system, INSPECT, { value: inspection });
+  Object.defineProperty(system, HOOKS, { value: hooks });
   Object.freeze(system);
   return {
     system,
@@ -206,6 +246,32 @@ export function createSystem(opts: ActorSystemOptions = {}): SystemHandle {
       else cell.watchers.add(watcher);
     },
   };
+}
+
+/** A guardian: the parent of top-level actors at `path`. `onEmpty` runs when its last child goes. */
+function guardianAt(path: string, onEmpty: () => void): ParentNode {
+  return {
+    path,
+    names: new Names(),
+    childCells: new Map<string, CellNode>(),
+    removeChild(child) {
+      this.childCells.delete(child.name);
+      this.names.release(child.name);
+      if (this.childCells.size === 0) onEmpty();
+    },
+  };
+}
+
+/** The ref of the cell at `relative`, a path such as `a/b` below `root`, if it hasn't terminated. */
+function find(root: ParentNode, relative: string): AnyRef | undefined {
+  let children: ReadonlyMap<string, CellNode> = root.childCells;
+  let cell: CellNode | undefined;
+  for (const name of relative.split('/')) {
+    cell = children.get(name);
+    if (cell === undefined) return undefined;
+    children = cell.childCells;
+  }
+  return cell?.ref;
 }
 
 /** Every cell under `cells`, depth first, each parent before its children in spawn order. */

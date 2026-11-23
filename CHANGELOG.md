@@ -2,6 +2,12 @@
 
 This project follows [Semantic Versioning](https://semver.org/). Under 0.x, a minor version can break the API, and it will in milestone 4. Each design choice behind these entries has a record in [docs/decisions](https://github.com/Fours/troupe/tree/main/docs/decisions).
 
+## Unreleased (0.2.0)
+
+Milestone 4: multi-node. Entries are added as its tasks land.
+
+- `deadLetter`'s `reason` gains `unreachable`, `unserializable` and `invalid`, for messages that can't reach another node, can't be sent as JSON plus refs, or fail an entity type's schema. A `switch` over the reasons that has no `default` needs the new cases ([0025](https://github.com/Fours/troupe/blob/main/docs/decisions/0025-messages-on-the-wire-are-json-plus-refs.md)).
+
 ## 0.1.1 (2026-11-23)
 
 - The package's `homepage` is the demo site, <https://troupe.kylewillett.com/>, and the README links to the demo and to the design write-up, "How Troupe works", there. No code changed.

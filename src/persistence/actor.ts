@@ -9,7 +9,7 @@ import {
 import { isValidName } from '../names.js';
 import type { ActorContext, ActorDef, ActorRef, Signal } from '../types.js';
 import { EventValidationError, EventVersionError, JournalSequenceError } from './errors.js';
-import { jsonProblem } from './json.js';
+import { jsonProblem } from '../json.js';
 import type { StandardSchemaV1 } from './standard-schema.js';
 import type { Journal, NewEvent, Persistence, SnapshotStore, StoredEvent } from './types.js';
 

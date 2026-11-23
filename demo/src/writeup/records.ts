@@ -29,6 +29,7 @@ export const RECORDS = {
   '0022': '0022-demo-drives-virtual-time',
   '0023': '0023-backstage-server-uses-sse',
   '0024': '0024-publish-from-ci-with-provenance',
+  '0025': '0025-messages-on-the-wire-are-json-plus-refs',
 } as const;
 
 export type RecordId = keyof typeof RECORDS;

@@ -534,9 +534,11 @@ export function WriteUp({ data }: { data: WriteupData }) {
               <strong>Cluster sharding</strong>, in milestone 4. Actors on several nodes, with refs
               that cross the network. The API was built for it: refs are an interface a remote ref
               can implement, an ask never fails fast <Record id="0009" />, and Backstage’s frames
-              are JSON with refs as paths <Record id="0021" />. Sharding’s many writers will meet
-              the Postgres lock first, and the alternative is already named: no lock, and gap
-              detection in the readers <Record id="0016" />.
+              are JSON with refs as paths <Record id="0021" />. Messages between nodes will be JSON
+              too, with refs as addresses, checked as events are, and a message to an entity is
+              encoded even when the entity is on the same node <Record id="0025" />. Sharding’s many
+              writers will meet the Postgres lock first, and the alternative is already named: no
+              lock, and gap detection in the readers <Record id="0016" />.
             </p>
             <p>
               <strong>Rehearsal</strong>, in milestone 5: deterministic simulation testing. Run a

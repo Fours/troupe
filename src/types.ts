@@ -43,6 +43,16 @@ export interface AskOptions {
   timeoutMs?: number;
 }
 
+/** Why a message became a dead letter. See the `deadLetter` event. */
+export type DeadLetterReason =
+  | 'mailboxFull'
+  | 'stopped'
+  | 'askCompleted'
+  | 'terminated'
+  | 'unreachable'
+  | 'unserializable'
+  | 'invalid';
+
 /** A ref to an actor of any protocol, for watching, stopping and comparing. */
 export type AnyRef = ActorRef<never>;
 
@@ -306,8 +316,12 @@ export type SystemEvent = Timestamped<
        * `mailboxFull`: a bounded mailbox was full. `stopped`: the actor was stopping or had
        * stopped. `askCompleted`: a reply to an `ask` that had already been answered or had timed
        * out. `terminated`: the system was terminating.
+       *
+       * In a cluster: `unreachable`: its node couldn't be reached, or was down. `unserializable`:
+       * the message wasn't JSON plus refs, or was too big to send. `invalid`: the message failed
+       * its entity type's schema.
        */
-      readonly reason: 'mailboxFull' | 'stopped' | 'askCompleted' | 'terminated';
+      readonly reason: DeadLetterReason;
     }
 >;
 

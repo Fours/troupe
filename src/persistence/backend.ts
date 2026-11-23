@@ -1,7 +1,7 @@
 // Shared by every backend, never exported from an entry point: the argument checks and the clock
 // wrapper, so the in-memory, SQLite and Postgres backends reject exactly the same calls.
 import { checkInt, describe } from '../checks.js';
-import { jsonProblem } from './json.js';
+import { jsonProblem } from '../json.js';
 import type { NewEvent, NewSnapshot } from './types.js';
 
 /** An event checked and ready to store, with the event itself as JSON text. */

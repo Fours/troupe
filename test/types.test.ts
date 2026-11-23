@@ -10,6 +10,7 @@ import type {
   ActorRef,
   ActorSystem,
   AnyRef,
+  DeadLetterReason,
   Result,
   Signal,
   SpawnOptions,
@@ -168,11 +169,18 @@ describe('supervision types', () => {
     expectTypeOf<Restarted['delayMs']>().toEqualTypeOf<number>();
   });
 
-  it('adds askCompleted to the dead-letter reasons', () => {
+  it('adds askCompleted, and the cluster’s reasons, to the dead-letter reasons', () => {
     type DeadLetter = Extract<SystemEvent, { type: 'deadLetter' }>;
     expectTypeOf<DeadLetter['reason']>().toEqualTypeOf<
-      'mailboxFull' | 'stopped' | 'askCompleted' | 'terminated'
+      | 'mailboxFull'
+      | 'stopped'
+      | 'askCompleted'
+      | 'terminated'
+      | 'unreachable'
+      | 'unserializable'
+      | 'invalid'
     >();
+    expectTypeOf<DeadLetter['reason']>().toEqualTypeOf<DeadLetterReason>();
   });
 });
 

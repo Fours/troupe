@@ -1,13 +1,23 @@
 // Hooks between the core and the package's other entry points. None of this is public API: the
 // symbols are exported only to the package's own modules, never from an entry point, so user
 // actors can't reach them. Persistent actors use them to recover before any message (milestone 2),
-// and Backstage uses them to read what the public API doesn't show (milestone 3).
+// Backstage uses them to read what the public API doesn't show (milestone 3), and the cluster uses
+// them to put its actors under /system and to turn paths from the wire back into refs (milestone
+// 4). The core still knows nothing about the network.
 
 import type { EventBody } from './events.js';
 import type { Logger } from './logger.js';
 import type { Persistence } from './persistence/types.js';
 import type { Scheduler } from './scheduler.js';
-import type { ActorContext, ActorSystem } from './types.js';
+import type {
+  ActorContext,
+  ActorDef,
+  ActorRef,
+  ActorSystem,
+  AnyRef,
+  DeadLetterReason,
+  SpawnOptions,
+} from './types.js';
 
 /**
  * An optional async step on an `ActorDef`, run after `initial` and before any message. It gets the
@@ -111,4 +121,40 @@ export function inspectSystem(system: ActorSystem): SystemInspection {
 /** The persistent hook of a definition, if it's a persistent actor's. */
 export function persistentHookOf(def: object): PersistentHook | undefined {
   return (def as { [PERSISTENT]?: PersistentHook })[PERSISTENT];
+}
+
+/** The cluster's hook on a system the core made (decision 0025). */
+export const HOOKS: unique symbol = Symbol('troupe.hooks');
+
+/** What `system[HOOKS]` holds. */
+export interface SystemHooks {
+  /** The scheduler the system runs on. */
+  readonly scheduler: Scheduler;
+  /** The system's source of chance (decision 0003). */
+  readonly random: () => number;
+  /** The system's logger, wrapped so it never throws. */
+  readonly log: Logger;
+  /**
+   * Spawns a top-level actor under `/system`, with every check `spawn` makes. `terminate()` stops
+   * these after everything under `/user`, so user actors can still reach the cluster as they stop.
+   */
+  spawnSystem<M, S>(def: ActorDef<M, S>, name?: string, opts?: SpawnOptions): ActorRef<M>;
+  /**
+   * The ref at a local path: a live actor under `/user` or `/system`, or the temporary ref of an
+   * ask that's still waiting, under `/temp`. `undefined` for anything else.
+   */
+  lookup(path: string): AnyRef | undefined;
+  /** Whether this system made `ref`, through spawn, ask, a probe or {@link SystemHooks.makeRef}. */
+  owns(ref: unknown): boolean;
+  /** Makes a ref with this system's `ask`, such as a remote ref. */
+  makeRef<M>(path: string, tell: (msg: M) => void): ActorRef<M>;
+  /** Publishes a `deadLetter` event. */
+  deadLetter(recipient: string, message: unknown, reason: DeadLetterReason): void;
+}
+
+/** The cluster's hook on a system the core made. */
+export function hooksOf(system: ActorSystem): SystemHooks {
+  const hooks = (system as unknown as { [HOOKS]?: SystemHooks })[HOOKS];
+  if (hooks === undefined) throw new TypeError('this system was not made by createActorSystem');
+  return hooks;
 }

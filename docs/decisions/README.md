@@ -44,3 +44,4 @@ When you change a decision, update its record in the same commit as the code.
 | [0022](0022-demo-drives-virtual-time.md) | The demo drives virtual time from animation frames, so pausing pauses the system | Accepted | 3 |
 | [0023](0023-backstage-server-uses-sse.md) | The Backstage server uses server-sent events on `node:http`, with no dependency | Accepted | 3 |
 | [0024](0024-publish-from-ci-with-provenance.md) | Publishing from CI with trusted publishing and provenance, starting at 0.1.0 | Accepted | 3 |
+| [0025](0025-messages-on-the-wire-are-json-plus-refs.md) | Messages on the wire are JSON plus refs, refs travel as an address and a path, and messages to entities are always encoded | Proposed | 4 |

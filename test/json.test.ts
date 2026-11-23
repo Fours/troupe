@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isJsonValue, jsonProblem } from '../../src/persistence/json.js';
+import { isJsonValue, jsonProblem } from '../src/json.js';
 
 class Seat {
   row = 'A';
