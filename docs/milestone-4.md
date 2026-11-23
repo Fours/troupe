@@ -341,8 +341,8 @@ Do these in order. Each one ends with passing tests.
 | Task | Status | Commit |
 | --- | --- | --- |
 | T1. The wire format and the core's hooks | Done | 1bb8120 |
-| T2. Remoting on the in-memory network | Done | |
-| T3. The TCP transport | Not started | |
+| T2. Remoting on the in-memory network | Done | 11322d6 |
+| T3. The TCP transport | Done | |
 | T4. Membership | Not started | |
 | T5. Shard leases | Not started | |
 | T6. Cluster sharding: routing and placement | Not started | |
@@ -401,12 +401,21 @@ Write [0027](#decision-records).
 
 **Done when** tests cover:
 
-- [ ] Two systems in one process, on TCP over loopback, pass T2's remoting tests (the same suite, on another transport)
-- [ ] Frames split across reads, and several in one read, decode correctly. A frame over the limit closes the connection
-- [ ] A peer with the wrong secret is disconnected before any other frame, and the secret never appears in what's sent (checked on the raw socket)
-- [ ] A dropped connection reconnects with backoff, and messages sent meanwhile arrive in order once it's back
-- [ ] `host` defaults to `127.0.0.1`, and `close()` ends every connection
-- [ ] A package test: the entry point loads from `dist/` and imports only `node:net` and `node:crypto`
+- [x] Two systems in one process, on TCP over loopback, pass T2's remoting tests (the same suite, on another transport)
+- [x] Frames split across reads, and several in one read, decode correctly. A frame over the limit closes the connection
+- [x] A peer with the wrong secret is disconnected before any other frame, and the secret never appears in what's sent (checked on the raw socket)
+- [x] A dropped connection reconnects with backoff, and messages sent meanwhile arrive in order once it's back
+- [x] `host` defaults to `127.0.0.1`, and `close()` ends every connection
+- [x] A package test: the entry point loads from `dist/` and imports only `node:net` and `node:crypto`
+
+Notes from T3 (plan review, 2026-11-23):
+
+- The suite runs on TCP with remoting still on the `ManualScheduler`, and the test network waits for the sockets to go quiet. Two of its tests run only on the in-memory network, since TCP's timing belongs to the operating system: determinism from a seed, and a piped ask completing with only the scheduler running.
+- `Transport.listen` gains an optional `onRefused`, so a refused peer is logged by the system's logger, not a logger of the transport's own.
+- `tcpTransport` takes `maxFrameBytes` too, default 1 MiB, the same as remoting's limit on what it sends.
+- A peer gets 5 s to prove the secret, on the socket's own idle timer. The test of it shortens that through an internal option, and runs on real time, as `realScheduler`'s tests do.
+- Once connected, remoting writes without backpressure, so a slow peer grows Node's write buffer. T8's benchmark checks whether it matters.
+- The README's note on keeping cluster traffic on a private network comes in T10, when the cluster is documented.
 
 ### T4. Membership
 

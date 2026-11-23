@@ -539,8 +539,11 @@ export function WriteUp({ data }: { data: WriteupData }) {
               encoded even when the entity is on the same node <Record id="0025" />. Delivery is at
               most once, in order from one node to one actor, over any transport that carries text,
               and a remote ask settles on the scheduler as a local one does <Record id="0026" />.
-              Sharding’s many writers will meet the Postgres lock first, and the alternative is
-              already named: no lock, and gap detection in the readers <Record id="0016" />.
+              Between processes that transport is TCP, with nothing but Node underneath, and a node
+              must prove it knows the cluster’s secret, without sending it, before it can say
+              anything else <Record id="0027" />. Sharding’s many writers will meet the Postgres
+              lock first, and the alternative is already named: no lock, and gap detection in the
+              readers <Record id="0016" />.
             </p>
             <p>
               <strong>Rehearsal</strong>, in milestone 5: deterministic simulation testing. Run a

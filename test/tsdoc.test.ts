@@ -10,6 +10,7 @@ const ENTRIES = [
   `${root}src/persistence/postgres/index.ts`,
   `${root}src/backstage/index.ts`,
   `${root}src/node/backstage/index.ts`,
+  `${root}src/node/cluster/index.ts`,
 ];
 
 function documented(symbol: ts.Symbol, checker: ts.TypeChecker): boolean {

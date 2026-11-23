@@ -184,9 +184,14 @@ class Node {
       uid: self.uid,
     });
     hooks.setWatchResolver((ref) => this.#watchTarget(ref));
-    const whenListening = transport.listen((connection) => {
-      this.#accept(connection);
-    });
+    const whenListening = transport.listen(
+      (connection) => {
+        this.#accept(connection);
+      },
+      (reason) => {
+        hooks.log.warn(`remoting: ${reason}`);
+      },
+    );
     whenListening.catch((error: unknown) => {
       hooks.log.error('remoting: the transport could not listen', {
         address: self.address,

@@ -70,7 +70,8 @@ src/
   globals.d.ts      the runtime globals src/ may use (0004); in the build config only
   node/             Node-only entry points, built by tsconfig.build.node.json with Node types, and
                     the only place lint allows Node built-ins: sqlite/ is /persistence/sqlite (0017),
-                    backstage/ is /backstage/server, serveBackstage() on node:http (0023)
+                    backstage/ is /backstage/server, serveBackstage() on node:http (0023), and
+                    cluster/ is /cluster/tcp, tcpTransport() on node:net and node:crypto (0027)
   backstage/        the /backstage entry point (any runtime): backstage() the in-process source,
                     the protocol types, encode() the wire encoding, and the read-only requests (0021)
   testkit/          the /testkit entry point: ManualScheduler, seededRandom, createTestKit, TestProbe
@@ -86,7 +87,9 @@ test/               mirrors src/; helpers/ holds deferred() and test actors (tre
                     the persistent account, faultyJournal() and faultySnapshots() for holding
                     and failing calls, postgres.ts (the test database, fresh schemas, and a
                     pool that holds a COMMIT), and cluster.ts (N nodes on one ManualScheduler and
-                    one in-memory network, with settle, advance, kill and restart)
+                    one network, in memory or TCP on loopback through tcp-network.ts, with settle,
+                    advance, kill and restart). cluster/remoting-suite.ts is remoting's suite, run
+                    on both networks
                     persistence/contract.ts is the journal contract every backend runs;
                     node/ tests the Node-only backends, lint.test.ts the lint config's boundaries
                     integration/ needs Postgres: its own Vitest project, run by test:integration
@@ -138,7 +141,7 @@ docs/               roadmap, milestone specs, decision records
 
 ## Tests
 
-- Use the testkit (`createTestKit`, `ManualScheduler`) for anything time-based. Never use real sleeps or timers in tests. The only exceptions are tests of `realScheduler` itself and the dispatcher's yield test, which must use real time, and should stay fast.
+- Use the testkit (`createTestKit`, `ManualScheduler`) for anything time-based. Never use real sleeps or timers in tests. The only exceptions are tests of `realScheduler` itself, the dispatcher's yield test and the TCP transport's proof timeout, which is the socket's own timer. They must use real time, and should stay fast. Tests on real sockets wait for events, never for a fixed time.
 - Every behaviour listed in a milestone spec's "Done when" needs a test.
 - Use `expectTypeOf` type tests for API typing claims, such as variance and inference.
 - Keep line coverage on `src/` at 90% or higher.

@@ -104,6 +104,9 @@ const BACKSTAGE_TYPES = [
 // The milestone 3 spec's server.
 const SERVER_VALUES = ['serveBackstage'];
 const SERVER_TYPES = ['BackstageServer', 'BackstageServerOptions'];
+// The milestone 4 spec's TCP transport.
+const TCP_VALUES = ['tcpTransport'];
+const TCP_TYPES = ['TcpTransportOptions'];
 const ENTRY_POINTS = [
   '@kylewillett/troupe',
   '@kylewillett/troupe/testkit',
@@ -154,6 +157,7 @@ describe('the built package', () => {
       const postgres = await import('@kylewillett/troupe/persistence/postgres');
       const backstage = await import('@kylewillett/troupe/backstage');
       const server = await import('@kylewillett/troupe/backstage/server');
+      const tcp = await import('@kylewillett/troupe/cluster/tcp');
       console.log(JSON.stringify({
         main: Object.keys(main),
         testkit: Object.keys(testkit),
@@ -162,6 +166,7 @@ describe('the built package', () => {
         postgres: Object.keys(postgres),
         backstage: Object.keys(backstage),
         server: Object.keys(server),
+        tcp: Object.keys(tcp),
       }));
     `;
     const out = execFileSync(process.execPath, ['--input-type=module', '-e', script], {
@@ -169,7 +174,7 @@ describe('the built package', () => {
       encoding: 'utf8',
     });
     const loaded = JSON.parse(out) as Record<
-      'main' | 'testkit' | 'persistence' | 'sqlite' | 'postgres' | 'backstage' | 'server',
+      'main' | 'testkit' | 'persistence' | 'sqlite' | 'postgres' | 'backstage' | 'server' | 'tcp',
       string[]
     >;
     expect(sorted(loaded.main)).toEqual(sorted(MAIN_VALUES));
@@ -179,6 +184,7 @@ describe('the built package', () => {
     expect(sorted(loaded.postgres)).toEqual(sorted(POSTGRES_VALUES));
     expect(sorted(loaded.backstage)).toEqual(sorted(BACKSTAGE_VALUES));
     expect(sorted(loaded.server)).toEqual(sorted(SERVER_VALUES));
+    expect(sorted(loaded.tcp)).toEqual(sorted(TCP_VALUES));
   });
 
   it('declares exactly the spec’s names, types included', () => {
@@ -189,7 +195,8 @@ describe('the built package', () => {
     const postgres = `${root}dist/persistence/postgres/index.d.ts`;
     const backstage = `${root}dist/backstage/index.d.ts`;
     const server = `${root}dist/node/backstage/index.d.ts`;
-    const prog = program([main, testkit, persistence, sqlite, postgres, backstage, server]);
+    const tcp = `${root}dist/node/cluster/index.d.ts`;
+    const prog = program([main, testkit, persistence, sqlite, postgres, backstage, server, tcp]);
     expect(sorted(exportsOf(prog, main).keys())).toEqual(sorted([...MAIN_VALUES, ...MAIN_TYPES]));
     expect(sorted(exportsOf(prog, testkit).keys())).toEqual(
       sorted([...TESTKIT_VALUES, ...TESTKIT_TYPES]),
@@ -209,6 +216,7 @@ describe('the built package', () => {
     expect(sorted(exportsOf(prog, server).keys())).toEqual(
       sorted([...SERVER_VALUES, ...SERVER_TYPES]),
     );
+    expect(sorted(exportsOf(prog, tcp).keys())).toEqual(sorted([...TCP_VALUES, ...TCP_TYPES]));
   });
 
   it('loads nothing from /persistence when the core is imported', () => {
@@ -293,6 +301,35 @@ describe('the built package', () => {
         loaded.filter((url) => url.includes('/dist/node/backstage/')),
         specifier,
       ).toEqual([]);
+    }
+  });
+
+  it('loads /cluster/tcp from dist/, node:net and node:crypto alone', () => {
+    const loaded = loadedBy('@kylewillett/troupe/cluster/tcp');
+    expect(loaded).toContain(`file://${root}dist/node/cluster/index.js`);
+    // The check below means something only if the hook sees the built-ins when they do load.
+    const builtIns = loaded.filter((url) => url.startsWith('node:'));
+    expect(sorted(new Set(builtIns))).toEqual(['node:crypto', 'node:net']);
+    expect(
+      loaded.filter((url) => !url.startsWith(`file://${root}dist/`) && !url.startsWith('node:')),
+    ).toEqual([]);
+  });
+
+  it('loads /cluster/tcp from no other entry point, and node:net from none that runs anywhere', () => {
+    for (const specifier of [...ENTRY_POINTS, '@kylewillett/troupe/backstage/server']) {
+      const loaded = loadedBy(specifier);
+      expect(
+        loaded.filter((url) => url.includes('/dist/node/cluster/')),
+        specifier,
+      ).toEqual([]);
+    }
+    // The Backstage server uses node:net for itself, so only the any-runtime ones are checked.
+    for (const specifier of [
+      '@kylewillett/troupe',
+      '@kylewillett/troupe/persistence',
+      '@kylewillett/troupe/backstage',
+    ]) {
+      expect(loadedBy(specifier), specifier).not.toContain('node:net');
     }
   });
 

@@ -8,9 +8,13 @@ export interface Transport {
   readonly address: string;
   /**
    * Starts accepting connections, and calls `onConnection` with each one. Resolves once other
-   * nodes can connect.
+   * nodes can connect. A transport that refuses a peer, in either direction, says why through
+   * `onRefused`, so the node can log it: a peer that failed to prove a secret, say.
    */
-  listen(onConnection: (connection: Connection) => void): Promise<void>;
+  listen(
+    onConnection: (connection: Connection) => void,
+    onRefused?: (reason: string) => void,
+  ): Promise<void>;
   /** Returns at once. Frames sent before it opens wait for it, in order. */
   connect(address: string): Connection;
   /** Stops listening and closes every connection. */

@@ -31,6 +31,7 @@ export const RECORDS = {
   '0024': '0024-publish-from-ci-with-provenance',
   '0025': '0025-messages-on-the-wire-are-json-plus-refs',
   '0026': '0026-remoting-is-at-most-once-behind-a-transport',
+  '0027': '0027-nodes-talk-tcp-with-a-shared-secret',
 } as const;
 
 export type RecordId = keyof typeof RECORDS;
