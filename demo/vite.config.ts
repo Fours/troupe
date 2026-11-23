@@ -46,6 +46,20 @@ export default defineConfig({
         demo: here('index.html'),
         howItWorks: here('how-it-works/index.html'),
       },
+      // Named chunks, so the build says what each one is: posthog-js on its own, loaded only when
+      // the page is idle (demo/src/site/browser-analytics.ts), and what both pages share. Grouping
+      // puts rolldown's runtime in a chunk of its own, a few hundred bytes, preloaded.
+      output: {
+        codeSplitting: {
+          groups: [
+            { name: 'posthog', test: /node_modules[\\/]posthog-js[\\/]/ },
+            {
+              name: 'site',
+              test: /node_modules[\\/](react|react-dom|scheduler)[\\/]|src[\\/]site[\\/]|modulepreload-polyfill/,
+            },
+          ],
+        },
+      },
     },
   },
   server: {

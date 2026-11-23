@@ -44,6 +44,7 @@ npm run test:e2e    # builds the package and the demo, then Playwright in Chromi
                     # (npx playwright install chromium)
 npm run check:package  # after build, from a clean dist/: the tarball, publint and attw
 scripts/smoke-published.sh [version|tgz]  # the README quick start from npm, in Docker
+npm run deploy      # the demo site to troupe.kylewillett.com; needs AWS, see DEPLOY.md
 ```
 
 Before you say a task is done, run lint, typecheck, test, test:integration, coverage, build and check:package, and make sure they all pass. When `demo/`, `backstage/`, `e2e/` or the server changed, run test:e2e too. The integration tests fail rather than skip when they can't reach Postgres, and in CI they need `TROUPE_POSTGRES_URL` set.
@@ -98,7 +99,8 @@ demo/               the demo site (Vite, React, plain CSS), with its own tsconfi
                     and seeded chance
   src/writeup/      the write-up, "How Troupe works", the site's second page (how-it-works/):
                     the prose in TSX, citing records with <Record id>, and the SVG charts
-  src/site/         what both pages share: the base styles, the site bar and the links
+  src/site/         what both pages share: the base styles, the site bar, the links, and
+                    PostHog, which loads on idle and never under automation
   build/            writeup-data.ts reads the charts' numbers from docs/decisions/data/ when the
                     site builds, and fails the build if a source is missing
 e2e/                Playwright tests of the built demo, run by test:e2e, with its own tsconfig for
@@ -108,7 +110,9 @@ examples/           runnable examples, run by Node with type stripping, against 
                     (npm run example) and backstage/ (npm run example:backstage)
 scripts/            run by Node with type stripping: write-sql.ts ships table SQL in dist/,
                     check-pack.ts checks the tarball, check-release-tag.ts the release tag,
-                    smoke-published.sh runs the quick start against the published package
+                    smoke-published.sh runs the quick start against the published package,
+                    deploy.sh deploys the demo site (DEPLOY.md)
+deploy/             the deployer's IAM policy
 bench/              the benchmark (0019), run by Node with type stripping against dist/; results
                     go in bench/results/ (ignored) or, for a recorded run, docs/decisions/data/
 docs/               roadmap, milestone specs, decision records

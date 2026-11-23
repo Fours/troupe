@@ -50,17 +50,24 @@ describe("the write-up's record links", () => {
   });
 });
 
-describe('links to the write-up', () => {
-  // Until the site is live (T9), they point at the page's source.
-  const SOURCE = 'demo/src/writeup/WriteUp.tsx';
+describe('links to the site', () => {
+  const SITE = 'https://troupe.kylewillett.com/';
+  const WRITEUP = `${SITE}how-it-works/`;
 
-  it('the README links to it', () => {
-    expect(read('README.md')).toContain(`](${SOURCE})`);
+  it('the README links to the demo and the write-up', () => {
+    const readme = read('README.md');
+    expect(readme).toContain(`](${SITE})`);
+    expect(readme).toContain(`](${WRITEUP})`);
   });
 
   it("docs/decisions/README.md says it's the public write-up, and links to it", () => {
     const readme = read('docs/decisions/README.md');
     expect(readme).toContain('public write-up');
-    expect(readme).toContain(`](../../${SOURCE})`);
+    expect(readme).toContain(`](${WRITEUP})`);
+  });
+
+  it("package.json's homepage is the site, so the npm page links to it", () => {
+    const pkg = JSON.parse(read('package.json')) as { homepage?: unknown };
+    expect(pkg.homepage).toBe(SITE);
   });
 });

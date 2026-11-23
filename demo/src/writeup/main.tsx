@@ -5,6 +5,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import data from 'virtual:writeup-data';
 import type { WriteupData } from './data.ts';
+import { initAnalytics } from '../site/browser-analytics.ts';
 import { WriteUp } from './WriteUp.tsx';
 import './writeup.css';
 
@@ -18,3 +19,5 @@ createRoot(root).render(
     <WriteUp data={writeup} />
   </StrictMode>,
 );
+
+initAnalytics();

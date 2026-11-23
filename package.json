@@ -1,10 +1,10 @@
 {
   "name": "@kylewillett/troupe",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Typed actors for TypeScript: supervision, event-sourced persistent actors, and (later) cluster sharding.",
   "license": "MIT",
   "author": "Kyle Willett",
-  "homepage": "https://github.com/Fours/troupe#readme",
+  "homepage": "https://troupe.kylewillett.com/",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Fours/troupe.git"
@@ -83,7 +83,8 @@
     "demo:build": "vite build --config demo/vite.config.ts",
     "demo:preview": "vite preview --config demo/vite.config.ts",
     "test:e2e": "npm run build && npm run demo:build && playwright test",
-    "check:package": "node scripts/check-pack.ts && publint && attw --pack --profile esm-only"
+    "check:package": "node scripts/check-pack.ts && publint && attw --pack --profile esm-only",
+    "deploy": "bash scripts/deploy.sh"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",
@@ -99,6 +100,7 @@
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-react-hooks": "^7.1.1",
     "pg": "^8.23.1",
+    "posthog-js": "^1.454.0",
     "prettier": "^3.9.10",
     "publint": "^0.3.25",
     "react": "^19.3.1",

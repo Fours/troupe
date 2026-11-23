@@ -309,8 +309,8 @@ Do these in order. Each one ends with passing tests.
 | T5. The Backstage UI | Done, but for your check | 8ce9232 |
 | T6. The Node server | Done | f44fe65 |
 | T7. API review and the 0.1.0 release | Done | 9dcb269, 6f7e51e |
-| T8. The write-up | Done | |
-| T9. Deploy and link | Not started | |
+| T8. The write-up | Done | 925c52a |
+| T9. Deploy and link | In progress | |
 
 ### T1. The benchmark and its baseline
 

@@ -545,10 +545,10 @@ export function WriteUp({ data }: { data: WriteupData }) {
               <Record id="0003" />.
             </p>
             <p>
-              Troupe is <a href={NPM_URL}>on npm</a> at 0.1.0, published from CI with provenance,
-              which ties each release to the commit and the run that built it. It stays at 0.x until
-              milestone 4 has settled the API <Record id="0024" />. The code, the specs and every
-              record are <a href={REPO_URL}>on GitHub</a>.
+              Troupe is <a href={NPM_URL}>on npm</a>, published from CI with provenance, which ties
+              each release to the commit and the run that built it. It stays at 0.x until milestone
+              4 has settled the API <Record id="0024" />. The code, the specs and every record are{' '}
+              <a href={REPO_URL}>on GitHub</a>.
             </p>
           </section>
         </article>
