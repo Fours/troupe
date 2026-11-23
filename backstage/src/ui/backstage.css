@@ -128,6 +128,7 @@
 
 /* The tree. Rows are exactly 30 px, as Tree.tsx's ROW says. */
 .bs-tree {
+  container: bs-tree / inline-size;
   position: relative;
   max-height: 34rem;
   min-height: 30px;
@@ -240,6 +241,36 @@
   text-overflow: ellipsis;
 }
 
+/* When a row runs out of room, as a restarting show's does in a narrow panel, its parts give way
+   in turn: the mailbox bar first, then the journal tag, then the name and the phase, which end in
+   an ellipsis. The dot, the failure count and the waiting count never shrink, so the number of
+   messages waiting is always in view. A flex item won't shrink below its content without
+   min-width: 0. */
+.bs-name,
+.bs-phase,
+.bs-tag {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bs-name {
+  min-width: 2.5em;
+}
+
+.bs-tag {
+  flex-shrink: 3;
+}
+
+/* In a narrow tree, a row that isn't running has its phase and failures to show, so it drops the
+   journal tag (the details panel still says the actor is persistent) to keep its name readable. */
+@container bs-tree (max-width: 20rem) {
+  .bs-row:not(.bs-running) .bs-tag {
+    display: none;
+  }
+}
+
 .bs-phase {
   font-size: 0.75rem;
   color: var(--bs-restarting);
@@ -250,6 +281,7 @@
 }
 
 .bs-failures {
+  flex: none;
   font-size: 0.75rem;
   color: var(--bs-error);
 }
@@ -267,11 +299,13 @@
   display: flex;
   align-items: center;
   gap: 0.3rem;
-  flex: none;
+  /* Its automatic minimum is the smallest bar and the count, so the count can't be pushed out. */
+  flex: 0 6 auto;
 }
 
 .bs-bar {
-  width: 4rem;
+  flex: 0 1 4rem;
+  min-width: 1.25rem;
   height: 0.45rem;
   background: var(--bs-line);
   border-radius: 999px;
@@ -286,7 +320,8 @@
 }
 
 .bs-depth {
-  width: 1.6rem;
+  flex: none;
+  min-width: 1.6rem;
   text-align: right;
   font-variant-numeric: tabular-nums;
   font-size: 0.8rem;

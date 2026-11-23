@@ -168,3 +168,35 @@ test('the tree works from the keyboard', async ({ demo: page }) => {
   await page.keyboard.press('Home');
   await expect(row(page, 'box-office')).toHaveAttribute('aria-selected', 'true');
 });
+
+test.describe('in a narrow tree', () => {
+  // At 768 px the tree is under 20rem wide, the narrowest it gets beside the details panel.
+  test.use({ viewport: { width: 768, height: 900 } });
+
+  test('a restarting show keeps its name, phase, failures and waiting count in view', async ({
+    demo: page,
+  }) => {
+    await page.getByRole('button', { name: 'Journal down' }).click();
+    for (const show of SHOWS) await expect(row(page, show)).toContainText(/×[3-9]/);
+
+    const treeRight = await tree(page).evaluate((el) => el.getBoundingClientRect().right);
+    for (const show of SHOWS) {
+      const showRow = row(page, show);
+      await expect(showRow).toHaveAttribute('data-phase', /restarting|starting/);
+      const fits = await showRow.evaluate((el) => {
+        const part = (selector: string) => el.querySelector(selector)?.getBoundingClientRect();
+        const name = el.querySelector('.bs-name');
+        return {
+          overflows: el.scrollWidth > el.clientWidth,
+          depthRight: part('.bs-depth')?.right ?? Infinity,
+          nameCut: name !== null && name.scrollWidth > name.clientWidth,
+        };
+      });
+      expect(fits.overflows, `${show}'s row overflows`).toBe(false);
+      expect(fits.depthRight, `${show}'s waiting count`).toBeLessThanOrEqual(treeRight);
+      expect(fits.nameCut, `${show}'s name is cut`).toBe(false);
+      await expect(showRow.locator('.bs-phase')).toBeVisible();
+      await expect(showRow.locator('.bs-failures')).toBeVisible();
+    }
+  });
+});
