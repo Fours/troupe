@@ -185,16 +185,20 @@ test.describe('in a narrow tree', () => {
       await expect(showRow).toHaveAttribute('data-phase', /restarting|starting/);
       const fits = await showRow.evaluate((el) => {
         const part = (selector: string) => el.querySelector(selector)?.getBoundingClientRect();
-        const name = el.querySelector('.bs-name');
+        const fontSize = parseFloat(getComputedStyle(el).fontSize);
         return {
           overflows: el.scrollWidth > el.clientWidth,
           depthRight: part('.bs-depth')?.right ?? Infinity,
-          nameCut: name !== null && name.scrollWidth > name.clientWidth,
+          nameEms: (part('.bs-name')?.width ?? 0) / fontSize,
         };
       });
       expect(fits.overflows, `${show}'s row overflows`).toBe(false);
       expect(fits.depthRight, `${show}'s waiting count`).toBeLessThanOrEqual(treeRight);
-      expect(fits.nameCut, `${show}'s name is cut`).toBe(false);
+      // Whether a whole name fits depends on the platform's fonts: Linux's are wider than macOS's,
+      // and can end "macbeth" in an ellipsis. Its start must always be readable.
+      expect(fits.nameEms, `${show}'s name`).toBeGreaterThanOrEqual(2);
+      // It makes room by dropping its journal tag.
+      await expect(showRow.locator('.bs-tag')).toBeHidden();
       await expect(showRow.locator('.bs-phase')).toBeVisible();
       await expect(showRow.locator('.bs-failures')).toBeVisible();
     }

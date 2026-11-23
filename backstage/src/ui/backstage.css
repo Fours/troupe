@@ -264,8 +264,14 @@
 }
 
 /* In a narrow tree, a row that isn't running has its phase and failures to show, so it drops the
-   journal tag (the details panel still says the actor is persistent) to keep its name readable. */
+   journal tag (the details panel still says the actor is persistent), and every row's gaps
+   tighten, to keep names readable. A wide platform font can still end a long name in an
+   ellipsis, but never pushes out the waiting count. */
 @container bs-tree (max-width: 20rem) {
+  .bs-row {
+    gap: 0.25rem;
+  }
+
   .bs-row:not(.bs-running) .bs-tag {
     display: none;
   }
