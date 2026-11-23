@@ -11,6 +11,7 @@ const ENTRIES = [
   `${root}src/backstage/index.ts`,
   `${root}src/node/backstage/index.ts`,
   `${root}src/cluster/index.ts`,
+  `${root}src/cluster/postgres/index.ts`,
   `${root}src/node/cluster/index.ts`,
 ];
 

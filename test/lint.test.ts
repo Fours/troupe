@@ -20,6 +20,8 @@ describe('lint config', () => {
     'src/system.ts',
     'src/persistence/memory.ts',
     'src/persistence/postgres/postgres.ts',
+    'src/cluster/shard-memory.ts',
+    'src/cluster/postgres/store.ts',
     'src/testkit/kit.ts',
   ];
 

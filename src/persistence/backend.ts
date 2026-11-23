@@ -1,8 +1,11 @@
 // Shared by every backend, never exported from an entry point: the argument checks and the clock
 // wrapper, so the in-memory, SQLite and Postgres backends reject exactly the same calls.
-import { checkInt, describe } from '../checks.js';
+import { checkId, checkInt } from '../checks.js';
 import { jsonProblem } from '../json.js';
 import type { NewEvent, NewSnapshot } from './types.js';
+
+// The clock and id checks live with the core's, since the cluster's stores use them too.
+export { checkId, wallClock } from '../checks.js';
 
 /** An event checked and ready to store, with the event itself as JSON text. */
 export interface SerializedEvent {
@@ -16,41 +19,6 @@ export interface SerializedSnapshot {
   readonly seq: number;
   readonly version: number;
   readonly json: string;
-}
-
-/**
- * Checks a backend's `clock` option, and returns a reader that rejects anything but integer ms.
- * `where` names the backend in error messages.
- */
-export function wallClock(clock: unknown, where: string): () => number {
-  if (typeof clock !== 'function') {
-    throw new TypeError(`${where}: clock must be a function, got ${describe(clock)}`);
-  }
-  const read = clock as () => unknown;
-  return () => {
-    const time = read();
-    checkInt(time, `${where}: clock()`, { min: 0 });
-    return time as number;
-  };
-}
-
-// U+0000, or a surrogate with no partner. Postgres text can't hold the first, and neither
-// database's UTF-8 can hold the second, so an id with either would be stored as something else.
-// The `u` flag makes a valid pair one code point, which \p{Cs} doesn't match.
-// eslint-disable-next-line no-control-regex -- U+0000 is the point.
-const UNSTORABLE = /[\u0000\p{Cs}]/u;
-
-/**
- * Throws unless `value` is a non-empty string that every backend can store as it is: a persistence
- * id, tag or projection name.
- */
-export function checkId(value: unknown, what: string): void {
-  if (typeof value !== 'string' || value === '') {
-    throw new TypeError(`${what} must be a non-empty string, got ${describe(value)}`);
-  }
-  if (UNSTORABLE.test(value)) {
-    throw new TypeError(`${what} must not contain U+0000 or a lone surrogate`);
-  }
 }
 
 /** Checks `append`'s arguments and serializes the batch, before anything touches the stream. */

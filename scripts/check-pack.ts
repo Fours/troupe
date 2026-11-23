@@ -28,6 +28,7 @@ const required = [
   ...Object.values(pkg.exports).flatMap((target) => [target.types, target.import]),
   'dist/node/sqlite/schema.sql',
   'dist/persistence/postgres/schema.sql',
+  'dist/cluster/postgres/schema.sql',
   'dist/backstage-ui/index.html',
   ...TOP_LEVEL,
 ].map((path) => path.replace(/^\.\//, ''));

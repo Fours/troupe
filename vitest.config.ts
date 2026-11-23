@@ -31,6 +31,10 @@ export default defineConfig({
         replacement: fileURLToPath(new URL('./src/cluster/index.ts', import.meta.url)),
       },
       {
+        find: /^@kylewillett\/troupe\/cluster\/postgres$/,
+        replacement: fileURLToPath(new URL('./src/cluster/postgres/index.ts', import.meta.url)),
+      },
+      {
         find: /^@kylewillett\/troupe\/cluster\/tcp$/,
         replacement: fileURLToPath(new URL('./src/node/cluster/index.ts', import.meta.url)),
       },
@@ -77,6 +81,7 @@ export default defineConfig({
         'src/persistence/index.ts',
         'src/node/sqlite/index.ts',
         'src/persistence/postgres/index.ts',
+        'src/cluster/postgres/index.ts',
         'src/backstage/index.ts',
         'src/node/backstage/index.ts',
         'src/**/*.d.ts',

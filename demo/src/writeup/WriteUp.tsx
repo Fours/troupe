@@ -544,9 +544,13 @@ export function WriteUp({ data }: { data: WriteupData }) {
               anything else <Record id="0027" />. Nodes find each other by gossip, with no leader,
               and a node that stays silent too long is marked down automatically. That’s safe here,
               where it isn’t in Akka, because a shard will belong to whoever holds its lease, not to
-              whoever membership says is alive <Record id="0028" />. Sharding’s many writers will
-              meet the Postgres lock first, and the alternative is already named: no lock, and gap
-              detection in the readers <Record id="0016" />.
+              whoever membership says is alive <Record id="0028" />. The lease lives in Postgres,
+              which judges its expiry on its own clock. The node that holds it lets go a margin
+              earlier, by its own clock, timed from before it asked, so the two never have to agree
+              on the time, and a node cut off from Postgres stops its shards before anyone else can
+              start them <Record id="0029" />. Sharding’s many writers will meet the Postgres lock
+              first, and the alternative is already named: no lock, and gap detection in the readers{' '}
+              <Record id="0016" />.
             </p>
             <p>
               <strong>Rehearsal</strong>, in milestone 5: deterministic simulation testing. Run a

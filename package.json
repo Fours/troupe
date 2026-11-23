@@ -67,6 +67,10 @@
       "types": "./dist/cluster/index.d.ts",
       "import": "./dist/cluster/index.js"
     },
+    "./cluster/postgres": {
+      "types": "./dist/cluster/postgres/index.d.ts",
+      "import": "./dist/cluster/postgres/index.js"
+    },
     "./cluster/tcp": {
       "types": "./dist/node/cluster/index.d.ts",
       "import": "./dist/node/cluster/index.js"

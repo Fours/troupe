@@ -1,5 +1,5 @@
-// Option checks shared by createActorSystem, spawn and supervise. Each throws TypeError, so a bad
-// option fails where it's passed in, never later.
+// Option and argument checks shared by the core, the persistence backends and the cluster's
+// stores. Each throws TypeError, so a bad option fails where it's passed in, never later.
 
 /** Throws unless `opts` is a plain object whose keys are all in `allowed`. */
 export function checkKeys(opts: unknown, allowed: ReadonlySet<string>, where: string): void {
@@ -29,4 +29,39 @@ export function checkInt(
 /** Renders a bad value for an error message. */
 export function describe(value: unknown): string {
   return typeof value === 'string' ? `"${value}"` : String(value);
+}
+
+/**
+ * Checks a backend's `clock` option, and returns a reader that rejects anything but integer ms.
+ * `where` names the backend in error messages.
+ */
+export function wallClock(clock: unknown, where: string): () => number {
+  if (typeof clock !== 'function') {
+    throw new TypeError(`${where}: clock must be a function, got ${describe(clock)}`);
+  }
+  const read = clock as () => unknown;
+  return () => {
+    const time = read();
+    checkInt(time, `${where}: clock()`, { min: 0 });
+    return time as number;
+  };
+}
+
+// U+0000, or a surrogate with no partner. Postgres text can't hold the first, and neither
+// database's UTF-8 can hold the second, so an id with either would be stored as something else.
+// The `u` flag makes a valid pair one code point, which \p{Cs} doesn't match.
+// eslint-disable-next-line no-control-regex -- U+0000 is the point.
+const UNSTORABLE = /[\u0000\p{Cs}]/u;
+
+/**
+ * Throws unless `value` is a non-empty string that every backend can store as it is: a persistence
+ * id, tag or projection name, or a shard store's lease, holder or entity id.
+ */
+export function checkId(value: unknown, what: string): void {
+  if (typeof value !== 'string' || value === '') {
+    throw new TypeError(`${what} must be a non-empty string, got ${describe(value)}`);
+  }
+  if (UNSTORABLE.test(value)) {
+    throw new TypeError(`${what} must not contain U+0000 or a lone surrogate`);
+  }
 }

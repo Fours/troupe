@@ -17,30 +17,16 @@ import type {
   SnapshotStore,
   StoredEvent,
 } from '../types.js';
+import {
+  checkPool,
+  LOCK,
+  LOCK_CLASS,
+  schemaHash,
+  toInt,
+  transaction,
+  type PgPool,
+} from './pool.js';
 import { DEFAULT_SCHEMA, isSchemaName, postgresSchemaStatements } from './schema.js';
-
-/**
- * Something that runs a parameterized query, as `pg`'s pool and clients do. Only `rows` is read.
- */
-export interface PgQueryable {
-  /** Runs `text` with `$1`, `$2`, ... bound to `values`. */
-  query(text: string, values?: unknown[]): Promise<{ readonly rows: readonly unknown[] }>;
-}
-
-/** One connection checked out of a {@link PgPool}, as `pg`'s `PoolClient` is. */
-export interface PgPoolClient extends PgQueryable {
-  /** Returns the connection to the pool, or with `true` or an error, discards it. */
-  release(destroy?: boolean | Error): void;
-}
-
-/**
- * A pool of Postgres connections, typed by shape so this entry point never imports `pg`
- * (decision 0017). A `pg` `Pool` fits, and so does any pool with the same two methods.
- */
-export interface PgPool extends PgQueryable {
-  /** Checks out one connection, for a transaction. */
-  connect(): Promise<PgPoolClient>;
-}
 
 /** The Postgres backend's stores, which share the caller's pool. */
 export interface PostgresPersistence extends Required<Persistence> {
@@ -53,10 +39,6 @@ export interface PostgresPersistence extends Required<Persistence> {
 }
 
 const OPTIONS = new Set(['pool', 'schema', 'clock']);
-
-// The first key of the journal's advisory lock: "TRUP". The second is the schema's hash, so each
-// journal in a database has its own lock.
-const LOCK_CLASS = 0x54525550;
 
 // Postgres's SQLSTATE for a unique violation.
 const UNIQUE_VIOLATION = '23505';
@@ -105,7 +87,7 @@ export function postgresPersistence(opts: {
   // The default wall clock for timestamps, which never order anything (decision 0015).
   // eslint-disable-next-line no-restricted-properties
   const { pool, schema = DEFAULT_SCHEMA, clock = Date.now } = opts;
-  checkPool(pool);
+  checkPool(pool, 'postgresPersistence');
   if (!isSchemaName(schema)) {
     throw new TypeError(
       'postgresPersistence: schema must be lower-case letters, digits and _, starting with a ' +
@@ -119,7 +101,6 @@ export function postgresPersistence(opts: {
   const COLUMNS =
     'e.persistence_id, e.seq, e.global_offset, e.timestamp, e.version, ' +
     'e.tags::text AS tags, e.event::text AS event';
-  const LOCK = 'SELECT pg_advisory_xact_lock($1, $2)';
   const LAST_SEQ = `SELECT COALESCE(MAX(seq), 0) AS seq FROM ${s}.events WHERE persistence_id = $1`;
   // One statement for the whole batch, so the lock is held for as few round trips as possible.
   // ORDER BY n draws the batch's offsets in its order.
@@ -148,28 +129,6 @@ export function postgresPersistence(opts: {
   const SAVE_OFFSET = `INSERT INTO ${s}.offsets (name, global_offset) VALUES ($1, $2)
     ON CONFLICT (name) DO UPDATE SET global_offset = excluded.global_offset`;
 
-  /**
-   * Runs `work` in a read-committed transaction on one connection. Read committed, whatever the
-   * database's default, so each statement sees what committed before it, including while this
-   * one waited for the lock. A connection whose rollback fails is discarded, not reused.
-   */
-  async function transaction(work: (client: PgPoolClient) => Promise<void>): Promise<void> {
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN ISOLATION LEVEL READ COMMITTED');
-      await work(client);
-      await client.query('COMMIT');
-    } catch (error) {
-      const rolledBack = await client.query('ROLLBACK').then(
-        () => true,
-        () => false,
-      );
-      client.release(!rolledBack);
-      throw error;
-    }
-    client.release();
-  }
-
   /** Runs one query on the pool, and returns its rows. */
   async function rows<T>(text: string, values: unknown[]): Promise<T[]> {
     const result = await pool.query(text, values);
@@ -182,7 +141,7 @@ export function postgresPersistence(opts: {
       const batch = checkAppend(persistenceId, expectedSeq, events);
       const timestamp = batch.length === 0 ? 0 : now();
       try {
-        await transaction(async (client) => {
+        await transaction(pool, async (client) => {
           await client.query(LOCK, [LOCK_CLASS, lockKey]);
           // The check runs under the lock, so no other writer can append between it and the
           // insert. This also rejects an expectedSeq ahead of the stream.
@@ -259,56 +218,12 @@ export function postgresPersistence(opts: {
     async setup() {
       // Under the journal's lock, so two processes starting at once don't race to create the
       // same table, which IF NOT EXISTS alone doesn't prevent.
-      await transaction(async (client) => {
+      await transaction(pool, async (client) => {
         await client.query(LOCK, [LOCK_CLASS, lockKey]);
         for (const statement of postgresSchemaStatements(schema)) await client.query(statement);
       });
     },
   };
-}
-
-function checkPool(pool: unknown): void {
-  const ok =
-    typeof pool === 'object' &&
-    pool !== null &&
-    typeof (pool as Partial<PgPool>).query === 'function' &&
-    typeof (pool as Partial<PgPool>).connect === 'function';
-  if (!ok) {
-    throw new TypeError('postgresPersistence: pool must have query() and connect(), like pg.Pool');
-  }
-}
-
-/**
- * A 32-bit FNV-1a hash of `text`, as a signed integer for Postgres's `int4`. Computed here, not by
- * Postgres's undocumented `hashtext`, so every process agrees on it, whatever the server version.
- * A collision only makes two journals share a lock.
- */
-export function schemaHash(text: string): number {
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < text.length; i++) {
-    hash ^= text.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return hash | 0;
-}
-
-/**
- * A `bigint` column as a JavaScript number. `pg` returns them as strings by default, and other
- * pools may parse them as numbers or bigints. The journal only stores safe integers.
- */
-export function toInt(value: unknown): number {
-  const n =
-    typeof value === 'string' || typeof value === 'bigint'
-      ? Number(value)
-      : typeof value === 'number'
-        ? value
-        : NaN;
-  if (!Number.isSafeInteger(n)) {
-    throw new TypeError(
-      `postgresPersistence: expected an integer from the database, got ${describe(value)}`,
-    );
-  }
-  return n;
 }
 
 function isUniqueViolation(error: unknown): boolean {

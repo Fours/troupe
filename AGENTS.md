@@ -77,21 +77,27 @@ src/
   testkit/          the /testkit entry point: ManualScheduler, seededRandom, createTestKit, TestProbe
   cluster/          the /cluster entry point (any runtime): wire.ts, the wire format (0025);
                     transport.ts, memory.ts (the in-memory network) and remoting.ts (0026);
-                    table.ts, the member table, and membership.ts, joinCluster (0028)
+                    table.ts, the member table, and membership.ts, joinCluster (0028);
+                    shard-store.ts (ShardStore and its checks), shard-memory.ts (the in-memory
+                    store) and leases.ts, the holder's side of a lease (0029)
+    postgres/       the /cluster/postgres entry point: postgresShardStore, any runtime, on the
+                    journal's structurally typed pool (0029)
   persistence/      the /persistence entry point: the store interfaces,
                     backend.ts (the argument checks every backend shares), the in-memory backend,
                     persistentActor (actor.ts: effects, recovery, schemas, upcasters and tags),
                     projection (projection.ts), and the copied Standard Schema interface (0018)
     postgres/       the /persistence/postgres entry point: any runtime, on a structurally typed
-                    pg pool it never imports (0016, 0017)
+                    pg pool it never imports (0016, 0017); pool.ts holds what it shares with
+                    /cluster/postgres
 test/               mirrors src/; helpers/ holds deferred() and test actors (tree, watcher, idle),
                     the persistent account, faultyJournal() and faultySnapshots() for holding
                     and failing calls, postgres.ts (the test database, fresh schemas, and a
-                    pool that holds a COMMIT), and cluster.ts (N nodes on one ManualScheduler and
+                    pool that holds a COMMIT or any statement), and cluster.ts (N nodes on one ManualScheduler and
                     one network, in memory or TCP on loopback through tcp-network.ts, with settle,
                     advance, start, kill and restart, and membership when asked for). cluster/remoting-suite.ts is remoting's suite, run
                     on both networks
-                    persistence/contract.ts is the journal contract every backend runs;
+                    persistence/contract.ts is the journal contract every backend runs, and
+                    cluster/shard-store-contract.ts the shard stores';
                     node/ tests the Node-only backends, lint.test.ts the lint config's boundaries
                     integration/ needs Postgres: its own Vitest project, run by test:integration
                     demo/ tests the demo's domain on the testkit and its driven clock, and the

@@ -33,6 +33,7 @@ export const RECORDS = {
   '0026': '0026-remoting-is-at-most-once-behind-a-transport',
   '0027': '0027-nodes-talk-tcp-with-a-shared-secret',
   '0028': '0028-membership-is-gossiped-with-automatic-downing',
+  '0029': '0029-a-shard-is-owned-by-whoever-holds-its-lease',
 } as const;
 
 export type RecordId = keyof typeof RECORDS;

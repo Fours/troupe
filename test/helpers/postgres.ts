@@ -1,5 +1,5 @@
 // Postgres for the integration tests: where it is, fresh schemas to keep tests apart, and a pool
-// wrapper that holds a COMMIT, so a test can interleave two transactions exactly.
+// wrapper that holds a COMMIT or any other statement, so a test can interleave two calls exactly.
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import type { PgPool, PgPoolClient } from '@kylewillett/troupe/persistence/postgres';
@@ -45,53 +45,74 @@ export async function dropSchema(pool: PgPool, schema: string): Promise<void> {
   await pool.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
 }
 
-/** A held COMMIT: `reached` resolves when a transaction gets to it, and `release` lets it run. */
+/** A held statement: `reached` resolves when a query gets to it, and `release` sends it on. */
 export interface HeldCommit {
   readonly reached: Promise<void>;
   release(): void;
 }
 
+/** A pool whose next matching statement the test can hold before it reaches the server. */
+export interface HoldingPool {
+  readonly pool: PgPool;
+  /** Holds the next transaction's COMMIT, after everything before it has run. */
+  holdNextCommit(): HeldCommit;
+  /** Holds the next statement, on the pool or a checked-out client, for which `match` is true. */
+  holdNext(match: (text: string) => boolean): HeldCommit;
+}
+
 /**
- * Wraps a pool so the test can hold the next transaction's COMMIT. Everything else passes
- * straight through. It works because the backend asks only for the shape of a pool.
+ * Wraps a pool so the test can hold a statement before it's sent: the next transaction's COMMIT,
+ * or any statement it picks. Everything else passes straight through. It works because the
+ * backends ask only for the shape of a pool.
  */
-export function holdingPool(pool: pg.Pool): { pool: PgPool; holdNextCommit(): HeldCommit } {
-  const holds: { reached: () => void; released: Promise<void> }[] = [];
+export function holdingPool(pool: pg.Pool): HoldingPool {
+  const holds: {
+    match: (text: string) => boolean;
+    reached: () => void;
+    released: Promise<void>;
+  }[] = [];
+  const wait = async (text: string): Promise<void> => {
+    const i = holds.findIndex((hold) => hold.match(text));
+    if (i === -1) return;
+    const [hold] = holds.splice(i, 1);
+    hold?.reached();
+    await hold?.released;
+  };
   const wrapClient = (client: pg.PoolClient): PgPoolClient => ({
     async query(text, values) {
-      if (text === 'COMMIT') {
-        const hold = holds.shift();
-        if (hold !== undefined) {
-          hold.reached();
-          await hold.released;
-        }
-      }
+      await wait(text);
       return client.query(text, values);
     },
     release: (destroy) => {
       client.release(destroy);
     },
   });
+  const holdNext = (match: (text: string) => boolean): HeldCommit => {
+    const reached = deferred();
+    const released = deferred();
+    holds.push({
+      match,
+      reached: () => {
+        reached.resolve();
+      },
+      released: released.promise,
+    });
+    return {
+      reached: reached.promise,
+      release: () => {
+        released.resolve();
+      },
+    };
+  };
   return {
     pool: {
-      query: (text, values) => pool.query(text, values),
+      query: async (text, values) => {
+        await wait(text);
+        return pool.query(text, values);
+      },
       connect: async () => wrapClient(await pool.connect()),
     },
-    holdNextCommit() {
-      const reached = deferred();
-      const released = deferred();
-      holds.push({
-        reached: () => {
-          reached.resolve();
-        },
-        released: released.promise,
-      });
-      return {
-        reached: reached.promise,
-        release: () => {
-          released.resolve();
-        },
-      };
-    },
+    holdNextCommit: () => holdNext((text) => text === 'COMMIT'),
+    holdNext,
   };
 }

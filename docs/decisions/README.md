@@ -48,3 +48,4 @@ When you change a decision, update its record in the same commit as the code.
 | [0026](0026-remoting-is-at-most-once-behind-a-transport.md) | Remoting is at most once and ordered per pair of nodes, behind a `Transport` interface, and remote asks settle through the asker | Accepted | 4 |
 | [0027](0027-nodes-talk-tcp-with-a-shared-secret.md) | Nodes talk over TCP on `node:net` with length-prefixed JSON frames and a challenge-response on a shared secret | Accepted | 4 |
 | [0028](0028-membership-is-gossiped-with-automatic-downing.md) | Membership is gossiped with no leader, and downing is automatic, because ownership doesn't depend on it | Accepted | 4 |
+| [0029](0029-a-shard-is-owned-by-whoever-holds-its-lease.md) | A shard is owned by whoever holds its lease, and the store and the holder each time the lease on their own clock | Accepted | 4 |

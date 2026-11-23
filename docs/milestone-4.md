@@ -344,7 +344,7 @@ Do these in order. Each one ends with passing tests.
 | T2. Remoting on the in-memory network | Done | 11322d6 |
 | T3. The TCP transport | Done | dfceded |
 | T4. Membership | Done | bd3f20f |
-| T5. Shard leases | Not started | |
+| T5. Shard leases | Done | |
 | T6. Cluster sharding: routing and placement | Not started | |
 | T7. Passivation, rebalancing, handoff and remembering | Not started | |
 | T8. Real processes: the multi-process test and the benchmark | Not started | |
@@ -451,11 +451,20 @@ Write [0029](#decision-records).
 
 **Done when** tests cover:
 
-- [ ] The contract, on both backends: acquire a free lease, fail on a held one with its holder, take an expired one with a higher token, renew all, release only with the right token, list holders by prefix, remember and forget
-- [ ] Postgres: two pools racing to acquire one lease, many times, never both win (integration)
-- [ ] Postgres judges expiry on its own clock: a holder whose renewal is held past the TTL loses the lease (integration, with the pool that holds a `COMMIT`)
-- [ ] A holder stops treating a lease as its own at its deadline when renewals fail or hang, before the store would give it to anyone else
-- [ ] `setup()` is safe to run twice at once, as the journal's is
+- [x] The contract, on both backends: acquire a free lease, fail on a held one with its holder, take an expired one with a higher token, renew all, release only with the right token, list holders by prefix, remember and forget
+- [x] Postgres: two pools racing to acquire one lease, many times, never both win (integration)
+- [x] Postgres judges expiry on its own clock: a holder whose renewal is held past the TTL loses the lease (integration, with the pool that holds a statement: the renewal before it's sent, and at its `COMMIT`)
+- [x] A holder stops treating a lease as its own at its deadline when renewals fail or hang, before the store would give it to anyone else
+- [x] `setup()` is safe to run twice at once, as the journal's is
+
+Notes from T5 (plan review, 2026-11-23):
+
+- Re-acquiring a live lease you hold keeps its token. Taking one that's free, released or expired raises it, even for the holder that had it, since that's a new ownership. Release keeps the row, expired, so tokens never reset.
+- `inMemoryShardStore`'s `clock` defaults to `Date.now`, as the journals' do (0015). Clusters on a `ManualScheduler` pass the scheduler's `now`.
+- The test pool's hold is generalized to any statement, held before it's sent. `holdNextCommit` is one case of it. `renewAll` still runs in a read-committed transaction, for isolation, so the tests hold it both before it's sent and at its `COMMIT`.
+- The holder's side, `src/cluster/leases.ts`, is internal. T6's shards use it, and emit `shardAcquired` and `shardReleased`. T6's `sharding.init` sets the defaults (`ttlMs` 10,000, `renewMs` 3,000, `marginMs` 2,000).
+- If Postgres's wall clock jumps forward, a lease can expire in the store before its holder's deadline. The journal's sequence check still catches the second writer. 0029 says so, and milestone 5's clock skew will measure it.
+- The shard store's `setup()` takes the schema's advisory lock, as the journal's does, so the two can set up one schema at once. The Postgres helpers both share are in `src/persistence/postgres/pool.ts`.
 
 ### T6. Cluster sharding: routing and placement
 

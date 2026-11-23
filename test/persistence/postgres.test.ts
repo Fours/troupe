@@ -8,7 +8,7 @@ import {
   type PgPool,
   type PgPoolClient,
 } from '@kylewillett/troupe/persistence/postgres';
-import { schemaHash, toInt } from '../../src/persistence/postgres/postgres.js';
+import { schemaHash, toInt } from '../../src/persistence/postgres/pool.js';
 import { isSchemaName, postgresSchemaSql } from '../../src/persistence/postgres/schema.js';
 import { DEFAULT_POSTGRES_URL, postgresUrl } from '../helpers/postgres.js';
 

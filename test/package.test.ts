@@ -104,17 +104,23 @@ const BACKSTAGE_TYPES = [
 // The milestone 3 spec's server.
 const SERVER_VALUES = ['serveBackstage'];
 const SERVER_TYPES = ['BackstageServer', 'BackstageServerOptions'];
-// The milestone 4 spec's cluster, as of T4: joining, and the in-memory network.
-const CLUSTER_VALUES = ['inMemoryNetwork', 'joinCluster'];
+// The milestone 4 spec's cluster, as of T5: joining, the in-memory network and shard store.
+const CLUSTER_VALUES = ['inMemoryNetwork', 'inMemoryShardStore', 'joinCluster'];
 const CLUSTER_TYPES = [
+  'AcquireResult',
   'Cluster',
   'ClusterOptions',
   'Connection',
   'InMemoryNetwork',
   'InMemoryNetworkOptions',
+  'LeaseHolder',
   'Member',
+  'ShardStore',
   'Transport',
 ];
+// The milestone 4 spec's Postgres shard store.
+const CLUSTER_POSTGRES_VALUES = ['postgresShardStore'];
+const CLUSTER_POSTGRES_TYPES = ['PostgresShardStore'];
 // The milestone 4 spec's TCP transport.
 const TCP_VALUES = ['tcpTransport'];
 const TCP_TYPES = ['TcpTransportOptions'];
@@ -170,6 +176,7 @@ describe('the built package', () => {
       const server = await import('@kylewillett/troupe/backstage/server');
       const cluster = await import('@kylewillett/troupe/cluster');
       const tcp = await import('@kylewillett/troupe/cluster/tcp');
+      const clusterPostgres = await import('@kylewillett/troupe/cluster/postgres');
       console.log(JSON.stringify({
         main: Object.keys(main),
         testkit: Object.keys(testkit),
@@ -180,6 +187,7 @@ describe('the built package', () => {
         server: Object.keys(server),
         cluster: Object.keys(cluster),
         tcp: Object.keys(tcp),
+        clusterPostgres: Object.keys(clusterPostgres),
       }));
     `;
     const out = execFileSync(process.execPath, ['--input-type=module', '-e', script], {
@@ -195,7 +203,8 @@ describe('the built package', () => {
       | 'backstage'
       | 'server'
       | 'cluster'
-      | 'tcp',
+      | 'tcp'
+      | 'clusterPostgres',
       string[]
     >;
     expect(sorted(loaded.main)).toEqual(sorted(MAIN_VALUES));
@@ -207,6 +216,7 @@ describe('the built package', () => {
     expect(sorted(loaded.server)).toEqual(sorted(SERVER_VALUES));
     expect(sorted(loaded.cluster)).toEqual(sorted(CLUSTER_VALUES));
     expect(sorted(loaded.tcp)).toEqual(sorted(TCP_VALUES));
+    expect(sorted(loaded.clusterPostgres)).toEqual(sorted(CLUSTER_POSTGRES_VALUES));
   });
 
   it('declares exactly the spec’s names, types included', () => {
@@ -219,6 +229,7 @@ describe('the built package', () => {
     const server = `${root}dist/node/backstage/index.d.ts`;
     const cluster = `${root}dist/cluster/index.d.ts`;
     const tcp = `${root}dist/node/cluster/index.d.ts`;
+    const clusterPostgres = `${root}dist/cluster/postgres/index.d.ts`;
     const prog = program([
       main,
       testkit,
@@ -229,6 +240,7 @@ describe('the built package', () => {
       server,
       cluster,
       tcp,
+      clusterPostgres,
     ]);
     expect(sorted(exportsOf(prog, main).keys())).toEqual(sorted([...MAIN_VALUES, ...MAIN_TYPES]));
     expect(sorted(exportsOf(prog, testkit).keys())).toEqual(
@@ -253,6 +265,9 @@ describe('the built package', () => {
       sorted([...CLUSTER_VALUES, ...CLUSTER_TYPES]),
     );
     expect(sorted(exportsOf(prog, tcp).keys())).toEqual(sorted([...TCP_VALUES, ...TCP_TYPES]));
+    expect(sorted(exportsOf(prog, clusterPostgres).keys())).toEqual(
+      sorted([...CLUSTER_POSTGRES_VALUES, ...CLUSTER_POSTGRES_TYPES]),
+    );
   });
 
   it('loads /cluster from dist/ alone, never a Node built-in', () => {
@@ -312,6 +327,23 @@ describe('the built package', () => {
     expect(loaded.filter((url) => !url.startsWith(`file://${root}dist/`))).toEqual([]);
     // The check above means something only if the hook sees pg when it does load.
     expect(loadedBy('pg').some((url) => url.includes('/node_modules/pg/'))).toBe(true);
+  });
+
+  it('loads /cluster/postgres from dist/ alone, never pg or a Node built-in', () => {
+    const loaded = loadedBy('@kylewillett/troupe/cluster/postgres');
+    expect(loaded).toContain(`file://${root}dist/cluster/postgres/index.js`);
+    expect(loaded.filter((url) => !url.startsWith(`file://${root}dist/`))).toEqual([]);
+  });
+
+  it('loads /cluster/postgres from neither /cluster nor /persistence/postgres', () => {
+    for (const specifier of [
+      '@kylewillett/troupe/cluster',
+      '@kylewillett/troupe/persistence/postgres',
+    ]) {
+      expect(loadedBy(specifier).filter((url) => url.includes('/dist/cluster/postgres/'))).toEqual(
+        [],
+      );
+    }
   });
 
   it('loads pg from neither the core nor /persistence', () => {
@@ -434,6 +466,13 @@ describe('the built package', () => {
     const { postgresSchemaSql } = await import('../src/persistence/postgres/schema.js');
     expect(sql).toBe(postgresSchemaSql('troupe'));
     expect(sql).toContain('CREATE TABLE IF NOT EXISTS "troupe".events');
+  });
+
+  it('ships the shard store table SQL for the default schema', async () => {
+    const sql = readFileSync(`${root}dist/cluster/postgres/schema.sql`, 'utf8');
+    const { shardStoreSchemaSql } = await import('../src/cluster/postgres/schema.js');
+    expect(sql).toBe(shardStoreSchemaSql('troupe'));
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS "troupe".shard_leases');
   });
 
   it('ships the SQLite table SQL, which makes a database the backend can use', async () => {

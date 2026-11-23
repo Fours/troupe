@@ -10,7 +10,7 @@ import {
   type PgPool,
   type PostgresPersistence,
 } from '@kylewillett/troupe/persistence/postgres';
-import { schemaHash } from '../../src/persistence/postgres/postgres.js';
+import { schemaHash } from '../../src/persistence/postgres/pool.js';
 import { journalContract } from '../persistence/contract.js';
 import { dropSchema, freshSchema, holdingPool, testPool } from '../helpers/postgres.js';
 
