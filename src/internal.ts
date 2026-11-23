@@ -169,6 +169,8 @@ export interface SystemHooks {
   owns(ref: unknown): boolean;
   /** Makes a ref with this system's `ask`, such as a remote ref. */
   makeRef<M>(path: string, tell: (msg: M) => void): ActorRef<M>;
+  /** Publishes a system event, stamped by the system's bus: the cluster's member events. */
+  publish(body: EventBody): void;
   /** Publishes a `deadLetter` event. */
   deadLetter(recipient: string, message: unknown, reason: DeadLetterReason): void;
   /**

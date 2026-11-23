@@ -27,6 +27,14 @@ export default defineConfig({
         replacement: fileURLToPath(new URL('./src/persistence/postgres/index.ts', import.meta.url)),
       },
       {
+        find: /^@kylewillett\/troupe\/cluster$/,
+        replacement: fileURLToPath(new URL('./src/cluster/index.ts', import.meta.url)),
+      },
+      {
+        find: /^@kylewillett\/troupe\/cluster\/tcp$/,
+        replacement: fileURLToPath(new URL('./src/node/cluster/index.ts', import.meta.url)),
+      },
+      {
         find: /^@kylewillett\/troupe\/backstage\/server$/,
         replacement: fileURLToPath(new URL('./src/node/backstage/index.ts', import.meta.url)),
       },

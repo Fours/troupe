@@ -32,6 +32,7 @@ export const RECORDS = {
   '0025': '0025-messages-on-the-wire-are-json-plus-refs',
   '0026': '0026-remoting-is-at-most-once-behind-a-transport',
   '0027': '0027-nodes-talk-tcp-with-a-shared-secret',
+  '0028': '0028-membership-is-gossiped-with-automatic-downing',
 } as const;
 
 export type RecordId = keyof typeof RECORDS;

@@ -303,6 +303,35 @@ export type SystemEvent = Timestamped<
       /** Present, and true, for a cancelled timer's message, which no handler saw. */
       readonly skipped?: true;
     }
+  /**
+   * In a cluster, a member joined, in this node's view: this node itself once it's in the
+   * cluster, or another node it has learned of (decision 0028). A member is one incarnation of a
+   * node: its address and its uid, new on every start.
+   */
+  | { readonly type: 'memberUp'; readonly address: string; readonly uid: number }
+  /** In a cluster, a member began leaving gracefully. Placement stops using it. */
+  | { readonly type: 'memberLeaving'; readonly address: string; readonly uid: number }
+  /**
+   * In a cluster, a member was downed, by this node or another, after being unreachable too long.
+   * Messages to it are `unreachable` dead letters, and watches on its actors signal `terminated`.
+   * It stays in the table, as `down`, until a new incarnation at its address replaces it.
+   */
+  | { readonly type: 'memberDown'; readonly address: string; readonly uid: number }
+  /**
+   * In a cluster, a member is gone from this node's table: it left, or a new incarnation at its
+   * address replaced it.
+   */
+  | { readonly type: 'memberRemoved'; readonly address: string; readonly uid: number }
+  /**
+   * In a cluster, this node stopped hearing a member's heartbeats, or started again. Each node's
+   * own view, never gossiped.
+   */
+  | {
+      readonly type: 'reachability';
+      readonly address: string;
+      readonly uid: number;
+      readonly reachable: boolean;
+    }
   | {
       readonly type: 'deadLetter';
       readonly recipient: string;

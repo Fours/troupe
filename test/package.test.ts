@@ -104,6 +104,17 @@ const BACKSTAGE_TYPES = [
 // The milestone 3 spec's server.
 const SERVER_VALUES = ['serveBackstage'];
 const SERVER_TYPES = ['BackstageServer', 'BackstageServerOptions'];
+// The milestone 4 spec's cluster, as of T4: joining, and the in-memory network.
+const CLUSTER_VALUES = ['inMemoryNetwork', 'joinCluster'];
+const CLUSTER_TYPES = [
+  'Cluster',
+  'ClusterOptions',
+  'Connection',
+  'InMemoryNetwork',
+  'InMemoryNetworkOptions',
+  'Member',
+  'Transport',
+];
 // The milestone 4 spec's TCP transport.
 const TCP_VALUES = ['tcpTransport'];
 const TCP_TYPES = ['TcpTransportOptions'];
@@ -157,6 +168,7 @@ describe('the built package', () => {
       const postgres = await import('@kylewillett/troupe/persistence/postgres');
       const backstage = await import('@kylewillett/troupe/backstage');
       const server = await import('@kylewillett/troupe/backstage/server');
+      const cluster = await import('@kylewillett/troupe/cluster');
       const tcp = await import('@kylewillett/troupe/cluster/tcp');
       console.log(JSON.stringify({
         main: Object.keys(main),
@@ -166,6 +178,7 @@ describe('the built package', () => {
         postgres: Object.keys(postgres),
         backstage: Object.keys(backstage),
         server: Object.keys(server),
+        cluster: Object.keys(cluster),
         tcp: Object.keys(tcp),
       }));
     `;
@@ -174,7 +187,15 @@ describe('the built package', () => {
       encoding: 'utf8',
     });
     const loaded = JSON.parse(out) as Record<
-      'main' | 'testkit' | 'persistence' | 'sqlite' | 'postgres' | 'backstage' | 'server' | 'tcp',
+      | 'main'
+      | 'testkit'
+      | 'persistence'
+      | 'sqlite'
+      | 'postgres'
+      | 'backstage'
+      | 'server'
+      | 'cluster'
+      | 'tcp',
       string[]
     >;
     expect(sorted(loaded.main)).toEqual(sorted(MAIN_VALUES));
@@ -184,6 +205,7 @@ describe('the built package', () => {
     expect(sorted(loaded.postgres)).toEqual(sorted(POSTGRES_VALUES));
     expect(sorted(loaded.backstage)).toEqual(sorted(BACKSTAGE_VALUES));
     expect(sorted(loaded.server)).toEqual(sorted(SERVER_VALUES));
+    expect(sorted(loaded.cluster)).toEqual(sorted(CLUSTER_VALUES));
     expect(sorted(loaded.tcp)).toEqual(sorted(TCP_VALUES));
   });
 
@@ -195,8 +217,19 @@ describe('the built package', () => {
     const postgres = `${root}dist/persistence/postgres/index.d.ts`;
     const backstage = `${root}dist/backstage/index.d.ts`;
     const server = `${root}dist/node/backstage/index.d.ts`;
+    const cluster = `${root}dist/cluster/index.d.ts`;
     const tcp = `${root}dist/node/cluster/index.d.ts`;
-    const prog = program([main, testkit, persistence, sqlite, postgres, backstage, server, tcp]);
+    const prog = program([
+      main,
+      testkit,
+      persistence,
+      sqlite,
+      postgres,
+      backstage,
+      server,
+      cluster,
+      tcp,
+    ]);
     expect(sorted(exportsOf(prog, main).keys())).toEqual(sorted([...MAIN_VALUES, ...MAIN_TYPES]));
     expect(sorted(exportsOf(prog, testkit).keys())).toEqual(
       sorted([...TESTKIT_VALUES, ...TESTKIT_TYPES]),
@@ -216,7 +249,32 @@ describe('the built package', () => {
     expect(sorted(exportsOf(prog, server).keys())).toEqual(
       sorted([...SERVER_VALUES, ...SERVER_TYPES]),
     );
+    expect(sorted(exportsOf(prog, cluster).keys())).toEqual(
+      sorted([...CLUSTER_VALUES, ...CLUSTER_TYPES]),
+    );
     expect(sorted(exportsOf(prog, tcp).keys())).toEqual(sorted([...TCP_VALUES, ...TCP_TYPES]));
+  });
+
+  it('loads /cluster from dist/ alone, never a Node built-in', () => {
+    const loaded = loadedBy('@kylewillett/troupe/cluster');
+    expect(loaded).toContain(`file://${root}dist/cluster/index.js`);
+    expect(loaded.filter((url) => !url.startsWith(`file://${root}dist/`))).toEqual([]);
+    expect(loaded.filter((url) => url.includes('/dist/node/'))).toEqual([]);
+  });
+
+  it('loads /cluster from neither the core, /persistence nor /backstage', () => {
+    for (const specifier of [
+      '@kylewillett/troupe',
+      '@kylewillett/troupe/persistence',
+      '@kylewillett/troupe/backstage',
+    ]) {
+      const loaded = loadedBy(specifier);
+      expect(loaded.length, specifier).toBeGreaterThan(1);
+      expect(
+        loaded.filter((url) => url.includes('/dist/cluster/')),
+        specifier,
+      ).toEqual([]);
+    }
   });
 
   it('loads nothing from /persistence when the core is imported', () => {

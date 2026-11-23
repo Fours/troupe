@@ -2,7 +2,14 @@
 // advance across all of them, as the testkit has for one system. Each node records its events and
 // logs, and is seeded from the cluster's seed, so a run on the in-memory network repeats exactly.
 // The same nodes can run on TCP over loopback instead (T3), so one suite tests both transports.
+// With `membership`, each node joins the cluster (T4) rather than starting remoting alone.
 
+import {
+  startCluster,
+  type Cluster,
+  type ClusterInternals,
+  type ClusterOptions,
+} from '../../src/cluster/membership.js';
 import { inMemoryNetwork } from '../../src/cluster/memory.js';
 import { startRemoting, type Remoting, type RemotingOptions } from '../../src/cluster/remoting.js';
 import type { Transport } from '../../src/cluster/transport.js';
@@ -40,6 +47,8 @@ export interface TestNode {
   readonly address: string;
   readonly system: ActorSystem;
   readonly remoting: Remoting;
+  /** Its place in the cluster, with `membership`. */
+  readonly cluster: Cluster | undefined;
   readonly transport: Transport;
   /** Every event this node's system published, in order, messages included when asked for. */
   readonly events: SystemEvent[];
@@ -62,6 +71,15 @@ export interface TestClusterOptions {
   /** Record message events too. Default false. */
   messages?: boolean;
   remoting?: Omit<RemotingOptions, 'cluster' | 'transport'>;
+  /**
+   * Join each node to the cluster with these options. `seeds` defaults to every address, in
+   * order.
+   */
+  membership?: Partial<Omit<ClusterOptions, 'name' | 'transport'>> & ClusterInternals;
+  /** Start every node at once. Default true. Otherwise `start(i)` starts each. */
+  startAll?: boolean;
+  /** Wraps each node's transport, to inject a fault. */
+  wrap?: (name: string, transport: Transport) => Transport;
   system?: Omit<ActorSystemOptions, 'scheduler' | 'random' | 'logger'>;
 }
 
@@ -69,7 +87,7 @@ export interface TestClusterOptions {
 export interface TestCluster {
   readonly scheduler: ManualScheduler;
   readonly network: TestNetwork;
-  /** The live node at each index. `restart` replaces one. */
+  /** The live node at each index. `restart` replaces one. Unstarted ones are missing. */
   readonly nodes: TestNode[];
   /** Every incarnation of every node, in the order they started, killed ones included. */
   readonly incarnations: readonly TestNode[];
@@ -82,6 +100,8 @@ export interface TestCluster {
   kill(i: number): void;
   /** Starts a new incarnation at node `i`'s address, with a new uid. */
   restart(i: number): Promise<TestNode>;
+  /** Starts node `i`, which hasn't been started, once its transport is listening. */
+  start(i: number): Promise<TestNode>;
   /** Terminates every node, and closes the network. */
   shutdown(): Promise<void>;
 }
@@ -123,18 +143,36 @@ export async function createTestCluster(opts: TestClusterOptions = {}): Promise<
       (event) => events.push(event),
       opts.messages === true ? { messages: true } : undefined,
     );
-    const transport = network.transport(name);
+    const raw = network.transport(name);
+    const transport = opts.wrap === undefined ? raw : opts.wrap(name, raw);
     const address = transport.address;
-    const remoting = startRemoting(handle.system, {
-      cluster: opts.cluster ?? 'test',
-      transport,
-      ...opts.remoting,
-    });
+    let remoting: Remoting;
+    let cluster: Cluster | undefined;
+    if (opts.membership === undefined) {
+      remoting = startRemoting(handle.system, {
+        cluster: opts.cluster ?? 'test',
+        transport,
+        ...opts.remoting,
+      });
+    } else {
+      const { pruneAfterMs, ...membership } = opts.membership;
+      ({ cluster, remoting } = startCluster(
+        handle.system,
+        {
+          name: opts.cluster ?? 'test',
+          transport,
+          seeds: addresses.map((a) => network.address(a)),
+          ...membership,
+        },
+        pruneAfterMs === undefined ? {} : { pruneAfterMs },
+      ));
+    }
     const node = {
       name,
       address,
       system: handle.system,
       remoting,
+      cluster,
       transport,
       events,
       logs,
@@ -144,7 +182,7 @@ export async function createTestCluster(opts: TestClusterOptions = {}): Promise<
     return node;
   };
 
-  const nodes = addresses.map(start);
+  const nodes: TestNode[] = opts.startAll === false ? [] : addresses.map(start);
   await Promise.all(nodes.map((n) => n.remoting.whenListening));
 
   const settle = async (): Promise<void> => {
@@ -198,6 +236,15 @@ export async function createTestCluster(opts: TestClusterOptions = {}): Promise<
       const old = nodes[i];
       if (old === undefined) throw new RangeError(`no node ${String(i)}`);
       const node = start(old.name);
+      nodes[i] = node;
+      await node.remoting.whenListening;
+      return node;
+    },
+    async start(i) {
+      const name = addresses[i];
+      if (name === undefined) throw new RangeError(`no node ${String(i)}`);
+      if (nodes[i] !== undefined) throw new Error(`node ${String(i)} has started already`);
+      const node = start(name);
       nodes[i] = node;
       await node.remoting.whenListening;
       return node;

@@ -3,7 +3,7 @@ import { Cell, type CellHost, type CellNode, type ParentNode } from './cell.js';
 import { checkInt, checkKeys, describe } from './checks.js';
 import { Dispatcher } from './dispatcher.js';
 import { ActorSystemTerminatedError, NotAChildError } from './errors.js';
-import { EventBus } from './events.js';
+import { EventBus, type EventBody } from './events.js';
 import {
   HOOKS,
   INSPECT,
@@ -235,6 +235,9 @@ export function createSystem(opts: ActorSystemOptions = {}): SystemHandle {
     },
     owns: (ref: unknown) => asker.owns(ref),
     makeRef,
+    publish: (body: EventBody) => {
+      events.publish(body);
+    },
     deadLetter(recipient: string, message: unknown, reason: DeadLetterReason) {
       events.publish({ type: 'deadLetter', recipient, message, reason });
     },

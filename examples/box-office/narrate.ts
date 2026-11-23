@@ -54,5 +54,18 @@ function describe(event: SystemEvent): string {
       return `${event.path} got message ${String(event.id)}`;
     case 'processed':
       return `${event.path} handled message ${String(event.id)}`;
+    // Only a system in a cluster has these, and the box office runs on one node.
+    case 'memberUp':
+      return `${event.address} joined the cluster`;
+    case 'memberLeaving':
+      return `${event.address} is leaving the cluster`;
+    case 'memberDown':
+      return `${event.address} was marked down`;
+    case 'memberRemoved':
+      return `${event.address} is gone from the cluster`;
+    case 'reachability':
+      return event.reachable
+        ? `${event.address} is reachable again`
+        : `${event.address} is unreachable`;
   }
 }

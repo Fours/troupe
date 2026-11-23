@@ -35,7 +35,21 @@ export interface RemotingOptions {
   bufferSize?: number;
   /** The largest frame remoting sends, in UTF-8 bytes. Default 1 MiB. */
   maxFrameBytes?: number;
+  /**
+   * Whether remoting closes by itself once the system has terminated. Default true. The cluster
+   * turns it off, so it can say goodbye first and close remoting itself (decision 0028).
+   */
+  closeWithSystem?: boolean;
 }
+
+/** A peer's incarnation, as its hello named it. */
+export interface PeerId {
+  readonly address: string;
+  readonly uid: number;
+}
+
+/** What a control frame's handler gets: who sent it, and the frame, parsed. */
+export type ControlHandler = (from: PeerId, frame: Readonly<Record<string, unknown>>) => void;
 
 /** Remoting for one node. */
 export interface Remoting {
@@ -51,11 +65,24 @@ export interface Remoting {
    */
   ref(uri: string): AnyRef;
   /**
-   * The node at `address` is down, from membership (T4). Its buffered messages become
+   * The node at `address` is down, from membership (decision 0028). Its buffered messages become
    * `unreachable` dead letters, as does everything sent to it later, every watch on it signals
-   * `terminated`, and its incarnation can't connect again. A new uid at the address can.
+   * `terminated`, and its incarnation can't connect again. A new uid at the address can. With
+   * `uid`, only that incarnation goes: if remoting already knows a newer one at the address, only
+   * the old one's watches end. When the downed incarnation dials again, it's sent a `downed`
+   * frame before it's refused, so it can learn that it's down.
    */
-  nodeDown(address: string): void;
+  nodeDown(address: string, uid?: number): void;
+  /**
+   * Sends a control frame to `address` if a connection is open, and returns true. Otherwise it
+   * starts a dial, drops the frame and returns false: membership's frames are sent again on its
+   * next tick, so waiting for a connection would only deliver stale ones.
+   */
+  signal(address: string, frame: Readonly<Record<string, unknown>>): boolean;
+  /** Handles frames whose type remoting doesn't know, such as membership's. One handler. */
+  onControl(handler: ControlHandler): void;
+  /** Called with each peer incarnation once a connection to it is established. One handler. */
+  onPeer(handler: (peer: PeerId) => void): void;
   /**
    * Closes the transport. Everything sent afterwards is a `terminated` dead letter. Runs by
    * itself once the system has terminated.
@@ -63,10 +90,11 @@ export interface Remoting {
   close(): Promise<void>;
 }
 
-const OPTIONS = new Set(['cluster', 'transport', 'bufferSize', 'maxFrameBytes']);
+const OPTIONS = new Set(['cluster', 'transport', 'bufferSize', 'maxFrameBytes', 'closeWithSystem']);
 const BACKOFF_MIN_MS = 100;
 const BACKOFF_MAX_MS = 5_000;
 const UID_RANGE = 2 ** 32;
+const DOWNED_FRAME = JSON.stringify({ t: 'downed' });
 
 /** A connection, and what this node knows about it. */
 interface Link {
@@ -124,12 +152,21 @@ interface Hello {
  */
 export function startRemoting(system: ActorSystem, opts: RemotingOptions): Remoting {
   checkKeys(opts, OPTIONS, 'startRemoting');
-  const { cluster, transport, bufferSize = 10_000, maxFrameBytes = 1_048_576 } = opts;
+  const {
+    cluster,
+    transport,
+    bufferSize = 10_000,
+    maxFrameBytes = 1_048_576,
+    closeWithSystem = true,
+  } = opts;
   if (!isTransport(transport)) {
     throw new TypeError('startRemoting: transport must be a Transport');
   }
   checkInt(bufferSize, 'startRemoting: bufferSize', { min: 0 });
   checkInt(maxFrameBytes, 'startRemoting: maxFrameBytes');
+  if (typeof closeWithSystem !== 'boolean') {
+    throw new TypeError('startRemoting: closeWithSystem must be a boolean');
+  }
   const hooks = hooksOf(system);
   const self: NodeId = Object.freeze({
     cluster,
@@ -137,7 +174,7 @@ export function startRemoting(system: ActorSystem, opts: RemotingOptions): Remot
     uid: Math.floor(hooks.random() * UID_RANGE),
   });
   checkNodeId(self);
-  return new Node(system, hooks, self, transport, bufferSize, maxFrameBytes).api;
+  return new Node(system, hooks, self, transport, bufferSize, maxFrameBytes, closeWithSystem).api;
 }
 
 /** Remoting's state for one node. */
@@ -157,6 +194,8 @@ class Node {
   readonly #targets = new Map<string, RemoteTarget>();
   #closed = false;
   #closing: Promise<void> | undefined;
+  #onControl: ControlHandler | undefined;
+  #onPeer: ((peer: PeerId) => void) | undefined;
 
   constructor(
     system: ActorSystem,
@@ -165,6 +204,7 @@ class Node {
     transport: Transport,
     bufferSize: number,
     maxFrameBytes: number,
+    closeWithSystem: boolean,
   ) {
     this.#hooks = hooks;
     this.#self = self;
@@ -198,14 +238,24 @@ class Node {
         error,
       });
     });
-    void system.whenTerminated.then(() => this.#close());
+    if (closeWithSystem) void system.whenTerminated.then(() => this.#close());
     this.api = Object.freeze({
       self,
       codec: this.#codec,
       whenListening,
       ref: (uri: string) => this.#ref(uri),
-      nodeDown: (address: string) => {
-        this.#nodeDown(address);
+      nodeDown: (address: string, uid?: number) => {
+        this.#nodeDown(address, uid);
+      },
+      signal: (address: string, frame: Readonly<Record<string, unknown>>) =>
+        this.#signal(address, frame),
+      onControl: (handler: ControlHandler) => {
+        if (this.#onControl !== undefined) throw new Error('remoting: onControl is already set');
+        this.#onControl = handler;
+      },
+      onPeer: (handler: (peer: PeerId) => void) => {
+        if (this.#onPeer !== undefined) throw new Error('remoting: onPeer is already set');
+        this.#onPeer = handler;
       },
       close: () => this.#close(),
     });
@@ -297,6 +347,18 @@ class Node {
     }
     peer.waiting.push({ frame, letter });
     this.#dialSoon(peer);
+  }
+
+  #signal(address: string, frame: Readonly<Record<string, unknown>>): boolean {
+    if (this.#closed) return false;
+    const peer = this.#peer(address);
+    if (peer.down) return false;
+    if (peer.link !== undefined) {
+      peer.link.connection.send(JSON.stringify(frame));
+      return true;
+    }
+    this.#dialSoon(peer);
+    return false;
   }
 
   #drop(letter: Waiting['letter'], reason: DeadLetterReason): void {
@@ -403,6 +465,8 @@ class Node {
     for (let next = peer.waiting.shift(); next !== undefined; next = peer.waiting.shift()) {
       link.connection.send(next.frame);
     }
+    // Set by the hello that established the link.
+    if (peer.uid !== undefined) this.#onPeer?.({ address: peer.address, uid: peer.uid });
   }
 
   // ---- frames ----
@@ -443,6 +507,10 @@ class Node {
         this.#onTerminated(frame);
         return;
       default:
+        if (this.#onControl !== undefined && peer.uid !== undefined) {
+          this.#onControl({ address: peer.address, uid: peer.uid }, frame);
+          return;
+        }
         this.#hooks.log.warn(`remoting: ignored a "${frame.t}" frame from ${peer.address}`, {
           address: peer.address,
         });
@@ -482,6 +550,12 @@ class Node {
       (link as { dialer: string }).dialer = address;
     }
     if (peer.down && peer.downUid === uid) {
+      // Told before it's refused, so a node that was downed while it was still running learns
+      // that it's down, and leaves (decision 0028).
+      if (!link.outbound) {
+        link.connection.send(this.#helloFrame);
+        link.connection.send(DOWNED_FRAME);
+      }
       this.#refuse(link, `${address}#${String(uid)} was downed, and can rejoin only as a new uid`);
       return;
     }
@@ -674,11 +748,16 @@ class Node {
     this.#endTargets(peer.address, undefined, why);
   }
 
-  #nodeDown(address: string): void {
+  #nodeDown(address: string, uid: number | undefined): void {
     const peer = this.#peer(address);
+    if (uid !== undefined && peer.uid !== undefined && peer.uid !== uid) {
+      // A newer incarnation is here already. The old one's watches end, and nothing else.
+      this.#endTargets(address, peer.uid, 'down');
+      return;
+    }
     if (peer.down) return;
     peer.down = true;
-    peer.downUid = peer.uid;
+    peer.downUid = uid ?? peer.uid;
     peer.cancelRetry?.();
     peer.cancelRetry = undefined;
     for (let next = peer.waiting.shift(); next !== undefined; next = peer.waiting.shift()) {
@@ -787,7 +866,8 @@ function nodeGone(address: string, why: string): { readonly error: Error } {
   return { error: new Error(`node ${address} is gone: ${why}`) };
 }
 
-function isTransport(value: unknown): value is Transport {
+/** Whether `value` has a transport's shape. */
+export function isTransport(value: unknown): value is Transport {
   if (typeof value !== 'object' || value === null) return false;
   const t = value as Record<string, unknown>;
   return (

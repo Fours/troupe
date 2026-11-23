@@ -541,9 +541,12 @@ export function WriteUp({ data }: { data: WriteupData }) {
               and a remote ask settles on the scheduler as a local one does <Record id="0026" />.
               Between processes that transport is TCP, with nothing but Node underneath, and a node
               must prove it knows the cluster’s secret, without sending it, before it can say
-              anything else <Record id="0027" />. Sharding’s many writers will meet the Postgres
-              lock first, and the alternative is already named: no lock, and gap detection in the
-              readers <Record id="0016" />.
+              anything else <Record id="0027" />. Nodes find each other by gossip, with no leader,
+              and a node that stays silent too long is marked down automatically. That’s safe here,
+              where it isn’t in Akka, because a shard will belong to whoever holds its lease, not to
+              whoever membership says is alive <Record id="0028" />. Sharding’s many writers will
+              meet the Postgres lock first, and the alternative is already named: no lock, and gap
+              detection in the readers <Record id="0016" />.
             </p>
             <p>
               <strong>Rehearsal</strong>, in milestone 5: deterministic simulation testing. Run a

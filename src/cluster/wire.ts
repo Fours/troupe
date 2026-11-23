@@ -65,9 +65,9 @@ export interface Codec {
 }
 
 const SCHEME = 'troupe://';
-const CLUSTER_NAME = /^[a-z0-9-]+$/;
+export const CLUSTER_NAME = /^[a-z0-9-]+$/;
 // What a transport address may hold: anything but the URI's separators and whitespace.
-const ADDRESS = /^[^@#/\s]+$/;
+export const ADDRESS = /^[^@#/\s]+$/;
 // Path segments are actor names or generated names (src/names.ts), so URIs need no escaping.
 const REF_URI =
   /^troupe:\/\/([a-z0-9-]+)@([^@#/\s]+)#(0|[1-9][0-9]{0,15})((?:\/[A-Za-z0-9._~$-]+)+)$/;

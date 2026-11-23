@@ -342,8 +342,8 @@ Do these in order. Each one ends with passing tests.
 | --- | --- | --- |
 | T1. The wire format and the core's hooks | Done | 1bb8120 |
 | T2. Remoting on the in-memory network | Done | 11322d6 |
-| T3. The TCP transport | Done | |
-| T4. Membership | Not started | |
+| T3. The TCP transport | Done | dfceded |
+| T4. Membership | Done | |
 | T5. Shard leases | Not started | |
 | T6. Cluster sharding: routing and placement | Not started | |
 | T7. Passivation, rebalancing, handoff and remembering | Not started | |
@@ -425,12 +425,23 @@ Write [0028](#decision-records).
 
 **Done when** tests cover:
 
-- [ ] Three nodes started from a seed list converge on the same table, whatever order they start in. Only the first seed forms a cluster alone
-- [ ] A killed node is unreachable after `unreachableAfterMs` and down after `downAfterMs`, on every node, and its watches signal
-- [ ] A node restarted at the same address with a new uid replaces its old entry
-- [ ] A node that learns it's down leaves, and a leaving node is gone from every table once it has left
-- [ ] Gossip merges correctly in any order: a property test of merge being commutative, associative and idempotent
-- [ ] Invalid options throw from `joinCluster`, unknown fields included
+- [x] Three nodes started from a seed list converge on the same table, whatever order they start in. Only the first seed forms a cluster alone
+- [x] A killed node is unreachable after `unreachableAfterMs` and down after `downAfterMs`, on every node, and its watches signal
+- [x] A node restarted at the same address with a new uid replaces its old entry
+- [x] A node that learns it's down leaves, and a leaving node is gone from every table once it has left
+- [x] Gossip merges correctly in any order: a property test of merge being commutative, associative and idempotent
+- [x] Invalid options throw from `joinCluster`, unknown fields included
+
+Notes from T4 (plan review, 2026-11-23):
+
+- Uids are random, so no uid is later than another. The table has one entry per incarnation, keyed by address and uid, and a status that only moves forward (`up`, `leaving`, `down`, then a hidden `removed` tombstone), so merge keeps each entry's furthest status. A new incarnation retires the others at its address, and so does the member that lets it in. Tombstones are pruned after 24 hours, as Akka's are.
+- `downAfterMs` counts from when the member became unreachable, so a killed node is down about 15 s after its last heartbeat with the defaults.
+- Membership's frames (`hb`, `join`, `gossip`, `downed`) are remoting control frames, sent only on an open connection, never buffered, and not actor messages. Gossip goes out on the heartbeat tick, so there's no `gossipMs`.
+- A downed node learns it from gossip, or from a `downed` frame sent when its hello is refused, and honours either only from a member it still treats as up. Two sides of a partition that down each other leave two clusters, not none.
+- A down member stays in `members()` as `down` until a new incarnation replaces it. A node that left is gone at once.
+- `system.terminate()` leaves as it finishes, with no handoff, since T4 has no shards. T7 adds the core hook that makes `terminate()` wait for the handoff before it stops `/user`.
+- The member events aren't in Backstage's `hello.history` yet. T9 adds them with protocol version 2.
+- Membership doesn't close a connection whose peer has gone unreachable. T8's processes will show whether TCP's half-open connections need it.
 
 ### T5. Shard leases
 

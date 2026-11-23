@@ -30,7 +30,9 @@
       "@kylewillett/troupe/persistence/sqlite": ["./src/node/sqlite/index.ts"],
       "@kylewillett/troupe/persistence/postgres": ["./src/persistence/postgres/index.ts"],
       "@kylewillett/troupe/backstage": ["./src/backstage/index.ts"],
-      "@kylewillett/troupe/backstage/server": ["./src/node/backstage/index.ts"]
+      "@kylewillett/troupe/backstage/server": ["./src/node/backstage/index.ts"],
+      "@kylewillett/troupe/cluster": ["./src/cluster/index.ts"],
+      "@kylewillett/troupe/cluster/tcp": ["./src/node/cluster/index.ts"]
     }
   },
   "include": [

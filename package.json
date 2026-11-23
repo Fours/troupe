@@ -63,6 +63,10 @@
       "types": "./dist/node/backstage/index.d.ts",
       "import": "./dist/node/backstage/index.js"
     },
+    "./cluster": {
+      "types": "./dist/cluster/index.d.ts",
+      "import": "./dist/cluster/index.js"
+    },
     "./cluster/tcp": {
       "types": "./dist/node/cluster/index.d.ts",
       "import": "./dist/node/cluster/index.js"

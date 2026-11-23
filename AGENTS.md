@@ -75,8 +75,9 @@ src/
   backstage/        the /backstage entry point (any runtime): backstage() the in-process source,
                     the protocol types, encode() the wire encoding, and the read-only requests (0021)
   testkit/          the /testkit entry point: ManualScheduler, seededRandom, createTestKit, TestProbe
-  cluster/          milestone 4's cluster, not yet an entry point: wire.ts, the wire format (0025);
-                    transport.ts, memory.ts (the in-memory network) and remoting.ts (0026)
+  cluster/          the /cluster entry point (any runtime): wire.ts, the wire format (0025);
+                    transport.ts, memory.ts (the in-memory network) and remoting.ts (0026);
+                    table.ts, the member table, and membership.ts, joinCluster (0028)
   persistence/      the /persistence entry point: the store interfaces,
                     backend.ts (the argument checks every backend shares), the in-memory backend,
                     persistentActor (actor.ts: effects, recovery, schemas, upcasters and tags),
@@ -88,7 +89,7 @@ test/               mirrors src/; helpers/ holds deferred() and test actors (tre
                     and failing calls, postgres.ts (the test database, fresh schemas, and a
                     pool that holds a COMMIT), and cluster.ts (N nodes on one ManualScheduler and
                     one network, in memory or TCP on loopback through tcp-network.ts, with settle,
-                    advance, kill and restart). cluster/remoting-suite.ts is remoting's suite, run
+                    advance, start, kill and restart, and membership when asked for). cluster/remoting-suite.ts is remoting's suite, run
                     on both networks
                     persistence/contract.ts is the journal contract every backend runs;
                     node/ tests the Node-only backends, lint.test.ts the lint config's boundaries
