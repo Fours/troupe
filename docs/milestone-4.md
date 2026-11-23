@@ -343,7 +343,7 @@ Do these in order. Each one ends with passing tests.
 | T1. The wire format and the core's hooks | Done | 1bb8120 |
 | T2. Remoting on the in-memory network | Done | 11322d6 |
 | T3. The TCP transport | Done | dfceded |
-| T4. Membership | Done | |
+| T4. Membership | Done | bd3f20f |
 | T5. Shard leases | Not started | |
 | T6. Cluster sharding: routing and placement | Not started | |
 | T7. Passivation, rebalancing, handoff and remembering | Not started | |

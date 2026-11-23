@@ -205,11 +205,15 @@ describe('joining', () => {
   it('runs on TCP too', async () => {
     const c = await cluster({ network: 'tcp' });
     await c.advance(10_000);
-    const expected = c.nodes.map((n) => `${n.address}#${String(n.remoting.self.uid)} up`);
-    for (const n of c.nodes) expect(table(n)).toEqual(expected);
+    // Tables are sorted by address, and TCP's ports come in any order.
+    const up = (nodes: readonly TestNode[]) =>
+      [...nodes]
+        .sort((x, y) => (x.address < y.address ? -1 : 1))
+        .map((n) => `${n.address}#${String(n.remoting.self.uid)} up`);
+    for (const n of c.nodes) expect(table(n)).toEqual(up(c.nodes));
     await clusterOf(c.node(2)).leave();
     await c.advance(10);
-    expect(table(c.node(0))).toEqual(expected.slice(0, 2));
+    expect(table(c.node(0))).toEqual(up(c.nodes.slice(0, 2)));
   });
 });
 
