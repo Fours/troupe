@@ -45,3 +45,4 @@ When you change a decision, update its record in the same commit as the code.
 | [0023](0023-backstage-server-uses-sse.md) | The Backstage server uses server-sent events on `node:http`, with no dependency | Accepted | 3 |
 | [0024](0024-publish-from-ci-with-provenance.md) | Publishing from CI with trusted publishing and provenance, starting at 0.1.0 | Accepted | 3 |
 | [0025](0025-messages-on-the-wire-are-json-plus-refs.md) | Messages on the wire are JSON plus refs, refs travel as an address and a path, and messages to entities are always encoded | Proposed | 4 |
+| [0026](0026-remoting-is-at-most-once-behind-a-transport.md) | Remoting is at most once and ordered per pair of nodes, behind a `Transport` interface, and remote asks settle through the asker | Accepted | 4 |

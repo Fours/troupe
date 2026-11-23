@@ -123,6 +123,27 @@ export function persistentHookOf(def: object): PersistentHook | undefined {
   return (def as { [PERSISTENT]?: PersistentHook })[PERSISTENT];
 }
 
+/** Something told when a watched actor terminates: a cell, a testkit probe, or remoting. */
+export interface Watcher {
+  /** Tells the watcher that `target` has terminated. It must not throw. */
+  notifyTerminated(target: WatchTarget): void;
+}
+
+/**
+ * Something `ctx.watch` can watch: a local actor's cell, or an actor on another node, which
+ * remoting stands in for (decision 0026).
+ */
+export interface WatchTarget {
+  /** The watched actor's ref, as the `terminated` signal carries it. */
+  readonly ref: AnyRef;
+  readonly terminated: boolean;
+  /** Present once it has terminated, when it stopped because it failed. */
+  readonly failure: { readonly error: unknown } | undefined;
+  /** Starts telling `watcher` when it terminates. Adding one twice is the same as once. */
+  addWatcher(watcher: Watcher): void;
+  removeWatcher(watcher: Watcher): void;
+}
+
 /** The cluster's hook on a system the core made (decision 0025). */
 export const HOOKS: unique symbol = Symbol('troupe.hooks');
 
@@ -150,6 +171,24 @@ export interface SystemHooks {
   makeRef<M>(path: string, tell: (msg: M) => void): ActorRef<M>;
   /** Publishes a `deadLetter` event. */
   deadLetter(recipient: string, message: unknown, reason: DeadLetterReason): void;
+  /**
+   * What `ctx.watch` would watch for `ref`: a local actor's cell, or what the watch resolver
+   * gives. `undefined` for a ref nothing can watch, such as a temporary ask ref.
+   */
+  watchTarget(ref: unknown): WatchTarget | undefined;
+  /**
+   * Installs what `ctx.watch` and probes use for refs that aren't local actors: remoting's
+   * remote refs (decision 0026). One per system.
+   * @throws Error if one is already installed.
+   */
+  setWatchResolver(resolve: (ref: unknown) => WatchTarget | undefined): void;
+  /**
+   * The path of the actor sending right now, as `delivered.from` would name it, when it's known
+   * (decision 0020). Only known while a subscriber wants message events.
+   */
+  sender(): string | undefined;
+  /** Tells `ref` with `from` as the sender, for a message from another node (decision 0026). */
+  tellFrom(ref: AnyRef, message: unknown, from: string | undefined): void;
 }
 
 /** The cluster's hook on a system the core made. */

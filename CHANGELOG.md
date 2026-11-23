@@ -7,6 +7,7 @@ This project follows [Semantic Versioning](https://semver.org/). Under 0.x, a mi
 Milestone 4: multi-node. Entries are added as its tasks land.
 
 - `deadLetter`'s `reason` gains `unreachable`, `unserializable` and `invalid`, for messages that can't reach another node, can't be sent as JSON plus refs, or fail an entity type's schema. A `switch` over the reasons that has no `default` needs the new cases ([0025](https://github.com/Fours/troupe/blob/main/docs/decisions/0025-messages-on-the-wire-are-json-plus-refs.md)).
+- `ctx.watch` and a probe's `watch` accept refs to actors on other nodes, and signal `terminated` when the actor stops or its node goes. Watching a ref that isn't an actor still throws `TypeError` ([0026](https://github.com/Fours/troupe/blob/main/docs/decisions/0026-remoting-is-at-most-once-behind-a-transport.md)).
 
 ## 0.1.1 (2026-11-23)
 

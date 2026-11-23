@@ -193,7 +193,7 @@ export function tcpTransport(opts: {
 - `node:net` only, with no dependency ([0027](#decision-records), open question 1). Each frame is a 4-byte big-endian length and UTF-8 JSON text. A frame over the limit closes the connection, since the peer is broken or hostile.
 - **Peers prove the secret** before any other frame (open question 5). Each side sends a random nonce and answers the other's with an HMAC-SHA256 of it under the secret (`node:crypto`), compared in constant time. The secret never crosses the wire. A peer that fails is disconnected and logged. TLS is out of scope, so the README says to keep cluster traffic on a private network.
 - **Localhost by default**, as `serveBackstage` is ([0023](decisions/0023-backstage-server-uses-sse.md)). Binding anywhere else is a choice you make with `host`.
-- Connections reconnect with backoff, from the system's scheduler and `random`, while the peer isn't down.
+- Connections reconnect with backoff, from the system's scheduler and `random`, while the peer isn't down. Remoting does this for every transport (T2, [0026](decisions/0026-remoting-is-at-most-once-behind-a-transport.md)), since only it has the scheduler, so the TCP transport doesn't.
 
 ### The in-memory network (`@kylewillett/troupe/cluster`)
 
@@ -340,8 +340,8 @@ Do these in order. Each one ends with passing tests.
 
 | Task | Status | Commit |
 | --- | --- | --- |
-| T1. The wire format and the core's hooks | Done | |
-| T2. Remoting on the in-memory network | Not started | |
+| T1. The wire format and the core's hooks | Done | 1bb8120 |
+| T2. Remoting on the in-memory network | Done | |
 | T3. The TCP transport | Not started | |
 | T4. Membership | Not started | |
 | T5. Shard leases | Not started | |
@@ -377,14 +377,21 @@ Write [0026](#decision-records).
 
 **Done when** tests cover:
 
-- [ ] A `tell` to a remote ref arrives, and messages from one node to one actor arrive in send order
-- [ ] An `ask` across nodes resolves, a piped one stays on the scheduler, and one whose node is killed times out
-- [ ] A reply carries a ref back, and a ref passed on to a third node still reaches the right actor
-- [ ] An unserializable message is a dead letter, never a throw. Frames for a killed node fill the buffer, then become `unreachable` dead letters
-- [ ] A handshake with the wrong cluster name or protocol is refused, with a log entry saying why
-- [ ] Watching a remote actor gives `terminated` when it stops, and when its node goes. Watching an entity ref throws
-- [ ] `delivered.from` is the remote sender's full path when the sender was known
-- [ ] Determinism: two runs of three nodes with the same seed give identical events on every node
+- [x] A `tell` to a remote ref arrives, and messages from one node to one actor arrive in send order
+- [x] An `ask` across nodes resolves, a piped one stays on the scheduler, and one whose node is killed times out
+- [x] A reply carries a ref back, and a ref passed on to a third node still reaches the right actor
+- [x] An unserializable message is a dead letter, never a throw. Frames for a killed node fill the buffer, then become `unreachable` dead letters
+- [x] A handshake with the wrong cluster name or protocol is refused, with a log entry saying why
+- [x] Watching a remote actor gives `terminated` when it stops, and when its node goes. Watching an entity ref throws
+- [x] `delivered.from` is the remote sender's full path when the sender was known
+- [x] Determinism: two runs of three nodes with the same seed give identical events on every node
+
+Notes from T2 (plan review, 2026-11-23):
+
+- Without membership, a node "goes" in two ways: a hello brings a new uid at its address, or `nodeDown` is called, which T4's downing will call. Both are tested. A kill alone signals nothing, since the node may come back.
+- Entity refs come in T6. T2 proves that a ref nothing can watch, such as a temporary ask ref, throws a `TypeError`. The entity-ref case is a box in T6's Done when.
+- `/cluster` stays internal until T4 adds `joinCluster`. T2's tests import from `src/cluster/`.
+- A remote actor's failure arrives as a plain `Error` with the original's name and message, and no stack. A gone node's watches fail with `node <address> is gone`.
 
 ### T3. The TCP transport
 
@@ -441,6 +448,7 @@ Write [0030](#decision-records).
 - [ ] A message to an entity ref from any node reaches the one entity with that id, and `ask` works through it
 - [ ] Every node computes the same desired owner from the same members, and adding a fourth node moves only the shards it now tops
 - [ ] A message to an entity on the same node is encoded and decoded: a message with a `Map` is a dead letter even there
+- [ ] Watching an entity ref throws a `TypeError` (moved from T2, which had no entity refs)
 - [ ] A message that fails the type's schema is an `invalid` dead letter, with its issues logged
 - [ ] An entity ref travels in a message and still reaches its entity after the shard moves
 - [ ] A node with `host: false` routes but never holds a shard

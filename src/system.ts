@@ -1,5 +1,5 @@
 import { Asker } from './ask.js';
-import { Cell, type CellHost, type CellNode, type ParentNode, type Watcher } from './cell.js';
+import { Cell, type CellHost, type CellNode, type ParentNode } from './cell.js';
 import { checkInt, checkKeys, describe } from './checks.js';
 import { Dispatcher } from './dispatcher.js';
 import { ActorSystemTerminatedError, NotAChildError } from './errors.js';
@@ -10,6 +10,8 @@ import {
   type CellInspection,
   type SystemHooks,
   type SystemInspection,
+  type Watcher,
+  type WatchTarget,
 } from './internal.js';
 import { consoleLogger, isLogger, safeLogger } from './logger.js';
 import { childPath, Names } from './names.js';
@@ -112,6 +114,12 @@ export function createSystem(opts: ActorSystemOptions = {}): SystemHandle {
   const asker = new Asker({ events, systemName: name, defaultTimeoutMs: askTimeoutMs, setTimer });
   const makeRef = <M>(path: string, tell: (msg: M) => void) => asker.ref(path, tell);
   const cells = new WeakMap<object, CellNode>();
+  // Remoting's, for remote refs (decision 0026). Undefined for a system with no cluster.
+  let resolveWatch: ((ref: unknown) => WatchTarget | undefined) | undefined;
+  const cellOf = (ref: unknown): CellNode | undefined =>
+    typeof ref === 'object' && ref !== null ? cells.get(ref) : undefined;
+  const watchTargetOf = (ref: unknown): WatchTarget | undefined =>
+    cellOf(ref) ?? resolveWatch?.(ref);
   let busy = 0;
   let terminating = false;
   let resolveTerminated!: () => void;
@@ -155,7 +163,8 @@ export function createSystem(opts: ActorSystemOptions = {}): SystemHandle {
       busy += delta;
     },
     terminating: () => terminating,
-    cellOf: (ref) => (typeof ref === 'object' && ref !== null ? cells.get(ref) : undefined),
+    cellOf,
+    watchTargetOf,
     spawn<M, S>(
       parent: ParentNode,
       def: ActorDef<M, S>,
@@ -229,6 +238,21 @@ export function createSystem(opts: ActorSystemOptions = {}): SystemHandle {
     deadLetter(recipient: string, message: unknown, reason: DeadLetterReason) {
       events.publish({ type: 'deadLetter', recipient, message, reason });
     },
+    watchTarget: watchTargetOf,
+    setWatchResolver(resolve: (ref: unknown) => WatchTarget | undefined) {
+      if (resolveWatch !== undefined) throw new Error('a watch resolver is already installed');
+      resolveWatch = resolve;
+    },
+    sender: () => host.senderOverride ?? dispatcher.current?.path,
+    tellFrom(ref: AnyRef, message: unknown, from: string | undefined) {
+      const outer = host.senderOverride;
+      host.senderOverride = from;
+      try {
+        (ref as ActorRef<unknown>).tell(message);
+      } finally {
+        host.senderOverride = outer;
+      }
+    },
   });
   // Not enumerable, so spreading or logging a system doesn't show them.
   Object.defineProperty(system, INSPECT, { value: inspection });
@@ -240,10 +264,12 @@ export function createSystem(opts: ActorSystemOptions = {}): SystemHandle {
     pendingAsks: () => asker.pending(),
     makeRef,
     watch(ref, watcher) {
-      const cell = host.cellOf(ref);
-      if (cell === undefined) throw new TypeError('watch: the ref is not an actor of this system');
-      if (cell.terminated) watcher.notifyTerminated(cell);
-      else cell.watchers.add(watcher);
+      const target = watchTargetOf(ref);
+      if (target === undefined) {
+        throw new TypeError('watch: the ref is not an actor of this system');
+      }
+      if (target.terminated) watcher.notifyTerminated(target);
+      else target.addWatcher(watcher);
     },
   };
 }

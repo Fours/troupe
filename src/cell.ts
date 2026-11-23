@@ -7,6 +7,8 @@ import {
   START,
   type CellInspection,
   type CellInternals,
+  type Watcher,
+  type WatchTarget,
   type WithStart,
 } from './internal.js';
 import { safeLogger, type Logger } from './logger.js';
@@ -68,14 +70,10 @@ interface Tracking {
 
 type DeadLetterReason = 'mailboxFull' | 'stopped' | 'terminated';
 
-/** Something told when a watched cell terminates: another cell, or a testkit probe. */
-export interface Watcher {
-  /** Tells the watcher that `target` has terminated. It must not throw. */
-  notifyTerminated(target: CellNode): void;
-}
+export type { Watcher } from './internal.js';
 
 /** What other cells, the guardian and the system see of a cell, whatever its types. */
-export interface CellNode extends Watcher {
+export interface CellNode extends Watcher, WatchTarget {
   readonly ref: AnyRef;
   readonly name: string;
   readonly parent: ParentNode;
@@ -83,8 +81,6 @@ export interface CellNode extends Watcher {
   readonly failure: Failure;
   /** Asks the cell to stop after its current message, ahead of its queued messages. */
   requestStop(): void;
-  /** Watchers of this cell, kept so it can notify them when it terminates. */
-  readonly watchers: Set<Watcher>;
   /** Its children that haven't terminated, in spawn order. */
   readonly childCells: Map<string, CellNode>;
   /** What an inspector sees of it, read-only. */
@@ -139,6 +135,8 @@ export interface CellHost {
   ): ActorRef<M>;
   /** The cell behind a ref, if it belongs to this system. */
   cellOf(ref: unknown): CellNode | undefined;
+  /** What watching `ref` watches: its cell, or a remote actor's stand-in (decision 0026). */
+  watchTargetOf(ref: unknown): WatchTarget | undefined;
 }
 
 /** A cell's checked spawn options. */
@@ -149,7 +147,7 @@ export interface CellOptions {
 
 type SystemMessage =
   | { readonly type: 'stop' }
-  | { readonly type: 'terminated'; readonly target: CellNode }
+  | { readonly type: 'terminated'; readonly target: WatchTarget }
   | { readonly type: 'childrenDone' }
   | { readonly type: 'restartDue' };
 
@@ -199,8 +197,9 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
   readonly parent: ParentNode;
   readonly names = new Names();
   readonly childCells = new Map<string, CellNode>();
-  readonly watchers = new Set<Watcher>();
-  readonly #watching = new Set<CellNode>();
+  // Watchers of this cell, kept so it can notify them when it terminates.
+  readonly #watchers = new Set<Watcher>();
+  readonly #watching = new Set<WatchTarget>();
   readonly #def: ActorDef<M, S>;
   readonly #host: CellHost;
   readonly #capacity: number;
@@ -307,7 +306,15 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
     this.#scheduleIfReady();
   }
 
-  notifyTerminated(target: CellNode): void {
+  addWatcher(watcher: Watcher): void {
+    this.#watchers.add(watcher);
+  }
+
+  removeWatcher(watcher: Watcher): void {
+    this.#watchers.delete(watcher);
+  }
+
+  notifyTerminated(target: WatchTarget): void {
     if (this.#phase !== 'running' || !this.#watching.has(target)) return;
     this.#system.push({ type: 'terminated', target });
     this.#scheduleIfReady();
@@ -814,33 +821,33 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
   }
 
   #watch(ref: AnyRef): void {
-    const target = this.#cellOrThrow(ref, 'watch');
+    const target = this.#targetOrThrow(ref, 'watch');
     if (this.#phase !== 'running' || target === this || this.#watching.has(target)) return;
     this.#watching.add(target);
     if (target.terminated) {
       this.notifyTerminated(target);
     } else {
-      target.watchers.add(this);
+      target.addWatcher(this);
     }
   }
 
   #unwatch(ref: AnyRef): void {
-    const target = this.#cellOrThrow(ref, 'unwatch');
+    const target = this.#targetOrThrow(ref, 'unwatch');
     this.#watching.delete(target);
-    target.watchers.delete(this);
+    target.removeWatcher(this);
   }
 
   #unwatchAll(): void {
-    for (const target of this.#watching) target.watchers.delete(this);
+    for (const target of this.#watching) target.removeWatcher(this);
     this.#watching.clear();
   }
 
-  #cellOrThrow(ref: unknown, what: string): CellNode {
-    const cell = this.#host.cellOf(ref);
-    if (cell === undefined) {
+  #targetOrThrow(ref: unknown, what: string): WatchTarget {
+    const target = this.#host.watchTargetOf(ref);
+    if (target === undefined) {
       throw new TypeError(`${what}: the ref is not an actor of this system`);
     }
-    return cell;
+    return target;
   }
 
   #beginStop(failure: Failure): void {
@@ -916,8 +923,8 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
     this.#phase = 'terminated';
     this.#unwatchAll();
     this.parent.removeChild(this);
-    for (const watcher of this.watchers) watcher.notifyTerminated(this);
-    this.watchers.clear();
+    for (const watcher of [...this.#watchers]) watcher.notifyTerminated(this);
+    this.#watchers.clear();
     this.#host.events.publish(
       this.#failure === undefined
         ? { type: 'stopped', path: this.path }

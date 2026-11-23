@@ -58,7 +58,9 @@ Milestone 4 sends messages between nodes. A message has to become text on one no
 - The benchmark's `events-none` row is unchanged. It was run with `node --expose-gc bench/run.ts --only events-none` on an Apple M5 Pro with Node 26.12.1, 10 runs each, on the commit before T1 and then on T1. The median went from 4,235,101 to 4,194,290 msg/s (−1%), inside 0020's recorded Node 26 range of 3,995,715 to 4,564,825. Each run had one fast outlier of about 20 million msg/s, on both commits.
 - Breaking the `$` escaping, the uid check, the removal of temporary refs, and the `/user`-before-`/system` order each fails a test.
 
-Still to prove: T2 sends what this encodes across nodes, and T6 encodes every message to an entity, local ones included. The record is accepted then.
+**T2 (2026-11-23):** remoting sends what this encodes between nodes on the in-memory network ([0026](0026-remoting-is-at-most-once-behind-a-transport.md)). Refs in replies, refs passed on to a third node, and temporary ask refs all reach the right actor, and an unserializable message is a dead letter, never a throw (`test/cluster/remoting.test.ts`). The codec gained `decodeValue`, for a message inside a frame that has already been parsed.
+
+Still to prove: T6 encodes every message to an entity, local ones included. The record is accepted then.
 
 ## Consequences
 

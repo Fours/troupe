@@ -74,7 +74,8 @@ src/
   backstage/        the /backstage entry point (any runtime): backstage() the in-process source,
                     the protocol types, encode() the wire encoding, and the read-only requests (0021)
   testkit/          the /testkit entry point: ManualScheduler, seededRandom, createTestKit, TestProbe
-  cluster/          milestone 4's cluster, not yet an entry point: wire.ts, the wire format (0025)
+  cluster/          milestone 4's cluster, not yet an entry point: wire.ts, the wire format (0025);
+                    transport.ts, memory.ts (the in-memory network) and remoting.ts (0026)
   persistence/      the /persistence entry point: the store interfaces,
                     backend.ts (the argument checks every backend shares), the in-memory backend,
                     persistentActor (actor.ts: effects, recovery, schemas, upcasters and tags),
@@ -83,8 +84,9 @@ src/
                     pg pool it never imports (0016, 0017)
 test/               mirrors src/; helpers/ holds deferred() and test actors (tree, watcher, idle),
                     the persistent account, faultyJournal() and faultySnapshots() for holding
-                    and failing calls, and postgres.ts (the test database, fresh schemas, and a
-                    pool that holds a COMMIT)
+                    and failing calls, postgres.ts (the test database, fresh schemas, and a
+                    pool that holds a COMMIT), and cluster.ts (N nodes on one ManualScheduler and
+                    one in-memory network, with settle, advance, kill and restart)
                     persistence/contract.ts is the journal contract every backend runs;
                     node/ tests the Node-only backends, lint.test.ts the lint config's boundaries
                     integration/ needs Postgres: its own Vitest project, run by test:integration

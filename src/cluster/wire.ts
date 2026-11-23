@@ -55,6 +55,11 @@ export interface Codec {
   encode(message: unknown): Encoded;
   /** The text back as a message, with its refs resolved. A problem names the first bad part. */
   decode(text: string): Decoded;
+  /**
+   * A value already parsed from JSON back as a message, as {@link Codec.decode} does for text:
+   * for a message inside a frame that has been parsed once (decision 0026).
+   */
+  decodeValue(parsed: unknown): Decoded;
   /** The full URI of a path on this node, for a ref or a sender that leaves it. */
   uri(path: string): string;
 }
@@ -101,6 +106,15 @@ export function createCodec(opts: CodecOptions): Codec {
     return hooks.lookup(address.path) ?? deadRef(address.path);
   };
 
+  const decodeValue = (parsed: unknown): Decoded => {
+    try {
+      return { ok: true, value: unescape(parsed as JsonValue, '$', resolve) };
+    } catch (error) {
+      if (error instanceof DecodeProblem) return { ok: false, problem: error.text };
+      return { ok: false, problem: `$ can't be decoded: ${errorText(error)}` };
+    }
+  };
+
   return {
     encode(message) {
       try {
@@ -118,13 +132,9 @@ export function createCodec(opts: CodecOptions): Codec {
       } catch (error) {
         return { ok: false, problem: `$ is not JSON: ${errorText(error)}` };
       }
-      try {
-        return { ok: true, value: unescape(parsed as JsonValue, '$', resolve) };
-      } catch (error) {
-        if (error instanceof DecodeProblem) return { ok: false, problem: error.text };
-        return { ok: false, problem: `$ can't be decoded: ${errorText(error)}` };
-      }
+      return decodeValue(parsed);
     },
+    decodeValue,
     uri,
   };
 }
