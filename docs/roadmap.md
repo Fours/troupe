@@ -121,6 +121,8 @@ Scope:
 
 The key invariant: **at most one live instance per entity ID.** Every design choice here is checked against it.
 
+Spec: [milestone-4.md](milestone-4.md).
+
 ### 5. Rehearsal: deterministic simulation testing
 
 **Outcome:** a test runs thousands of seeded simulations of a whole cluster in one process: nodes, network, journal and clock. Faults are injected (partitions, crashes, message loss, delay, reordering, slow disks). After each run, invariants are checked, such as one writer per entity and no lost acknowledged events. Any failure replays exactly from its seed.
