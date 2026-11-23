@@ -2,7 +2,7 @@
 
 This project follows [Semantic Versioning](https://semver.org/). Under 0.x, a minor version can break the API, and it will in milestone 4. Each design choice behind these entries has a record in [docs/decisions](https://github.com/Fours/troupe/tree/main/docs/decisions).
 
-## 0.1.0 (unreleased)
+## 0.1.0 (2026-11-23)
 
 The first published version. ESM only, for Node 22.18 or later, with no runtime dependencies. Everything but the SQLite backend and the Backstage server runs on any JavaScript runtime.
 

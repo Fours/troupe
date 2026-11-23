@@ -308,7 +308,7 @@ Do these in order. Each one ends with passing tests.
 | T4. Demo foundation: opening night | Done | 650befd |
 | T5. The Backstage UI | Done, but for your check | 8ce9232 |
 | T6. The Node server | Done | f44fe65 |
-| T7. API review and the 0.1.0 release | In progress: waiting on npm setup and the tag | |
+| T7. API review and the 0.1.0 release | Done | 9dcb269 |
 | T8. The write-up | Not started | |
 | T9. Deploy and link | Not started | |
 
@@ -457,10 +457,10 @@ Write [0024](decisions/0024-publish-from-ci-with-provenance.md).
 - [x] Every export of every entry point has TSDoc, and a package test checks each entry point's exact export list. Anything removed from the public API is listed in this section
 - [x] `publint`, `attw --pack --profile esm-only` and `scripts/check-pack.ts` pass, and run in CI
 - [x] `package.json` has no `private`, and has `homepage`, `repository` and `bugs`, and version 0.1.0. `CHANGELOG.md` has a 0.1.0 entry
-- [ ] `release.yml` publishes on a `v*` tag only after every CI check passes, and refuses a tag that doesn't match the version or isn't on `main`
-- [ ] Trusted publishing is set up on npmjs.com (by you), and no workflow has an npm token
-- [ ] After your approval in chat, `v0.1.0` is tagged and published, and npm shows its provenance
-- [ ] In an empty folder, the published package's README quick start works on Node 22 and 24
+- [x] `release.yml` publishes on a `v*` tag only after every CI check passes, and refuses a tag that doesn't match the version or isn't on `main`
+- [x] Trusted publishing is set up on npmjs.com (by you), and no workflow has an npm token
+- [x] After your approval in chat, `v0.1.0` is tagged and published, and npm shows its provenance
+- [x] In an empty folder, the published package's README quick start works on Node 22 and 24
 - [x] AGENTS.md and the README no longer say the package is unpublished
 
 **Found in T7:**
@@ -472,6 +472,10 @@ Write [0024](decisions/0024-publish-from-ci-with-provenance.md).
 - `check-pack.ts` reads the files to require from `exports`, so a new entry point can't be forgotten, and fails on any kind of dependency, not only runtime ones.
 - **The smoke test runs on a tarball too.** `scripts/smoke-published.sh` takes an `npm pack` file, so the quick start was checked on Node 22, 24 and 26 before anything was published. It runs the README's TypeScript as written, with Node's type stripping.
 - **The release checks the tarball again** in the publish job, on the exact build it publishes.
+- **0.1.0 is on npm with provenance**, published on 2026-11-23 from `9dcb269` by [release run 45086259539](https://github.com/Fours/troupe/actions/runs/45086259539). Its quick start works from npm on Node 22, 24 and 26. The evidence is in [0024](decisions/0024-publish-from-ci-with-provenance.md).
+- **The first publish was refused.** npm accepted the run's OIDC token, signed the provenance, then answered `403 ... OIDC permission denied for this action`: the trusted publisher on npmjs.com didn't allow publishing. You fixed its settings, and rerunning only the failed job published. Your placeholder publish before that got a `404`, which was npm's answer to an expired login.
+- **The 0.1.0 tarball's changelog says "unreleased".** I didn't date it before the tag, and a published tarball can't change. The changelog on GitHub is dated, and `check-release-tag.ts` now refuses a release whose changelog has no dated entry for its version, so the next one can't ship undated.
+- `0.0.0-placeholder.0` is still on npm, not yet deprecated: `npm deprecate @kylewillett/troupe@0.0.0-placeholder.0 "Placeholder. Install 0.1.0 or later."` (needs your login). npm also lists a `0.0.0-stage` version, which it created with the package, as it did for rate-limiter.
 
 ### T8. The write-up
 
@@ -498,7 +502,7 @@ Write [0024](decisions/0024-publish-from-ci-with-provenance.md).
 - [ ] Line coverage is at least 90% for `src/`.
 - [ ] There are no runtime dependencies, and no peer dependencies.
 - [ ] Everything outside `src/node/` builds with no Node types and imports no Node built-ins.
-- [ ] `@kylewillett/troupe` 0.1.0 is on npm with provenance.
+- [x] `@kylewillett/troupe` 0.1.0 is on npm with provenance.
 - [ ] The demo and the write-up are live and linked from the portfolio.
 - [ ] Every results folder in `docs/decisions/data/` has a `setup.json`.
 

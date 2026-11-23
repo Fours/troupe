@@ -1,6 +1,6 @@
 # 0024. Publish from CI with trusted publishing and provenance, starting at 0.1.0
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-22
 - **Milestone:** 3
 
@@ -11,7 +11,7 @@ The package goes on npm for the first time in milestone 3. Publishing from a lap
 ## Decision
 
 - **`.github/workflows/release.yml` publishes when a `v*` tag is pushed, and only then.** It runs CI's whole workflow (`ci.yml`, as a reusable workflow) on the tagged commit first: every Node line, Postgres, the package checks and the Playwright job. The publish job waits for all of it.
-- **It refuses a tag that doesn't name exactly the version in `package.json`** (`v0.1.0` for `0.1.0`), with `scripts/check-release-tag.ts`. It also refuses a prerelease version, since it publishes to the `latest` dist-tag, and a tagged commit that isn't on `main`.
+- **It refuses a tag that doesn't name exactly the version in `package.json`** (`v0.1.0` for `0.1.0`), with `scripts/check-release-tag.ts`. It also refuses a prerelease version, since it publishes to the `latest` dist-tag, a `CHANGELOG.md` without a dated entry for the version, since the changelog ships in the tarball, and a tagged commit that isn't on `main`.
 - **Trusted publishing, with no npm token anywhere.** npm trusts this repository's `release.yml`, run in the `npm` GitHub environment, and nothing else. The job gets a short-lived OIDC token from GitHub (`id-token: write`, on the publish job only) and npm exchanges it for a publish. The `npm` environment only accepts deployments from `v*` tags, so a branch can't publish even by editing the workflow.
 - **Provenance comes with it.** Publishing through OIDC from a public repository makes npm attach a signed provenance statement on its own: which commit, which workflow and which run built the tarball. npm checks it against `repository` in `package.json`, which has to name this repository exactly.
 - **Node 24 publishes.** Trusted publishing needs npm 11.5.1 or later, and Node 22 ships npm 10. The job checks npm's version before it tries.
@@ -34,17 +34,21 @@ The package goes on npm for the first time in milestone 3. Publishing from a lap
 
 ## Evidence
 
-Proposed until 0.1.0 is published. What will prove it, in milestone 3's T7:
+0.1.0 was published on 2026-11-23 by the second attempt of [release run 45086259539](https://github.com/Fours/troupe/actions/runs/45086259539), from the tag `v0.1.0` on `9dcb269`.
 
-- The release run for `v0.1.0`, whose CI jobs pass before `publish` starts.
-- npm's provenance statement for 0.1.0, naming `release.yml`, the tag, the commit and the run, and `npm audit signatures` verifying it in an empty project.
-- No workflow reading `NPM_TOKEN`, `NODE_AUTH_TOKEN` or any secret.
-- `test/scripts/check-release-tag.test.ts`, which covers a matching tag, eight mismatched ones, a prerelease, and the script's exit codes.
-- `scripts/smoke-published.sh 0.1.0` running the README's quick start from npm on Node 22, 24 and 26.
+- **CI first:** the run's four CI jobs (`check` on Node 22, 24 and 26, and `demo`) passed before `publish` started, which needs them.
+- **The trusted publisher has to allow publishing.** The first attempt's publish failed with `403 Forbidden ... OIDC permission denied for this action`, after npm had already signed a provenance statement and logged it to sigstore. GitHub's token was accepted, but the trusted publisher on npmjs.com didn't allow this run to publish. Once its settings were fixed, rerunning only the failed job published. Nothing was published by the failed attempt, and no new tag was needed.
+- **Provenance:** npm's attestations for 0.1.0 include a SLSA v1 provenance statement naming `.github/workflows/release.yml` at `refs/tags/v0.1.0`, in `https://github.com/Fours/troupe`, commit `9dcb2692e0643c7be920ddf1a61b28dd7ab7d384`, and run 45086259539, attempt 2. In an empty project, `npm audit signatures` after installing 0.1.0 reports a verified registry signature and a verified attestation.
+- **No token:** nothing in `.github/` reads `NPM_TOKEN`, `NODE_AUTH_TOKEN` or any secret, and the repository has none.
+- **Tag check:** `test/scripts/check-release-tag.test.ts` covers a matching tag, eight mismatched ones, a prerelease, seven changelogs that aren't ready, and the script's exit codes. Matching the tag by prefix failed two cases. Not escaping the version in the changelog's heading, accepting any date, and dropping the line anchor each failed at least one.
+- **What ships:** `check-pack.ts`, `publint` and `attw` passed in CI and again in the publish job, on the build that published: 97 files, 170 kB packed.
+- **What users get:** `scripts/smoke-published.sh 0.1.0` installed 0.1.0 from npm into an empty folder and ran the README's quick start on Node 22.23.5, 24.22.3 and 26.13.1, and each printed `2`. The same script passed on the `npm pack` tarball before the tag.
+- **Timing:** the publish step finished at 00:05:49 UTC, and the registry listed 0.1.0 about 100 seconds later, as rate-limiter's 1.0.0 did.
 
 ## Consequences
 
-- Releasing is: bump `version`, date the changelog, commit, tag `vX.Y.Z` on `main`, push the tag. A wrong tag fails before anything is published.
+- Releasing is: bump `version`, date the changelog, commit, tag `vX.Y.Z` on `main`, push the tag. A wrong tag or an undated changelog fails before anything is published.
+- A failed publish job can be rerun on its own, on the same tag, once its cause is fixed. CI doesn't run again.
 - A release takes as long as CI with Postgres and Playwright, about 10 minutes.
 - The trusted publisher's settings on npmjs.com must match exactly: owner `Fours`, repository `troupe`, workflow `release.yml`, environment `npm`. Renaming any of them stops publishing until it's set up again.
 - Prereleases need a change to the workflow first, to publish them under another dist-tag.

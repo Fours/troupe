@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import process from 'node:process';
 import { describe, expect, it } from 'vitest';
-import { releaseTagProblem } from '../../scripts/check-release-tag.ts';
+import { changelogProblem, releaseTagProblem } from '../../scripts/check-release-tag.ts';
 import { root } from '../helpers/exports.js';
 
 describe('releaseTagProblem', () => {
@@ -27,6 +27,33 @@ describe('releaseTagProblem', () => {
 
   it('refuses a prerelease version, even with its matching tag', () => {
     expect(releaseTagProblem('v1.1.0-rc.1', '1.1.0-rc.1')).toMatch(/prerelease/);
+  });
+});
+
+describe('changelogProblem', () => {
+  const log = (...headings: string[]) => ['# Changelog', '', ...headings, ''].join('\n');
+
+  it('accepts a dated entry for the version, among others', () => {
+    expect(changelogProblem(log('## 0.2.0 (2026-12-01)', '## 0.1.0 (2026-11-23)'), '0.1.0')).toBe(
+      undefined,
+    );
+  });
+
+  it.each([
+    ['an undated entry', log('## 0.1.0 (unreleased)')],
+    ['a date in another form', log('## 0.1.0 (23 Nov 2026)')],
+  ])('refuses %s', (_, changelog) => {
+    expect(changelogProblem(changelog, '0.1.0')).toMatch(/not YYYY-MM-DD/);
+  });
+
+  it.each([
+    ['no entry', log('## 0.0.9 (2026-11-01)')],
+    ['an entry without a date', log('## 0.1.0')],
+    ['a version it only starts with', log('## 0.1.00 (2026-11-23)')],
+    ['a dot read as any character', log('## 0x1x0 (2026-11-23)')],
+    ['the version in a lower heading', log('### 0.1.0 (2026-11-23)')],
+  ])('refuses %s', (_, changelog) => {
+    expect(changelogProblem(changelog, '0.1.0')).toMatch(/no "## 0\.1\.0 \(YYYY-MM-DD\)" entry/);
   });
 });
 

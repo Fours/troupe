@@ -41,4 +41,4 @@ When you change a decision, update its record in the same commit as the code.
 | [0021](0021-backstage-only-watches.md) | Backstage only watches: a read-only protocol of JSON frames, with refs as paths | Accepted | 3 |
 | [0022](0022-demo-drives-virtual-time.md) | The demo drives virtual time from animation frames, so pausing pauses the system | Accepted | 3 |
 | [0023](0023-backstage-server-uses-sse.md) | The Backstage server uses server-sent events on `node:http`, with no dependency | Accepted | 3 |
-| [0024](0024-publish-from-ci-with-provenance.md) | Publishing from CI with trusted publishing and provenance, starting at 0.1.0 | Proposed | 3 |
+| [0024](0024-publish-from-ci-with-provenance.md) | Publishing from CI with trusted publishing and provenance, starting at 0.1.0 | Accepted | 3 |
