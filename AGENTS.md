@@ -83,7 +83,8 @@ test/               mirrors src/; helpers/ holds deferred() and test actors (tre
                     persistence/contract.ts is the journal contract every backend runs;
                     node/ tests the Node-only backends, lint.test.ts the lint config's boundaries
                     integration/ needs Postgres: its own Vitest project, run by test:integration
-                    demo/ tests the demo's domain on the testkit and its driven clock
+                    demo/ tests the demo's domain on the testkit and its driven clock, and the
+                    write-up's data and record links
                     backstage-ui/ tests the Backstage UI's store and diff, with no browser
 backstage/          the Backstage UI (React, plain CSS), with its own tsconfig for the browser.
                     Ships only as built files: npm run build puts index.html and src/standalone/,
@@ -95,6 +96,11 @@ demo/               the demo site (Vite, React, plain CSS), with its own tsconfi
                     journal, the driven clock (0022), the log's narration, and the Backstage client
                     that follows a restart. No Date.now or Math.random: it runs on virtual time
                     and seeded chance
+  src/writeup/      the write-up, "How Troupe works", the site's second page (how-it-works/):
+                    the prose in TSX, citing records with <Record id>, and the SVG charts
+  src/site/         what both pages share: the base styles, the site bar and the links
+  build/            writeup-data.ts reads the charts' numbers from docs/decisions/data/ when the
+                    site builds, and fails the build if a source is missing
 e2e/                Playwright tests of the built demo, run by test:e2e, with its own tsconfig for
                     the DOM. frames.spec.ts runs in its own project, after the others, and
                     server.spec.ts in its own, against examples/backstage on port 7071
@@ -143,7 +149,7 @@ docs/               roadmap, milestone specs, decision records
 
 ## Design decisions
 
-`docs/decisions/` holds one numbered record per design choice: the context, the decision, the alternatives, the evidence and the consequences. These records become the public write-up in milestone 3. See `docs/decisions/README.md` for the format and the index.
+`docs/decisions/` holds one numbered record per design choice: the context, the decision, the alternatives, the evidence and the consequences. They're also the public write-up, the demo site's "How Troupe works", which must cite every record: a new record needs a place in it. See `docs/decisions/README.md` for the format and the index.
 
 - Read the related records before changing anything they cover.
 - When you make or change a decision, add or update its record in the same commit as the code. Never rewrite an Accepted record. Supersede it with a new one instead.

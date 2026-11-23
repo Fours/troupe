@@ -1,6 +1,8 @@
 import react from '@vitejs/plugin-react';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
+import { DATA_DIR, SOURCE_FILES, loadWriteupData } from './build/writeup-data.ts';
 
 const here = (path: string) => fileURLToPath(new URL(path, import.meta.url));
 
@@ -9,9 +11,25 @@ const here = (path: string) => fileURLToPath(new URL(path, import.meta.url));
 // alias matches by prefix.
 const entry = (name: string, path: string) => ({ find: name, replacement: here(`../src/${path}`) });
 
+// The write-up's charts are read from docs/decisions/data/ when the site builds (milestone 3, T8),
+// so they can't drift from the records. A missing source throws, which fails the build.
+function writeupData(): Plugin {
+  const id = 'virtual:writeup-data';
+  return {
+    name: 'writeup-data',
+    resolveId: (source) => (source === id ? `\0${id}` : undefined),
+    load(resolved) {
+      if (resolved !== `\0${id}`) return undefined;
+      for (const file of SOURCE_FILES) this.addWatchFile(join(DATA_DIR, file));
+      return `export default ${JSON.stringify(loadWriteupData())};`;
+    },
+  };
+}
+
+// Two pages: the demo, and the write-up at how-it-works/, which loads none of the demo.
 export default defineConfig({
   root: here('.'),
-  plugins: [react()],
+  plugins: [react(), writeupData()],
   resolve: {
     alias: [
       entry('@kylewillett/troupe/testkit', 'testkit/index.ts'),
@@ -23,6 +41,12 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    rolldownOptions: {
+      input: {
+        demo: here('index.html'),
+        howItWorks: here('how-it-works/index.html'),
+      },
+    },
   },
   server: {
     // src/ is outside the demo's root.

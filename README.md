@@ -4,6 +4,8 @@ Typed actors for TypeScript, in the spirit of Akka: hierarchies, supervision, `a
 
 > **Status:** 0.x, so a minor version can change the API, and milestone 4 will. See the [changelog](CHANGELOG.md), the [roadmap](docs/roadmap.md), and the specs for [milestone 1](docs/milestone-1.md), [milestone 2](docs/milestone-2.md) and [milestone 3](docs/milestone-3.md).
 
+**How it works:** the design write-up, "How Troupe works", tells the [decision records](docs/decisions/) as one story, from actors as a state and a reducer to the benchmark's numbers, and links every claim to its record. It's a page of the demo site, which isn't live yet: read its [source](demo/src/writeup/WriteUp.tsx), or run `npm run demo:dev` and open `/how-it-works/`.
+
 - **Typed:** each actor has one message type, and refs are checked against it.
 - **No runtime dependencies**, and the core runs on any JavaScript runtime, not only Node.
 - **Deterministic tests:** time, scheduling and chance are injected, so the testkit replays a run exactly from a seed.

@@ -1,43 +1,4 @@
-:root {
-  --bg: #ffffff;
-  --fg: #1c1b22;
-  --muted: #5d5b66;
-  --line: #e3e1ea;
-  --accent: #7a2e3a;
-  --accent-fg: #ffffff;
-  --pressed: #f3e6e8;
-  --error: #b3261e;
-  color-scheme: light dark;
-  font-family:
-    system-ui,
-    -apple-system,
-    'Segoe UI',
-    sans-serif;
-  line-height: 1.5;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #17161c;
-    --fg: #ecebf1;
-    --muted: #a3a1ad;
-    --line: #2f2d38;
-    --accent: #d77a88;
-    --accent-fg: #17161c;
-    --pressed: #3a2328;
-    --error: #f2b8b5;
-  }
-}
-
-* {
-  box-sizing: border-box;
-}
-
-body {
-  margin: 0;
-  background: var(--bg);
-  color: var(--fg);
-}
+/* The demo page. The tokens and base styles both pages share are in site/site.css. */
 
 main {
   max-width: 96rem;

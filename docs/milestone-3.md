@@ -308,8 +308,8 @@ Do these in order. Each one ends with passing tests.
 | T4. Demo foundation: opening night | Done | 650befd |
 | T5. The Backstage UI | Done, but for your check | 8ce9232 |
 | T6. The Node server | Done | f44fe65 |
-| T7. API review and the 0.1.0 release | Done | 9dcb269 |
-| T8. The write-up | Not started | |
+| T7. API review and the 0.1.0 release | Done | 9dcb269, 6f7e51e |
+| T8. The write-up | Done | |
 | T9. Deploy and link | Not started | |
 
 ### T1. The benchmark and its baseline
@@ -481,10 +481,32 @@ Write [0024](decisions/0024-publish-from-ci-with-provenance.md).
 
 **Done when:**
 
-- [ ] The page covers the sections under Design, and every claim links to a decision record, checked by a test against `docs/decisions/`
-- [ ] Its charts are built from `docs/decisions/data/` when the site builds, and a missing source fails the build, with a test
-- [ ] It opens with a summary a non-engineer can read alone, and it works on a phone
-- [ ] The README links to it, and `docs/decisions/README.md` says it's the public write-up
+- [x] The page covers the sections under Design, and every claim links to a decision record, checked by a test against `docs/decisions/`
+- [x] Its charts are built from `docs/decisions/data/` when the site builds, and a missing source fails the build, with a test
+- [x] It opens with a summary a non-engineer can read alone, and it works on a phone
+- [x] The README links to it, and `docs/decisions/README.md` says it's the public write-up
+
+*As built:* "How Troupe works" is the demo site's second page at `how-it-works/`. It's a second Vite entry (`demo/how-it-works/index.html`, `demo/src/writeup/`) that loads none of the demo: no actor system and no Backstage. It has its own title, description and `og:` tags. `og:url` and a canonical link wait for T9's domain. It follows rate-limiter's T7, as agreed in plan review:
+
+- **The prose is TSX.** `<Record id>` takes a typed id, so a link to a record that doesn't exist fails typecheck. Record links go to GitHub's rendered Markdown on `main`.
+- **Every record is cited.** That includes 0021 to 0024, which fit into "Why the demo runs in your browser" and "What's next". `test/demo/records.test.ts` checks three things: the record list against `docs/decisions/`, that every one of the nine sections cites a record, and that every record is cited somewhere. So a new record needs a place in the story. `e2e/writeup.spec.ts` checks the same on the rendered page, and checks that every link's URL names its record.
+- **The charts read `results.json`, not the summaries.** Unlike rate-limiter, Troupe commits its raw results, so `demo/build/writeup-data.ts` reads each run's `results.json` (the `summary` the benchmark wrote) and `setup.json`: 0019's baseline and 0020's message events, on Nodes 22, 24 and 26. A Vite plugin serves the result as `virtual:writeup-data`. A missing folder, file, scenario or number, or bad JSON, throws an error naming it, which fails the build. `test/demo/writeup-data.test.ts` breaks a copy of the data directory each of those ways.
+- **Four figures, hand-drawn SVG with no chart library:**
+  1. the yield's cost: ping-pong and fan-out, with the yield and without it
+  2. what watching costs: no listener, a lifecycle listener, and message events
+  3. appends a second for each backend, on a log scale, so as dots
+  4. the Postgres lock, with and against the run without it
+
+  Node 24 is the headline, with a whisker from the slowest run to the fastest. "Show the numbers" opens a table of all three Node lines, each median with its range. Every figure names its data folder, machine and record.
+- **One mark colour, checked in both themes.** It's a mark shade of the demo's accent (`#9a3b4a` light, `#c96a79` dark), and it passed the dataviz validator's lightness and 3:1 contrast checks on each surface. Runs that don't ship, such as no yield and no lock, are drawn hollow and say so in their label, so nothing relies on colour. The page follows the demo's light and dark themes.
+- **Section 8 answers 0019's open point about the yield.** The yield works as designed. A cheaper one, after a time budget rather than a count of messages, is a question for a later milestone, and until then `yieldAfter` is a setting a user can raise.
+- **The page says what the message-events row measures.** The "message events on" row is a listener that does nothing. Backstage's encoding costs more, which the benchmark doesn't measure yet (0021).
+- **A site bar both pages share** (`demo/src/site/`) links "Opening night", "How it works", GitHub and npm. Its links are relative, so they work under any path. The base styles moved from the demo's stylesheet into `site/site.css` beside it.
+- **On phones**, each chart puts its labels above its bars below 560 px, and the tables scroll inside their figure. `e2e/writeup-phone.spec.ts` checks at 375 px that nothing scrolls sideways with every table open.
+- **The README and `docs/decisions/README.md` link to the page's source** until the site is live. A test checks both links. T9 moves them to the site.
+- Breaking things proves the tests can fail. Dropping the only citation of 0015 fails the records test. A loader that reads a missing scenario as zero fails the data test. A table that can overflow fails the phone test.
+
+*Found in T8, for T9:* the write-up has no PostHog yet. T9 adds `initAnalytics()` to both entries, and `og:url` and the canonical link to both pages. The README and records README links move from `demo/src/writeup/WriteUp.tsx` to `https://troupe.kylewillett.com/how-it-works/`, and `test/demo/records.test.ts`'s "links to the write-up" moves with them.
 
 ### T9. Deploy and link
 

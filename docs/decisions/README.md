@@ -1,6 +1,8 @@
 # Design decisions
 
-Each file here records one design choice: the choice itself, the alternatives, and the evidence for it. Write them for a reader, not just as notes to yourself. In milestone 3, they become the public write-up.
+Each file here records one design choice: the choice itself, the alternatives, and the evidence for it. Write them for a reader, not just as notes to yourself.
+
+They're also the public write-up. "How Troupe works", the demo site's page at `/how-it-works/` ([source](../../demo/src/writeup/WriteUp.tsx)), tells them as one story, and cites a record for every claim. Its charts are built from `data/` when the site builds. A test checks that the page cites every record, so a new record needs a place in the story too.
 
 ## How to add one
 

@@ -40,6 +40,7 @@
     "scripts",
     "bench",
     "demo/vite.config.ts",
+    "demo/build",
     "backstage/vite.config.ts",
     "*.config.ts"
   ],

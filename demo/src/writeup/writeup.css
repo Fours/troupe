@@ -1,0 +1,302 @@
+/* The write-up page. The tokens and base styles are site/site.css's, shared with the demo. The
+   chart's mark color passed the dataviz validator's lightness and 3:1 contrast checks on each
+   surface; rows for comparison are hollow, so they never rely on color alone. */
+
+:root {
+  --series: #9a3b4a;
+  --whisker: #1c1b22;
+  --grid: #e3e1ea;
+  --code-bg: #f6f5f8;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --series: #c96a79;
+    --whisker: #ecebf1;
+    --grid: #2f2d38;
+    --code-bg: #1f1e26;
+  }
+}
+
+.wu-main {
+  padding: 0 1rem 4rem;
+}
+
+.wu-article {
+  max-width: 44rem;
+  margin: 0 auto;
+  font-size: 1.0625rem;
+  line-height: 1.65;
+}
+
+.wu-head {
+  padding: 2.5rem 0 1rem;
+}
+
+.wu-eyebrow {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.wu-head h1 {
+  margin: 0.25rem 0 0.75rem;
+  font-size: 2.25rem;
+  line-height: 1.2;
+}
+
+.wu-lede {
+  margin: 0;
+  color: var(--muted);
+  font-size: 1.125rem;
+}
+
+.wu-article h2 {
+  margin: 3rem 0 0.75rem;
+  font-size: 1.5rem;
+  line-height: 1.3;
+  scroll-margin-top: 1rem;
+}
+
+.wu-article h3 {
+  margin: 2rem 0 0.5rem;
+  font-size: 1.125rem;
+}
+
+.wu-article p {
+  margin: 0 0 1rem;
+}
+
+.wu-summary {
+  margin-top: 1.5rem;
+  padding: 0.25rem 1.25rem 0.5rem;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--accent);
+  border-radius: 0.5rem;
+}
+
+.wu-summary h2 {
+  margin-top: 1rem;
+  font-size: 1.125rem;
+}
+
+.wu-cta {
+  font-weight: 600;
+}
+
+.wu-toc {
+  margin: 2rem 0 0;
+}
+
+.wu-toc ol {
+  margin: 0;
+  padding-left: 1.5rem;
+  columns: 2 16rem;
+  column-gap: 2rem;
+}
+
+.wu-toc a {
+  text-decoration: none;
+}
+
+.wu-toc a:hover {
+  text-decoration: underline;
+}
+
+.wu-article a:focus-visible,
+.wu-numbers summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* A citation: the record's number, small, after the claim it backs. */
+a.record {
+  display: inline-block;
+  padding: 0 0.35em;
+  border: 1px solid var(--line);
+  border-radius: 0.3em;
+  font-size: 0.8em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+a.record:hover {
+  border-color: var(--accent);
+}
+
+code {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+}
+
+pre {
+  margin: 0 0 1rem;
+  padding: 0.875rem 1rem;
+  overflow-x: auto;
+  background: var(--code-bg);
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+pre code {
+  font-size: inherit;
+  overflow-wrap: normal;
+}
+
+/* Figures */
+
+.wu-figure {
+  margin: 1.5rem 0 2rem;
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+}
+
+.wu-article .wu-figure-title {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.wu-article .wu-figure-desc {
+  margin: 0.25rem 0 0.75rem;
+  color: var(--muted);
+  font-size: 0.9375rem;
+}
+
+.chart {
+  position: relative;
+  width: 100%;
+}
+
+.chart svg {
+  display: block;
+  overflow: visible;
+}
+
+.axis-label,
+.value-label {
+  fill: var(--muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.value-label {
+  fill: var(--fg);
+  font-weight: 600;
+}
+
+.mark {
+  fill: var(--series);
+}
+
+.mark.hollow {
+  fill: var(--bg);
+  stroke: var(--series);
+  stroke-width: 2;
+}
+
+.whisker {
+  stroke: var(--whisker);
+  stroke-width: 1.5;
+}
+
+.grid,
+.baseline {
+  stroke: var(--grid);
+  stroke-width: 1;
+}
+
+.baseline {
+  stroke: var(--muted);
+}
+
+.chart-row .hit {
+  cursor: default;
+}
+
+.chart-row:hover .axis-label {
+  fill: var(--fg);
+}
+
+.chart-tip {
+  position: absolute;
+  z-index: 1;
+  padding: 0.5rem 0.625rem;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 0.375rem;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 12%);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.chart-tip-title {
+  font-weight: 600;
+}
+
+.wu-numbers {
+  margin-top: 0.75rem;
+  font-size: 0.875rem;
+}
+
+.wu-numbers summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.wu-table-wrap {
+  margin-top: 0.5rem;
+  overflow-x: auto;
+}
+
+.wu-numbers table {
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.wu-numbers th,
+.wu-numbers td {
+  padding: 0.25rem 0.75rem 0.25rem 0;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+
+.wu-numbers td {
+  text-align: right;
+}
+
+.wu-numbers td .note {
+  display: block;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.wu-source {
+  margin-top: 0.75rem;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 480px) {
+  .wu-head h1 {
+    font-size: 1.75rem;
+  }
+
+  .wu-figure {
+    padding: 0.75rem;
+  }
+}
