@@ -306,7 +306,7 @@ Do these in order. Each one ends with passing tests.
 | T2. Message events and inspection hooks | Done | 921fd59 |
 | T3. The Backstage protocol and in-process source | Done | 7d012b0 |
 | T4. Demo foundation: opening night | Done | 650befd |
-| T5. The Backstage UI | Done, but for your check | 8ce9232 |
+| T5. The Backstage UI | Done | 8ce9232 |
 | T6. The Node server | Done | f44fe65 |
 | T7. API review and the 0.1.0 release | Done | 9dcb269, 6f7e51e |
 | T8. The write-up | Done | 925c52a |
@@ -409,7 +409,8 @@ Write [0022](decisions/0022-demo-drives-virtual-time.md).
 - [x] A rush of 30 customers at 4× keeps the page responsive: no frame takes longer than 50 ms in a Playwright trace
   - Measured with Chromium's `long-animation-frame` entries, which time every frame past 50 ms from its first task to its paint. There are none. A 60 ms busy loop in the tree's render makes the test fail with every frame at 61 to 82 ms.
 - [x] Playwright covers the tree, each button, the timeline from mouse and keyboard, and the phone width from open question 4
-- [ ] Someone non-technical can say what it shows without help (you check this)
+- [x] Someone non-technical can say what it shows without help (you check this)
+  - You checked it on the live site, on 2026-11-23, and it passed.
 
 **Found in T5:**
 
@@ -529,14 +530,14 @@ Write [0024](decisions/0024-publish-from-ci-with-provenance.md).
 
 ## Definition of done
 
-- [ ] T1 to T9 are complete.
-- [ ] `npm run lint`, `typecheck`, `test`, `test:integration`, `coverage` and `build` all pass, locally and in CI, and so does the Playwright job.
-- [ ] Line coverage is at least 90% for `src/`.
-- [ ] There are no runtime dependencies, and no peer dependencies.
-- [ ] Everything outside `src/node/` builds with no Node types and imports no Node built-ins.
+- [x] T1 to T9 are complete.
+- [x] `npm run lint`, `typecheck`, `test`, `test:integration`, `coverage` and `build` all pass, locally and in CI, and so does the Playwright job.
+- [x] Line coverage is at least 90% for `src/`.
+- [x] There are no runtime dependencies, and no peer dependencies.
+- [x] Everything outside `src/node/` builds with no Node types and imports no Node built-ins.
 - [x] `@kylewillett/troupe` 0.1.0 is on npm with provenance.
 - [x] The demo and the write-up are live and linked from the portfolio.
-- [ ] Every results folder in `docs/decisions/data/` has a `setup.json`.
+- [x] Every results folder in `docs/decisions/data/` has a `setup.json`.
 
 ## Decision records
 
