@@ -310,7 +310,7 @@ Do these in order. Each one ends with passing tests.
 | T6. The Node server | Done | f44fe65 |
 | T7. API review and the 0.1.0 release | Done | 9dcb269, 6f7e51e |
 | T8. The write-up | Done | 925c52a |
-| T9. Deploy and link | In progress | |
+| T9. Deploy and link | Done | 7f2cb97 |
 
 ### T1. The benchmark and its baseline
 
@@ -510,12 +510,22 @@ Write [0024](decisions/0024-publish-from-ci-with-provenance.md).
 
 ### T9. Deploy and link
 
+*As built:* the site is live at https://troupe.kylewillett.com/, with the write-up at `/how-it-works/`. `npm run deploy` is rate-limiter's `scripts/deploy.sh`, from the portfolio's, with the prefix `troupe`: it builds `demo/`, syncs the hashed assets with a year's immutable cache, uploads both HTML pages with `no-cache`, and invalidates the site's own distribution. It refuses to run without `demo/.env.local`. `DEPLOY.md` covers the one-time console setup, and `deploy/iam-policy.json` is the shared deployer's policy. Folder URLs reuse rate-limiter's CloudFront Function, `rate-limiter-folder-index`, associated with this distribution too (agreed in plan review), so there's one copy and no test here: its test lives with it in rate-limiter.
+
+- **PostHog on both pages.** `demo/src/site/analytics.ts` is the portfolio's lazy start with its environment injected, so `test/demo/analytics.test.ts` runs it under Node. `browser-analytics.ts` fills that in from the page and the build. It loads nothing without a key or under automation (`navigator.webdriver`), and waits for the page to be idle. The build names its chunks: `posthog` on its own, imported dynamically and never preloaded, and `site`, which both pages share. Naming them puts rolldown's runtime in a chunk of its own, a few hundred bytes, preloaded. `e2e/site.spec.ts` checks the built pages: PostHog is never requested under Playwright or preloaded, the shared chunk imports it dynamically, and, against a deployed site, the build carries a key.
+- **Each page names its own URL**, with a canonical link and `og:url`, and the demo page gained the `og:` tags it lacked. The e2e test checks both.
+- **Links.** The README links to the demo and the write-up on the site, and the records README to the write-up. `homepage` is the site. `test/demo/records.test.ts` checks all three. The write-up no longer names a version, so it can't go stale.
+- **0.1.1** carries `homepage` and the README to npm, with no code change ([release run 45208163696](https://github.com/Fours/troupe/actions/runs/45208163696), from `v0.1.1` on `7f2cb97`). 0.1.0's changelog entry is dated 2026-11-22, the day it was tagged in local time.
+- **Checked live:** both pages 200 with `no-cache`, assets with `max-age=31536000, immutable`, `/how-it-works` a 301 to `/how-it-works/` keeping its query string, and `E2E_BASE_URL=https://troupe.kylewillett.com npx playwright test` passing (34 tests, all but the Node server's). A missing path is S3's 403, as on rate-limiter: there's no error page.
+- **The portfolio** has a Troupe card after Rate Limiter, with a screenshot of the demo mid-rush, linking to the site (portfolio commit 4927d8b, deployed).
+- Breaking things proves the tests can fail. Dropping the `webdriver` guard fails the analytics test. Pointing the README back at the source fails the records test. A static import of `posthog-js` fails `e2e/site.spec.ts`.
+
 **Done when:**
 
-- [ ] `npm run deploy` builds and publishes the site, set up the portfolio's way, with PostHog
-- [ ] The site is live at `troupe.kylewillett.com`, with both pages, and the Playwright suite passes against it
-- [ ] The README and the npm page link to the site, and `homepage` in `package.json` is the site (a patch release carries it to npm)
-- [ ] The portfolio links to it (a commit in the portfolio repo)
+- [x] `npm run deploy` builds and publishes the site, set up the portfolio's way, with PostHog
+- [x] The site is live at `troupe.kylewillett.com`, with both pages, and the Playwright suite passes against it
+- [x] The README and the npm page link to the site, and `homepage` in `package.json` is the site (a patch release carries it to npm)
+- [x] The portfolio links to it (a commit in the portfolio repo)
 
 ## Definition of done
 
@@ -525,7 +535,7 @@ Write [0024](decisions/0024-publish-from-ci-with-provenance.md).
 - [ ] There are no runtime dependencies, and no peer dependencies.
 - [ ] Everything outside `src/node/` builds with no Node types and imports no Node built-ins.
 - [x] `@kylewillett/troupe` 0.1.0 is on npm with provenance.
-- [ ] The demo and the write-up are live and linked from the portfolio.
+- [x] The demo and the write-up are live and linked from the portfolio.
 - [ ] Every results folder in `docs/decisions/data/` has a `setup.json`.
 
 ## Decision records
