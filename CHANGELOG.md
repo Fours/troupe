@@ -2,7 +2,9 @@
 
 This project follows [Semantic Versioning](https://semver.org/). Under 0.x, a minor version can break the API. 1.0 comes after milestone 5 ([0032](https://github.com/Fours/troupe/blob/main/docs/decisions/0032-1-0-comes-after-rehearsal.md)). Each design choice behind these entries has a record in [docs/decisions](https://github.com/Fours/troupe/tree/main/docs/decisions).
 
-## Unreleased
+## 0.3.1 (2026-11-24)
+
+For Steadfast: a piped promise that the actor's own timer ends no longer holds up the testkit's `advance`. Released from 0.3.0, so Rehearsal still isn't exported.
 
 - `ctx.pipeToSelf(promise, map, { signal })`: when `signal` aborts, the pipe delivers `{ ok: false, error: signal.reason }` at once and ignores whatever the promise does later. A pipe with a signal isn't busy work, so the testkit's `settle` and `advance` let time pass while it's pending, and Rehearsal's run loop doesn't count it as a stall. Abort it from one of the actor's timers or its `postStop`. `settle` still gives it one event-loop turn, so a promise that has already settled arrives first. `PipeOptions` and `PipeSignal`, a structural type every runtime's `AbortSignal` fits, are exported from the main entry. `pipeToSelf` without options is unchanged ([0038](https://github.com/Fours/troupe/blob/main/docs/decisions/0038-a-pipe-with-a-signal-ends-on-the-scheduler.md)).
 
