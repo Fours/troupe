@@ -86,6 +86,30 @@ Cluster sharding has to answer two questions for every message to an entity: whi
 - `test/cluster/invariant.test.ts` again, with a fourth node that joins, graceful leaves and restarts, and accounts that passivate after a second idle: over 200 seeds, 197 kills, 192 partitions, 198 store cuts, 210 leaves, 181 joins, 1,363 handoffs and about 6,400 passivations, no two live intervals of one entity overlap, and all 21,390 acknowledged deposits are in the journal.
 - Breaking each of these fails a test: ignoring `maxHandoffs`, releasing the lease when the handoff starts, `stopWhenIdle` stopping at once, a stopping entity being given messages rather than holding them, not starting remembered entities, `leave` not waiting for the regions, and `terminate` not waiting for its tasks.
 
+**T8 (2026-11-24), real processes:**
+
+- **Setup:** Apple M5 Pro (18 cores, 24 GiB), macOS (Darwin 25.4.0), Node 22.23.5, 24.22.3 and 26.12.1, Postgres 18.7 in Docker (`docker-compose.test.yml`), commit `d9fd655` with no uncommitted changes. Command: `npm run bench -- --only ping-pong,journal-postgres-100,entity-tell,remote,failover,handoff,cluster-appends --out docs/decisions/data/0031-cluster-node<N>-2026-11-24`, under `nvm exec <N>`.
+- **Raw data:** [Node 22](data/0031-cluster-node22-2026-11-24/), [Node 24](data/0031-cluster-node24-2026-11-24/), [Node 26](data/0031-cluster-node26-2026-11-24/).
+- **Results:** medians of 10 runs, with the lowest and highest, except failover's one run of 20 kills ([0031](0031-failover-waits-for-the-lease-not-for-downing.md)).
+
+| Scenario | Unit | Node 22 | Node 24 | Node 26 |
+| --- | --- | --- | --- | --- |
+| `handoff`: SIGTERM of the node with the most of 64 shards, to the last acquired elsewhere | ms | 22 (9–25) | 18 (11–23) | 19 (11–22) |
+| `ping-pong`, plain local refs | msg/s | 449,040 (439,881–486,834) | 467,630 (452,659–536,288) | 530,769 (476,243–732,843) |
+| `entity-tell-local`, pings through an entity ref on this node | msg/s | 197,859 (188,209–211,314) | 182,719 (179,543–200,444) | 198,935 (180,512–322,792) |
+| `ping-pong-noyield` | msg/s | 4,214,042 (2,435,816–4,599,239) | 4,293,064 (4,151,880–4,467,480) | 4,136,612 (3,829,936–20,016,764) |
+| `entity-tell-local-noyield` | msg/s | 1,270,705 (1,231,127–1,316,349) | 1,271,680 (1,216,776–1,289,394) | 1,173,427 (891,775–1,227,639) |
+| `remote-ping-pong`, plain refs over TCP | msg/s | 64,248 (63,083–65,278) | 67,281 (62,236–68,600) | 60,759 (56,271–68,257) |
+| `entity-tell-remote`, pings through an entity ref, shard on the other node | msg/s | 59,095 (56,000–60,756) | 58,542 (57,051–59,654) | 59,194 (56,216–60,320) |
+| `remote-ask`, p50 µs | asks/s | 29,838, 30.9 µs | 32,018, 29.3 µs | 31,777, 29.3 µs |
+| `journal-postgres-100`, one process | appends/s | 1,821 (1,561–2,017) | 1,921 (1,840–1,986) | 1,855 (1,687–1,979) |
+| `cluster-appends-postgres`, 100 shows on three nodes | appends/s | 1,483 (1,284–1,562) | 1,595 (1,194–1,673) | 1,384 (1,153–1,544) |
+
+- **A handoff takes milliseconds.** A graceful leave handed off about a third of 64 shards, all at once, in about 20 ms, with idle entities. Most of a handoff is the drain, so a shard with a slow persist takes as long as the persist.
+- **Always encoding costs about 1 µs a message on one node** (milestone 4, open question 3). Through an entity ref on the same node, where every ping is encoded, decoded and goes through the region and the shard, ping-pong ran at about 40% of plain refs with the default yields, and 30% with none: about 1.1 µs more for each entity message, against 0.24 µs for a plain one. That's the price of a message that fails on a laptop's one-node cluster the way it would in production. Across processes it's small next to the network: entity refs ran at 90% of plain remote refs, which cross TCP loopback at about 60,000 msg/s, and a remote ask round trip takes about 30 µs.
+- **The Postgres journal lock is the cluster's ceiling** (open question 8). A hundred shows on three nodes appended about 1,400 to 1,600 events a second, a little under one process's 1,800 to 1,900 in the same sitting, since every append still waits for the one lock ([0016](0016-postgres-appends-take-a-journal-lock.md)) and each buy adds a hop or two before it. More nodes add no write throughput to one journal. Removing the lock, with gap detection in tag readers, is the change that would.
+- Breaking the routing fix fails `test/multiprocess/failover.test.ts` at 16.1 s, and a show that acknowledges a sale it didn't write fails both process tests.
+
 ## Consequences
 
 - No coordinator, and nothing to elect. Any node can work out where a shard should be, from the member list and the hellos it has heard.

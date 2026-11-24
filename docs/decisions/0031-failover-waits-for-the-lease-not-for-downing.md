@@ -37,6 +37,17 @@ This supersedes one bullet of 0030, which stays Accepted: "to the holder's regio
 
 **The benchmark's `failover` row** (`bench/cluster.ts`): three festival-night nodes from `examples/cluster/`, on TCP loopback and Postgres 18.7, with the bench as a fourth node that only routes. For each of 20 kills, it finds the node holding a show, kills it with `kill -9`, and buys a seat every 100 ms until a node other than the killed one answers. Then it restarts the killed node and waits for no shard to have moved for 5 s. A first run on Node 26.12.1, before the recorded ones: p50 10.5 s, max 11.7 s.
 
+- **Setup:** Apple M5 Pro (18 cores, 24 GiB), macOS (Darwin 25.4.0), Node 22.23.5, 24.22.3 and 26.12.1, Postgres 18.7 in Docker (`docker-compose.test.yml`), commit `d9fd655` with no uncommitted changes. Command: `npm run bench -- --only ping-pong,journal-postgres-100,entity-tell,remote,failover,handoff,cluster-appends --out docs/decisions/data/0031-cluster-node<N>-2026-11-24`, under `nvm exec <N>`.
+- **Raw data:** [Node 22](data/0031-cluster-node22-2026-11-24/), [Node 24](data/0031-cluster-node24-2026-11-24/), [Node 26](data/0031-cluster-node26-2026-11-24/).
+- **Results:** one run of 20 kills on each Node line, from `kill -9` to the first answer from another node.
+
+| | Node 22 | Node 24 | Node 26 |
+| --- | --- | --- | --- |
+| p50, ms | 10,437 | 10,648 | 11,019 |
+| max, ms | 11,650 | 11,542 | 11,680 |
+
+The worst of 60 kills took 11.7 s, 3.3 s inside the 15 s target. Every failover took the lease's remaining 7 to 10 s plus a backoff and a recovery, as the routing now intends, and none waited for downing. That's what the defaults are tuned against: a shorter lease could take about 4 s off, but would halve how long a node can stall before it loses every lease, and the target is already met. So they stay.
+
 ## Consequences
 
 - A killed node's shards come back once its leases expire, 7 to 10 s after the kill with the defaults, plus a backoff of up to 2 s and the entity's recovery. Membership's timings no longer bound failover, as long as `unreachableAfterMs` is shorter than the lease's TTL minus its renewal interval.

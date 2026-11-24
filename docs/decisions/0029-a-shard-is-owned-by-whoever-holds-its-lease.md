@@ -46,6 +46,8 @@ Cluster sharding promises at most one live instance of each entity. Membership c
 - **`setup()`.** Two shard stores and two journals set up one schema at once, on two pools, five times, then again in turn on a schema with data in it. Removing the shard store's lock fails it.
 - Package tests show that `/cluster/postgres` loads only files from `dist/`, with no `pg` and no Node built-in, that neither `/cluster` nor `/persistence/postgres` loads it, and that `dist/cluster/postgres/schema.sql` is the default schema's SQL.
 
+**T8 (2026-11-24), real processes, the defaults measured:** three festival-night nodes on TCP and Postgres, killed with `kill -9` 20 times on each of Node 22, 24 and 26. A killed node's shards answered from another node after a p50 of 10.4 to 11.0 s, and at most 11.7 s, within the spec's 15 s. That's the lease doing what this record says: the store's expiry, 7 to 10 s after the kill, then the next acquire. The first run took 16.1 s, because routing waited for downing, and [0031](0031-failover-waits-for-the-lease-not-for-downing.md) fixed that. The defaults (`ttlMs` 10,000, `renewMs` 3,000, `marginMs` 2,000) stay, for the reasons 0031 gives. `npm run test:cluster` checks the 15 s with the defaults on every push, and over 20 more kills on shorter timings it finds no `JournalConflictError`, no two incarnations of a show writing at once, and every acknowledged sale in the journal. Setup, data and the full table: 0031's Evidence.
+
 ## Consequences
 
 - A partitioned node, a downed node that's still running, or two nodes with different member lists can't start a second copy of a shard. Each of them either holds the lease or doesn't.

@@ -347,7 +347,7 @@ Do these in order. Each one ends with passing tests.
 | T5. Shard leases | Done | d6e0db9 |
 | T6. Cluster sharding: routing and placement | Done | 5941f00 |
 | T7. Passivation, rebalancing, handoff and remembering | Done | 666dd65 |
-| T8. Real processes: the multi-process test and the benchmark | Not started | |
+| T8. Real processes: the multi-process test and the benchmark | Done | |
 | T9. Backstage for clusters, and festival night on the site | Not started | |
 | T10. Docker Compose, the write-up and 0.2.0 | Not started | |
 
@@ -525,11 +525,19 @@ Notes from T7 (plan review, 2026-11-23):
 
 **Done when:**
 
-- [ ] Three node processes and a crowd on TCP and Postgres sell seats, and `kill -9` of one brings its entities back on the others within 15 s with the defaults, with every acknowledged sale in the journal
-- [ ] Restarting the killed node moves about a third of the shards back to it, and stopping one gracefully loses no ask
-- [ ] Over 20 kills, no `JournalConflictError` is logged, and every entity's incarnations, read back from the journal, never overlap
-- [ ] The benchmark rows are recorded with their `setup.json`, and the failover and handoff numbers are in 0029's and 0030's Evidence
-- [ ] The lease defaults are tuned against the failover numbers, and the reason is recorded
+- [x] Three node processes and a crowd on TCP and Postgres sell seats, and `kill -9` of one brings its entities back on the others within 15 s with the defaults, with every acknowledged sale in the journal
+- [x] Restarting the killed node moves about a third of the shards back to it, and stopping one gracefully loses no ask
+- [x] Over 20 kills, no `JournalConflictError` is logged, and every entity's incarnations, read back from the journal, never overlap
+- [x] The benchmark rows are recorded with their `setup.json`, and the failover and handoff numbers are in 0029's and 0030's Evidence
+- [x] The lease defaults are tuned against the failover numbers, and the reason is recorded
+
+Notes from T8 (2026-11-24):
+
+- The first failover took 16.1 s: regions routed to any holder that wasn't down, so a killed node's messages waited in remoting's buffer until downing. Regions now route only to holders they can reach, and failover waits only for the lease: a p50 of 10.4 to 11.0 s and at most 11.7 s over 60 kills. [0031](decisions/0031-failover-waits-for-the-lease-not-for-downing.md) records it, superseding one bullet of 0030, so T10's record for 1.0 is 0032. The lease defaults stay.
+- The failover row is one run of 20 kills, not 10 runs, and the 20-kill test runs on timings a tenth of the defaults, so `test:cluster` takes under two minutes in CI.
+- Every shard acquired on demand, so "a third of the shards" is a third of those in use: the restart test checks it gets back exactly the ones it tops.
+- `examples/cluster/`'s show is a simple `buy` entity that stamps each sale with its incarnation. T10 decides whether the Docker demo also uses opening night's holds and returns.
+- The process tests can't catch a handoff that releases its lease early: a kill or a restart never gives a show two writers at once. T7's in-process handoff test does.
 
 ### T9. Backstage for clusters, and festival night on the site
 
