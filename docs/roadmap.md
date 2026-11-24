@@ -137,6 +137,8 @@ Scope:
 
 This milestone is why every source of time, randomness and I/O is injected from milestone 1 on.
 
+Spec: [milestone-5.md](milestone-5.md).
+
 ## Later ideas (unscheduled)
 
 - A worker-threads dispatcher, for actors that are heavy on CPU
