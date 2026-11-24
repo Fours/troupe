@@ -31,6 +31,22 @@ export type BaselineScenario = (typeof BASELINE_SCENARIOS)[number];
 export const EVENTS_SCENARIOS = ['events-none', 'events-plain', 'events-messages'] as const;
 export type EventsScenario = (typeof EVENTS_SCENARIOS)[number];
 
+/**
+ * The cluster run's scenarios (0031): plain ping-pong in the same run, for comparison, entity
+ * refs with the shard here and on another process, plain refs across processes, and appends from
+ * entities spread over three nodes against 100 streams on one.
+ */
+export const CLUSTER_SCENARIOS = [
+  'ping-pong',
+  'entity-tell-local',
+  'entity-tell-remote',
+  'remote-ping-pong',
+  'remote-ask',
+  'journal-postgres-100',
+  'cluster-appends-postgres',
+] as const;
+export type ClusterScenario = (typeof CLUSTER_SCENARIOS)[number];
+
 /** A median of 10 runs, each in a fresh process, with the lowest and highest run. Per second. */
 export interface Stat {
   readonly median: number;
@@ -62,4 +78,18 @@ export interface WriteupData {
     >;
   };
   readonly events: Recorded<EventsScenario>;
+  readonly cluster: Recorded<ClusterScenario> & {
+    /** From `kill -9` to the first answer from another node, in ms: one run of 20 kills. */
+    readonly failoverMs: Readonly<Record<NodeLine, Latency>>;
+    /** A remote ask's round trip in µs, the median run's p50 and p99. */
+    readonly remoteAskUs: Readonly<
+      Record<NodeLine, { readonly p50: number; readonly p99: number }>
+    >;
+  };
+}
+
+/** The middle and the worst of a run's timings. */
+export interface Latency {
+  readonly p50: number;
+  readonly max: number;
 }

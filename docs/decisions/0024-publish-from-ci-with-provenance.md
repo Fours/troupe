@@ -1,6 +1,6 @@
 # 0024. Publish from CI with trusted publishing and provenance, starting at 0.1.0
 
-- **Status:** Accepted
+- **Status:** Accepted. Its plan for 1.0 is superseded by [0032](0032-1-0-comes-after-rehearsal.md)
 - **Date:** 2026-11-22
 - **Milestone:** 3
 

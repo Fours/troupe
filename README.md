@@ -1,10 +1,10 @@
 # Troupe
 
-Typed actors for TypeScript, in the spirit of Akka: hierarchies, supervision, `ask`, timers, a testkit that runs on virtual time, and event-sourced persistent actors on an in-memory, SQLite or Postgres journal. Cluster sharding comes next.
+Typed actors for TypeScript, in the spirit of Akka: hierarchies, supervision, `ask`, timers, a testkit that runs on virtual time, and event-sourced persistent actors on an in-memory, SQLite or Postgres journal, and cluster sharding across Node processes, with at most one live instance of each entity.
 
-> **Status:** 0.x, so a minor version can change the API, and milestone 4 will. See the [changelog](CHANGELOG.md), the [roadmap](docs/roadmap.md), and the specs for [milestone 1](docs/milestone-1.md), [milestone 2](docs/milestone-2.md) and [milestone 3](docs/milestone-3.md).
+> **Status:** 0.x, so a minor version can change the API. 1.0 comes after milestone 5, Rehearsal, has tested the cluster against injected faults ([0032](docs/decisions/0032-1-0-comes-after-rehearsal.md)). See the [changelog](CHANGELOG.md), the [roadmap](docs/roadmap.md), and the specs for milestones [1](docs/milestone-1.md), [2](docs/milestone-2.md), [3](docs/milestone-3.md) and [4](docs/milestone-4.md).
 
-**[See it run](https://troupe.kylewillett.com/):** opening night at a box office, a Troupe system running live in your browser with no backend, inspected by Backstage. Crash a show and watch it restart and recover from its journal, take the journal down, and scrub a show's events back through time.
+**[See it run](https://troupe.kylewillett.com/):** opening night at a box office, a Troupe system running live in your browser with no backend, inspected by Backstage. Crash a show and watch it restart and recover from its journal, take the journal down, and scrub a show's events back through time. Then [festival night](https://troupe.kylewillett.com/cluster/): a dozen shows on three nodes in the page, with buttons that kill, restart and add nodes.
 
 **[How it works](https://troupe.kylewillett.com/how-it-works/):** the design write-up, "How Troupe works", tells the [decision records](docs/decisions/) as one story, from actors as a state and a reducer to the benchmark's numbers, and links every claim to its record.
 
@@ -29,6 +29,9 @@ It needs Node 22.18 or later, and is ESM only. Each release is published from CI
 | `@kylewillett/troupe/persistence/postgres` | the Postgres backend, on your own `pg` pool | any runtime with a pool |
 | `@kylewillett/troupe/backstage` | Backstage, the inspector: its protocol and an in-process source | any runtime |
 | `@kylewillett/troupe/backstage/server` | `serveBackstage`, the inspector's UI over HTTP | Node |
+| `@kylewillett/troupe/cluster` | joining a cluster, cluster sharding, the in-memory network and shard store | any runtime |
+| `@kylewillett/troupe/cluster/postgres` | the Postgres shard store, on your own `pg` pool | any runtime with a pool |
+| `@kylewillett/troupe/cluster/tcp` | `tcpTransport`, nodes in separate processes, on `node:net` | Node |
 
 None of them has a runtime dependency.
 
@@ -325,6 +328,89 @@ An entity's events must form one stream. If two actors with the same `id` both w
 
 That's where supervision comes in. A restart replays the journal, so the loser catches up on the winner's events and carries on after them. Use **`restartWithBackoff`** for persistent actors. A conflict, or a database that's down, won't clear up in the next microtask, and every restart reads the whole stream again. Backoff spaces out those reads, with jitter so a fleet of entities doesn't retry in step, instead of hammering a journal that's already in trouble.
 
+## Clusters
+
+`@kylewillett/troupe/cluster` spreads entities, such as accounts or shows, across several Node processes. You address an entity by its type and ID from any node, and `tell` or `ask` it as if it were local. Its ref works wherever the entity lives, and keeps working when it moves. If a node dies, its entities start again on the others, recovered from the journal.
+
+### Joining a cluster
+
+Every node needs a transport, the same list of seeds, and the same shard store, which is where shard ownership lives:
+
+```ts
+import pg from 'pg';
+import { createActorSystem } from '@kylewillett/troupe';
+import { joinCluster } from '@kylewillett/troupe/cluster';
+import { postgresShardStore } from '@kylewillett/troupe/cluster/postgres';
+import { tcpTransport } from '@kylewillett/troupe/cluster/tcp';
+import { postgresPersistence } from '@kylewillett/troupe/persistence/postgres';
+
+const secret = process.env.CLUSTER_SECRET;
+if (!secret) throw new Error('CLUSTER_SECRET must be set');
+
+const pool = new pg.Pool();
+const persistence = postgresPersistence({ pool, schema: 'troupe' });
+const shards = postgresShardStore({ pool, schema: 'troupe' });
+await persistence.setup(); // both are safe on every start, from every node at once
+await shards.setup();
+
+const system = createActorSystem({ name: 'bank' });
+const cluster = joinCluster(system, {
+  name: 'bank',
+  transport: tcpTransport({ port: 2552, host: '10.0.0.1', secret }),
+  seeds: ['10.0.0.1:2552', '10.0.0.2:2552', '10.0.0.3:2552'],
+  shards,
+});
+await cluster.whenUp;
+```
+
+- **Seeds.** A node joins through any seed that answers. Only the first seed may form a cluster on its own, after `seedTimeoutMs` (5 s) with no other seed answering, so two halves can't each form one at start-up. Give every node the same list.
+- **Membership is gossiped, with no leader.** Nodes heartbeat each other every `heartbeatMs` (1 s). One unheard for `unreachableAfterMs` (5 s) is unreachable, and one unreachable for `downAfterMs` (10 s) more is marked down, automatically. That's safe here because being marked down never decides who owns a shard: the lease does ([0028](docs/decisions/0028-membership-is-gossiped-with-automatic-downing.md)). A node that learns it was marked down leaves, and comes back only by restarting.
+- **Leaving.** `cluster.leave()`, or `system.terminate()`, hands every shard this node holds to its next owner, after each entity finishes what it's doing, a persist included, then leaves. Call it on SIGTERM.
+- `cluster.members()` is this node's view of the members, and the system's event stream has `memberUp`, `memberLeaving`, `memberDown`, `memberRemoved`, `reachability`, `shardAcquired` and `shardReleased`.
+
+For nodes in one process, such as tests or a browser, `inMemoryNetwork({ scheduler })` gives each node a transport and `inMemoryShardStore()` a store, and the same code runs on the testkit's virtual time.
+
+### Sharding an entity type
+
+```ts
+import type { ActorRef } from '@kylewillett/troupe';
+
+// account(id) is the persistent account from "Defining one", on the Postgres persistence above.
+const accounts = cluster.sharding.init({ type: 'account', entity: account, shardCount: 64 });
+
+const alice: ActorRef<AccountCmd> = accounts.ref('alice');
+await alice.ask<Receipt>((replyTo) => ({ type: 'deposit', amount: 10, replyTo }), { timeoutMs: 5_000 });
+```
+
+- An entity's ID is hashed into one of `shardCount` shards, and each shard lives on one node. Every node that calls `init` for a type hosts some of its shards. `host: false` makes a node that only routes, such as a web server. `shardCount` must be the same on every node, and can't change on a running cluster.
+- A shard goes to the member with the highest rendezvous hash of the shard and the member, so every node computes the same owner without a coordinator, and a new node takes only the shards it now tops, about one in N ([0030](docs/decisions/0030-shards-are-placed-by-rendezvous-hashing.md)). Shards move by handoff, a few at a time every `rebalanceMs`.
+- An entity starts on its first message, and again after it stops. `passivation: { idleMs }` stops idle ones. `remember: true` starts a shard's entities as soon as the shard lands on a node, rather than on their next message.
+- `schema` checks every message an entity gets with any Standard Schema library, after it crosses the wire. One that fails is an `invalid` dead letter.
+- `supervision` is the type's, as for any child. The default is `supervise.stop()`, and the next message starts the entity again.
+
+### What's guaranteed, and what isn't
+
+- **At most one live instance of each entity.** A shard is owned by whoever holds its lease in the shard store, never by whoever membership thinks is alive. Postgres judges a lease's expiry on its own clock, and the holder gives it up a margin earlier on its own, so no two clocks are compared. A node cut off from Postgres stops its shards before anyone else can start them ([0029](docs/decisions/0029-a-shard-is-owned-by-whoever-holds-its-lease.md)). If a node pauses past its lease and wakes to write once more, the journal's sequence check fails one of the two writes ([0013](docs/decisions/0013-sequence-check-is-the-single-writer-backstop.md)).
+- **At most once delivery.** Nothing is retried or acknowledged. A message on a connection that breaks, or sent to a node in the seconds before anyone notices it died, is lost, and an `ask` for it times out. If a request must happen, ask again, and make it safe to repeat ([0026](docs/decisions/0026-remoting-is-at-most-once-behind-a-transport.md)).
+- **Order per pair.** Messages from one node to one actor arrive in the order they were sent. While an entity's shard moves, messages already on their way can be reordered, but never delivered twice.
+- **Messages are JSON plus refs.** Every message to an entity is encoded, even when the entity is on the same node, so one with a `Map`, a class instance or a function fails on your laptop, not in production when its shard moves. It becomes an `unserializable` dead letter, and a warning names the bad path ([0025](docs/decisions/0025-messages-on-the-wire-are-json-plus-refs.md)). Refs can go anywhere in a message, and arrive as refs.
+- **Not guaranteed:** exactly-once delivery; availability while Postgres is unreachable, since every shard stops at its lease deadline rather than risk a second copy; a split-brain strategy, so while a partition lasts, the side that can't reach a shard's holder waits for it to heal, or for the holder to learn it was marked down and leave; encryption between nodes.
+- **Not built:** spawning an actor on another node, looking an actor up by path on another node, and cluster singletons. Refs travel in messages, or come from sharding.
+
+### The secret, and the private network
+
+`tcpTransport` frames JSON on `node:net`, with nothing but Node underneath. Before anything else, each side proves it knows `secret` by answering a random challenge with an HMAC, so the secret itself never crosses the wire ([0027](docs/decisions/0027-nodes-talk-tcp-with-a-shared-secret.md)). A node that can't prove it is disconnected.
+
+> **Nothing between nodes is encrypted.** Remoting lets a node tell any actor anything, so keep cluster traffic on a private network that only your nodes can reach, and keep the secret out of source control. `tcpTransport` listens on `127.0.0.1` unless you set `host`. When the address other nodes should dial differs from the one it listens on, as in Docker or behind NAT, set `advertise` to it.
+
+### Failover
+
+With the default leases (`ttlMs` 10,000, renewed every 3,000, given up 2,000 early), a node killed with `kill -9` has its entities back on the others once its leases expire. Over 60 kills of three nodes on TCP and Postgres, 20 on each of Node 22, 24 and 26, an entity on the killed node answered from another node after 10.4 to 11.0 s at the median, and 11.7 s at worst ([0031](docs/decisions/0031-failover-waits-for-the-lease-not-for-downing.md)). A graceful leave is much quicker: the handoff takes milliseconds, and no ask is lost.
+
+Shorter leases fail over faster, at a price: a node that stalls, in a long GC pause or a slow Postgres, for longer than `ttlMs` minus `marginMs` loses every lease it holds. Pass `leases: { ttlMs, renewMs, marginMs }` to `joinCluster`, the same on every node, and keep `unreachableAfterMs` shorter than `ttlMs` minus `renewMs`.
+
+Backstage works on a cluster node too. It adds a Cluster panel, with the members as this node sees them and a grid of who holds each shard, and shows the sharding tree above `/user`.
+
 ## Pitfalls
 
 - **Don't await an `ask` inside `receive` to an actor that might ask you back.** An async `receive` holds the mailbox until it settles. If the other actor asks this one in turn, neither can answer until the ask times out. Use `pipeToSelf` for requests between actors: the mailbox stays open while the reply is on its way. Under the testkit, a piped ask also runs entirely on virtual time ([0010](docs/decisions/0010-piped-asks-stay-on-the-scheduler.md)). An awaited ask that can only time out makes `settle` throw.
@@ -359,6 +445,45 @@ A malformed request crashes `hamlet`, which restarts with backoff and recovers i
 
 One thing doesn't come back exactly: a recovered hold gets a fresh timer for the full hold time, because holds don't remember how long they had left. Durable timers are a later idea. [test/examples/box-office.test.ts](test/examples/box-office.test.ts) runs the same story under the testkit, with two systems sharing one in-memory backend.
 
+## Festival night in Docker
+
+Three nodes, a crowd and Postgres, from this repository's `examples/cluster/`, in Docker Compose. Each show is an entity, and the crowd, a node that hosts nothing, buys seats at a dozen shows over and over. You need Docker and Node 22.18 or later.
+
+```bash
+npm ci
+npm run cluster:up
+```
+
+It builds the package into an image, starts everything, and follows the log in plain words: who's up, which node has which shows, and what happens when something goes wrong. Each node serves Backstage on its own port, so open <http://127.0.0.1:7071/> for node-1, 7072 and 7073 for the others, and 7074 for the crowd, whose shard grid is its routing table.
+
+In another terminal, kill a node:
+
+```bash
+docker compose -f docker-compose.cluster.yml kill node-2
+```
+
+node-2's shows stop answering, and the crowd's asks to them time out for about ten seconds, until their leases run out. Then they answer from node-1 and node-3, with every sale they had confirmed:
+
+```text
+  17.6s  the-tempest didn't answer in time. The crowd keeps asking.
+  20.0s  node-2 stopped answering heartbeats. Its shows can't be reached.
+  25.1s  the-tempest answers again, now from node-3, 9.8 s after its last sale on node-2. It picked up at sale 85, so its 82 confirmed sales survived.
+```
+
+Start it again, and shows move back to it, a few at a time:
+
+```bash
+docker compose -f docker-compose.cluster.yml start node-2
+```
+
+Stop one gracefully, and it hands its shows off before it exits, with no ask lost:
+
+```bash
+docker compose -f docker-compose.cluster.yml stop node-3
+```
+
+`npm run cluster:down` removes it all. The log is JSON lines underneath: `docker compose -f docker-compose.cluster.yml logs crowd` shows them as written. The nodes share a demo secret, which you can change with `CLUSTER_SECRET` in a `.env` file. `npm run cluster:smoke` runs the same story as a check, and CI runs it on every push.
+
 ## Development
 
 ```bash
@@ -371,6 +496,7 @@ The Postgres tests need a database. `npm run postgres:up` starts one on port 544
 ```bash
 npm run postgres:up
 npm run test:integration && npm run coverage
+npm run test:cluster   # real node processes on TCP and that Postgres, killed and restarted
 npm run postgres:down
 ```
 

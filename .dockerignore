@@ -1,0 +1,14 @@
+# The cluster image's build context is the repository root (examples/cluster/Dockerfile). It builds
+# dist/ itself, from a clean npm ci.
+.git
+.claude
+.troupe
+node_modules
+dist
+coverage
+demo/dist
+test-results
+playwright-report
+bench/results
+*.local
+.env

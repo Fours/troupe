@@ -6,13 +6,19 @@ import type { SupervisorStrategy } from './supervision.js';
 
 /**
  * A handle for sending messages to one actor. It's the only way to reach an actor: you never hold
- * the actor itself, which is what lets a ref point at another process in milestone 4.
+ * the actor itself, which is what lets a ref point at an actor on another node.
  *
  * `tell` is a property, not a method, so `ActorRef` is contravariant in `M`: a ref that accepts
  * more messages can stand in for one that accepts fewer, never the other way round.
  */
 export interface ActorRef<M> {
-  /** Where the actor lives in the hierarchy, for example `/user/box-office`. */
+  /**
+   * Where the actor lives. A local actor's path is its place in the hierarchy, such as
+   * `/user/box-office`. An actor on another node in a cluster has the full form, its cluster,
+   * node address and uid, then the path, such as `troupe://festival@node-2:2552#17/user/crowd`,
+   * so two refs with the same path are the same actor. An entity ref's path is
+   * `/sharding/<type>/<id>`, the same on every node, wherever the entity lives.
+   */
   readonly path: string;
   /**
    * Sends `msg` to the actor's mailbox and returns at once. Never throws: a message that can't be

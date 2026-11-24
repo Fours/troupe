@@ -37,6 +37,11 @@ npm run test:integration  # the Postgres backend; needs postgres:up or TROUPE_PO
 npm run coverage    # unit and integration together, enforces 90% lines on src/
 npm run test:cluster  # builds, then real processes from examples/cluster/ on TCP and Postgres
                       # (needs postgres:up): kill -9, restarts and graceful leaves, a few minutes
+npm run cluster:up  # festival night in Docker Compose (docker-compose.cluster.yml): Postgres,
+                    # three nodes and a crowd, built from this checkout; follows the narrated log
+npm run cluster:down
+npm run cluster:smoke  # the same in Docker: kills node-2, checks its shows fail over with their
+                       # sales, starts it again, and removes it all. CI runs it
 npm run build       # tsc → dist/
 npm run bench       # the benchmark, against dist/ (build first); --quick for a smoke run
 npm run postgres:down
@@ -49,7 +54,7 @@ scripts/smoke-published.sh [version|tgz]  # the README quick start from npm, in 
 npm run deploy      # the demo site to troupe.kylewillett.com; needs AWS, see DEPLOY.md
 ```
 
-Before you say a task is done, run lint, typecheck, test, test:integration, coverage, build and check:package, and make sure they all pass. When `demo/`, `backstage/`, `e2e/` or the server changed, run test:e2e too. When `src/cluster/`, `src/node/cluster/` or `examples/cluster/` changed, run test:cluster too. The integration tests fail rather than skip when they can't reach Postgres, and in CI they need `TROUPE_POSTGRES_URL` set.
+Before you say a task is done, run lint, typecheck, test, test:integration, coverage, build and check:package, and make sure they all pass. When `demo/`, `backstage/`, `e2e/` or the server changed, run test:e2e too. When `src/cluster/`, `src/node/cluster/` or `examples/cluster/` changed, run test:cluster too, and cluster:smoke when `examples/cluster/` or the compose file changed. The integration tests fail rather than skip when they can't reach Postgres, and in CI they need `TROUPE_POSTGRES_URL` set.
 
 ## Layout
 
@@ -155,9 +160,12 @@ e2e/                Playwright tests of the built demo, run by test:e2e, with it
 examples/           runnable examples, run by Node with type stripping, against dist/: box-office/
                     (npm run example), backstage/ (npm run example:backstage), and cluster/,
                     festival night's node and crowd on TCP and Postgres, configured by environment
-                    (env.ts), each writing one JSON line per event
+                    (env.ts), each writing one JSON line per event. story.ts tells those lines
+                    in plain words, narrate.ts from `docker compose logs`, and the Dockerfile
+                    builds the image docker-compose.cluster.yml runs
 scripts/            run by Node with type stripping: write-sql.ts ships table SQL in dist/,
                     check-pack.ts checks the tarball, check-release-tag.ts the release tag,
+                    cluster-smoke.ts the Docker Compose demo,
                     smoke-published.sh runs the quick start against the published package,
                     deploy.sh deploys the demo site (DEPLOY.md)
 deploy/             the deployer's IAM policy

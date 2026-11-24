@@ -60,6 +60,7 @@ const SECTIONS = [
   ['injected', 'Every clock and coin flip is injected'],
   ['browser', 'Why the demo runs in your browser'],
   ['event-sourcing', 'Event sourcing'],
+  ['cluster', 'A cluster of nodes'],
   ['numbers', 'The numbers'],
   ['next', 'What’s next'],
 ] as const;
@@ -90,6 +91,13 @@ export function WriteUp({ data }: { data: WriteupData }) {
   const pg1 = m(b['journal-postgres-1']);
   const pg100 = m(b['journal-postgres-100']);
   const pgFree = m(b['journal-postgres-100-nolock']);
+  const c = data.cluster.scenarios;
+  const clusterSetup = data.cluster.setup[HEADLINE];
+  const failover = data.cluster.failoverMs;
+  const failoverP50s = NODE_LINES.map((line) => failover[line].p50);
+  const failoverWorst = Math.max(...NODE_LINES.map((line) => failover[line].max));
+  const remoteAsk = data.cluster.remoteAskUs[HEADLINE];
+  const sec = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
 
   const yieldRows: Row[] = [
     row('Ping-pong', b['ping-pong']),
@@ -109,6 +117,12 @@ export function WriteUp({ data }: { data: WriteupData }) {
     row('SQLite, 100 streams', b['journal-sqlite-100']),
     row('Postgres, 1 stream', b['journal-postgres-1']),
     row('Postgres, 100 streams', b['journal-postgres-100']),
+  ];
+  const clusterRows: Row[] = [
+    row('Plain refs, one process', c['ping-pong']),
+    row('Entity ref, shard on this node', c['entity-tell-local']),
+    row('Plain refs, across processes', c['remote-ping-pong']),
+    row('Entity ref, shard on the other node', c['entity-tell-remote']),
   ];
   const lockRows: Row[] = [
     row('1 stream', b['journal-postgres-1']),
@@ -149,10 +163,16 @@ export function WriteUp({ data }: { data: WriteupData }) {
               itself: it’s handed both. That’s why a whole box office can run in your browser, with
               no server, and be paused, slowed down, and played the same way twice.
             </p>
+            <p>
+              Actors can also be spread across several computers. Each show lives on one of them,
+              and anyone can reach it by name without knowing which. When a computer dies, its shows
+              start again on the others within seconds, from their diaries, and two copies of a show
+              never run at once.
+            </p>
             <p className="wu-cta">
               <a href="../">Watch it in the demo</a>, where a box office sells out on opening night,
-              crashes, and recovers, or install it with <code>npm install @kylewillett/troupe</code>
-              .
+              crashes, and recovers. Then <a href="../cluster/">kill a node at festival night</a>,
+              or install it with <code>npm install @kylewillett/troupe</code>.
             </p>
           </section>
 
@@ -267,8 +287,8 @@ export function WriteUp({ data }: { data: WriteupData }) {
               <code>tell</code> sends a message and returns at once. <code>ask</code> sends a
               request and returns a promise of the reply. It works by creating a temporary ref, such
               as <code>/temp/$1</code>, and passing it to the message as <code>replyTo</code>. To
-              the target, an ask is just a message with somewhere to reply to, so a remote ref in
-              milestone 4 can do the same thing <Record id="0009" />.
+              the target, an ask is just a message with somewhere to reply to, so a ref to an actor
+              on another node does the same thing <Record id="0009" />.
             </p>
             <p>
               The less obvious choice is what an ask does when its target has stopped. It could fail
@@ -393,6 +413,116 @@ export function WriteUp({ data }: { data: WriteupData }) {
             </p>
           </section>
 
+          <section id="cluster" aria-labelledby="cluster-h">
+            <h2 id="cluster-h">A cluster of nodes</h2>
+            <p>
+              Several Node processes form a cluster, and an entity, such as a show, is addressed by
+              its type and ID from any of them. Its ref works the same wherever the show happens to
+              live, and keeps working when it moves. Throughout, there is at most one live copy of
+              each entity. The same code runs in a browser tab on an in-memory network, which is how{' '}
+              <a href="../cluster/">festival night</a> runs three nodes in the page{' '}
+              <Record id="0022" />.
+            </p>
+
+            <h3>Messages on the wire</h3>
+            <p>
+              Messages between nodes are JSON, as events are, with refs anywhere a value can go. A
+              ref travels as the cluster’s name, the node’s address and its path, and an entity ref
+              as just its type and ID, so it stays good after the entity moves. A message to an
+              entity is encoded even when the entity is on the same node, so a message that can’t
+              cross the network fails on a laptop’s one-node cluster, not in production when a shard
+              happens to move <Record id="0025" />.
+            </p>
+            <p>
+              Delivery is at most once, and in order from one node to one actor, over any transport
+              that carries text. Nothing is retried: a lost connection loses what was on it, and an
+              ask times out, as it always could. A remote ask settles on the scheduler, as a local
+              one does <Record id="0026" />. Between processes the transport is TCP, with nothing
+              but Node underneath. A node must prove it knows the cluster’s secret, without sending
+              it, before it can say anything else. Nothing is encrypted, so the cluster belongs on a
+              private network <Record id="0027" />.
+            </p>
+
+            <h3>Who’s in the cluster</h3>
+            <p>
+              Nodes find each other through a list of seeds, and gossip who’s up, leaving and down,
+              with no leader. Every node checks every other with a heartbeat, and one that stays
+              silent too long is marked down automatically. In Akka that’s unsafe: a node marked
+              down while it’s still running would keep its shards, and two copies of an entity could
+              run. Here, membership only decides where to send messages and where a shard should go.
+              It never decides who owns one <Record id="0028" />.
+            </p>
+
+            <h3>Who owns a shard</h3>
+            <p>
+              Entities are grouped into shards by a hash of their ID, and a shard belongs to whoever
+              holds its lease in Postgres. Postgres judges a lease’s expiry on its own clock. The
+              holder lets go a margin earlier, by its own clock, timed from before it asked, so no
+              two clocks ever have to agree. A node cut off from Postgres stops its shards before
+              anyone else can start them <Record id="0029" />. If a node pauses past its lease and
+              wakes to write once more, the journal’s sequence check refuses one of the two writes,
+              so the show’s history stays one history <Record id="0013" />.
+            </p>
+
+            <h3>Where a shard goes</h3>
+            <p>
+              Where a shard should live is worked out, not stored. Every node scores each shard
+              against each member and picks the highest, so they all agree with no coordinator, and
+              a new node takes only the shards it now tops, about one in N. A shard moves only when
+              its owner hands it off, after its entities have finished what they were doing, a write
+              included, or when its lease runs out. A node that leaves hands every shard off first{' '}
+              <Record id="0030" />.
+            </p>
+
+            <h3>When a node dies</h3>
+            <p>
+              Real processes found a gap that the in-memory tests hadn’t: a node killed with{' '}
+              <code>kill -9</code> went on being sent messages until it was marked down, so its
+              shows came back after 16 seconds. Now a node routes only to holders it can hear, and a
+              dead node’s shows come back as soon as their leases run out. Over 60 kills, three
+              festival-night nodes on TCP and Postgres brought a killed node’s show back in{' '}
+              {sec(Math.min(...failoverP50s))} to {sec(Math.max(...failoverP50s))} at the median,
+              and {sec(failoverWorst)} at worst. A shorter lease would be faster, but it would also
+              take a node’s shards away after a shorter stall, so the defaults stay{' '}
+              <Record id="0031" />. In process, over 200 seeds of kills, partitions, store outages,
+              joins, leaves and handoffs, no two copies of an entity were ever live at once, and
+              every acknowledged write was in the journal <Record id="0030" />.
+            </p>
+
+            <h3>What a hop costs</h3>
+            <p>
+              Encoding every message to an entity costs about a microsecond. Through an entity ref
+              whose shard is on the same node, ping-pong ran at {short(m(c['entity-tell-local']))}{' '}
+              messages a second, against {short(m(c['ping-pong']))} on plain refs in the same run.
+              Across processes the network dwarfs it: entity refs ran at{' '}
+              {short(m(c['entity-tell-remote']))} against {short(m(c['remote-ping-pong']))} for
+              plain refs on TCP loopback, and a remote ask took {remoteAsk.p50.toFixed(0)} µs at the
+              median <Record id="0030" />.
+            </p>
+            <Figure
+              id="cluster-hops"
+              title="Messages a second, by where the other actor is"
+              description="Ping-pong with the default yields. Two processes on TCP loopback for the bottom two."
+              table={byNode(clusterRows, 'msg/s')}
+              source={
+                <>
+                  <Source setup={clusterSetup} /> Record: <Record id="0030" />.
+                </>
+              }
+            >
+              <RangeChart
+                rows={clusterRows}
+                format={short}
+                label={`Messages a second: ${describe(clusterRows, short)}.`}
+              />
+            </Figure>
+            <p>
+              Backstage shows a cluster from the node it’s attached to: the members as that node
+              sees them, a grid of who holds each shard, and the regions, shards and entities in the
+              tree. It still only watches <Record id="0021" />.
+            </p>
+          </section>
+
           <section id="numbers" aria-labelledby="numbers-h">
             <h2 id="numbers-h">The numbers</h2>
             <p>
@@ -506,8 +636,12 @@ export function WriteUp({ data }: { data: WriteupData }) {
               {times(pg100, pg1)} one stream, because every append waits for the journal’s one lock.
               With the lock taken away and nothing else changed, the same hundred streams manage{' '}
               {short(pgFree)}, {times(pgFree, pg100)} as many <Record id="0016" />. The lock is what
-              keeps projections correct, so it stays. It’s ample for one node, and the first thing
-              milestone 4’s sharding will run into <Record id="0019" />.
+              keeps projections correct, so it stays, and it’s the cluster’s ceiling too. A hundred
+              shows spread over three nodes appended {short(m(c['cluster-appends-postgres']))}{' '}
+              events a second, against {short(m(c['journal-postgres-100']))} for a hundred streams
+              in one process in the same run: more nodes add no writes to one journal{' '}
+              <Record id="0030" />. Removing the lock, with gap detection in the readers instead, is
+              the change that would <Record id="0019" />.
             </p>
             <Figure
               id="lock"
@@ -531,45 +665,21 @@ export function WriteUp({ data }: { data: WriteupData }) {
           <section id="next" aria-labelledby="next-h">
             <h2 id="next-h">What’s next</h2>
             <p>
-              <strong>Cluster sharding</strong>, in milestone 4. Actors on several nodes, with refs
-              that cross the network. The API was built for it: refs are an interface a remote ref
-              can implement, an ask never fails fast <Record id="0009" />, and Backstage’s frames
-              are JSON with refs as paths <Record id="0021" />. Messages between nodes will be JSON
-              too, with refs as addresses, checked as events are, and a message to an entity is
-              encoded even when the entity is on the same node <Record id="0025" />. Delivery is at
-              most once, in order from one node to one actor, over any transport that carries text,
-              and a remote ask settles on the scheduler as a local one does <Record id="0026" />.
-              Between processes that transport is TCP, with nothing but Node underneath, and a node
-              must prove it knows the cluster’s secret, without sending it, before it can say
-              anything else <Record id="0027" />. Nodes find each other by gossip, with no leader,
-              and a node that stays silent too long is marked down automatically. That’s safe here,
-              where it isn’t in Akka, because a shard will belong to whoever holds its lease, not to
-              whoever membership says is alive <Record id="0028" />. The lease lives in Postgres,
-              which judges its expiry on its own clock. The node that holds it lets go a margin
-              earlier, by its own clock, timed from before it asked, so the two never have to agree
-              on the time, and a node cut off from Postgres stops its shards before anyone else can
-              start them <Record id="0029" />. Where a shard should go is worked out, not stored:
-              every node scores each shard against each member and picks the highest, so they all
-              agree with no coordinator, and a new node takes only the shards it now tops. A shard
-              moves only when its owner hands it off, after its entities have finished what they
-              were doing, or when its lease runs out <Record id="0030" />. Real processes found a
-              gap: a node killed with <code>kill -9</code> kept being sent messages until it was
-              marked down, 15 seconds on. Now a node routes only to holders it can hear, so a dead
-              node’s shards come back as soon as its leases run out, in about ten seconds{' '}
-              <Record id="0031" />. Sharding’s many writers will meet the Postgres lock first, and
-              the alternative is already named: no lock, and gap detection in the readers{' '}
-              <Record id="0016" />.
-            </p>
-            <p>
               <strong>Rehearsal</strong>, in milestone 5: deterministic simulation testing. Run a
-              whole cluster on virtual time from a seed, inject faults, and replay any failure
-              exactly. It’s possible because every clock and coin flip is already injected{' '}
-              <Record id="0003" />.
+              whole cluster on virtual time from a seed, with the network and the shard store
+              replaced by simulated ones that drop, delay and reorder messages, cut nodes off, and
+              skew and pause their clocks. Then check, from the events every node published, that no
+              entity ever had two live copies, and replay any failure exactly from its seed. It’s
+              possible because every clock and coin flip is already injected <Record id="0003" />,
+              the transport and the store are interfaces that know nothing of Node{' '}
+              <Record id="0026" />, and every lease is timed on its holder’s own clock{' '}
+              <Record id="0029" />.
             </p>
             <p>
               Troupe is <a href={NPM_URL}>on npm</a>, published from CI with provenance, which ties
-              each release to the commit and the run that built it. It stays at 0.x until milestone
-              4 has settled the API <Record id="0024" />. The code, the specs and every record are{' '}
+              each release to the commit and the run that built it <Record id="0024" />. It stays at
+              0.x until Rehearsal has tried the cluster’s interfaces against faults, and 1.0 comes
+              after it <Record id="0032" />. The code, the specs and every record are{' '}
               <a href={REPO_URL}>on GitHub</a>.
             </p>
           </section>

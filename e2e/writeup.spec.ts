@@ -4,7 +4,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { SITE_HOST } from './site.ts';
 
 // The write-up, "How Troupe works", at how-it-works/ (milestone 3, T8). It opens with a summary,
-// cites a decision record in every section, draws its four charts, and loads none of the demo.
+// cites a decision record in every section, draws its five charts, and loads none of the demo.
 // writeup-phone.spec.ts checks it at phone width.
 
 const RECORD_IDS = readdirSync(fileURLToPath(new URL('../docs/decisions/', import.meta.url)))
@@ -46,7 +46,7 @@ test('opens with a summary, before the first section', async ({ page }) => {
   await expect(summary.locator('code')).toHaveText(['npm install @kylewillett/troupe']);
   const order = await page.locator('article h2').evaluateAll((hs) => hs.map((h) => h.textContent));
   expect(order[0]).toBe('In short');
-  expect(order).toHaveLength(10);
+  expect(order).toHaveLength(11);
   expect(offsite).toEqual([]);
   expect(errors).toEqual([]);
 });
@@ -54,7 +54,7 @@ test('opens with a summary, before the first section', async ({ page }) => {
 test('cites a decision record in every section, and every record somewhere', async ({ page }) => {
   await open(page);
   const sections = page.locator('article section[id]');
-  await expect(sections).toHaveCount(9);
+  await expect(sections).toHaveCount(10);
   for (const section of await sections.all()) {
     await expect(section.locator('a[data-record]').first()).toBeAttached();
   }
@@ -71,17 +71,17 @@ test('cites a decision record in every section, and every record somewhere', asy
 test('the contents link to every section', async ({ page }) => {
   await open(page);
   const contents = page.getByRole('navigation', { name: 'Contents' }).getByRole('link');
-  await expect(contents).toHaveCount(9);
+  await expect(contents).toHaveCount(10);
   for (const link of await contents.all()) {
     const target = (await link.getAttribute('href')) ?? '';
     await expect(page.locator(`section${target}`)).toHaveCount(1);
   }
 });
 
-test('draws four charts, each with its numbers in a table', async ({ page }) => {
+test('draws five charts, each with its numbers in a table', async ({ page }) => {
   await open(page);
   const figures = page.locator('figure[data-figure]');
-  await expect(figures).toHaveCount(4);
+  await expect(figures).toHaveCount(5);
   for (const figure of await figures.all()) {
     const chart = figure.getByRole('img');
     await expect(chart).toHaveAttribute('aria-label', /\d/);
@@ -95,6 +95,7 @@ test('draws four charts, each with its numbers in a table', async ({ page }) => 
   // The log-scale chart draws a dot per row, the others bars.
   await expect(page.locator('[data-figure="backends"] circle.mark')).toHaveCount(6);
   await expect(page.locator('[data-figure="lock"] path.mark')).toHaveCount(3);
+  await expect(page.locator('[data-figure="cluster-hops"] path.mark')).toHaveCount(4);
 });
 
 test('a chart row shows its median and range on hover', async ({ page }) => {

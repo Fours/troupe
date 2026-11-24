@@ -43,7 +43,7 @@ When you change a decision, update its record in the same commit as the code.
 | [0021](0021-backstage-only-watches.md) | Backstage only watches: a read-only protocol of JSON frames, with refs as paths | Accepted | 3 |
 | [0022](0022-demo-drives-virtual-time.md) | The demo drives virtual time from animation frames, so pausing pauses the system | Accepted | 3 |
 | [0023](0023-backstage-server-uses-sse.md) | The Backstage server uses server-sent events on `node:http`, with no dependency | Accepted | 3 |
-| [0024](0024-publish-from-ci-with-provenance.md) | Publishing from CI with trusted publishing and provenance, starting at 0.1.0 | Accepted | 3 |
+| [0024](0024-publish-from-ci-with-provenance.md) | Publishing from CI with trusted publishing and provenance, starting at 0.1.0 | Accepted, 1.0 plan superseded by 0032 | 3 |
 | [0025](0025-messages-on-the-wire-are-json-plus-refs.md) | Messages on the wire are JSON plus refs, refs travel as an address and a path, and messages to entities are always encoded | Accepted | 4 |
 | [0026](0026-remoting-is-at-most-once-behind-a-transport.md) | Remoting is at most once and ordered per pair of nodes, behind a `Transport` interface, and remote asks settle through the asker | Accepted | 4 |
 | [0027](0027-nodes-talk-tcp-with-a-shared-secret.md) | Nodes talk over TCP on `node:net` with length-prefixed JSON frames and a challenge-response on a shared secret | Accepted | 4 |
@@ -51,3 +51,4 @@ When you change a decision, update its record in the same commit as the code.
 | [0029](0029-a-shard-is-owned-by-whoever-holds-its-lease.md) | A shard is owned by whoever holds its lease, and the store and the holder each time the lease on their own clock | Accepted | 4 |
 | [0030](0030-shards-are-placed-by-rendezvous-hashing.md) | Shards are placed by rendezvous hashing over the reachable members, and move only by handoff or an expired lease | Accepted, routing superseded by 0031 | 4 |
 | [0031](0031-failover-waits-for-the-lease-not-for-downing.md) | Failover waits for the lease, not for downing: a region routes only to a holder it can reach | Accepted | 4 |
+| [0032](0032-1-0-comes-after-rehearsal.md) | 1.0 comes after milestone 5, not milestone 4 | Proposed | 4 |

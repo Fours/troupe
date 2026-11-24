@@ -1,5 +1,5 @@
 // How a festival-night process is configured: environment variables only, so the same files run
-// under `npm run test:cluster`, the benchmark and, later, Docker Compose.
+// under `npm run test:cluster`, the benchmark and Docker Compose (docker-compose.cluster.yml).
 //
 //   CLUSTER_SECRET       required: the shared secret every node proves (decision 0027)
 //   CLUSTER_NAME         default festival-night
@@ -10,6 +10,8 @@
 //   TROUPE_POSTGRES_URL  default the test database from docker-compose.test.yml
 //   TROUPE_SCHEMA        the journal's and shard store's schema, default troupe
 //   SHARD_COUNT          default 32
+//   BACKSTAGE_PORT       serve Backstage on this port, optional: left out, there's none
+//   BACKSTAGE_HOST       the interface Backstage listens on, default 127.0.0.1
 //   TIMINGS              JSON, optional: joinCluster's heartbeatMs, unreachableAfterMs,
 //                        downAfterMs, seedTimeoutMs and leases, and sharding's rebalanceMs and
 //                        maxHandoffs. Leave it out for the defaults.
@@ -43,6 +45,8 @@ export interface NodeEnv {
   readonly postgresUrl: string;
   readonly schema: string;
   readonly shardCount: number;
+  /** Where to serve Backstage, or `undefined` for no Backstage. */
+  readonly backstage: { readonly port: number; readonly host: string } | undefined;
   /** Passed to `joinCluster` as they are, so its own checks reject bad values. */
   readonly clusterTimings: Readonly<Record<string, unknown>>;
   /** Passed to `sharding.init` as they are. */
@@ -113,6 +117,10 @@ export function nodeEnv(env: Env): NodeEnv {
     postgresUrl: text(env, 'TROUPE_POSTGRES_URL', DEFAULT_POSTGRES_URL),
     schema: text(env, 'TROUPE_SCHEMA', 'troupe'),
     shardCount: int(env, 'SHARD_COUNT', 32),
+    backstage:
+      env['BACKSTAGE_PORT'] === undefined || env['BACKSTAGE_PORT'] === ''
+        ? undefined
+        : { port: int(env, 'BACKSTAGE_PORT', 0), host: text(env, 'BACKSTAGE_HOST', '127.0.0.1') },
     clusterTimings: cluster,
     shardingTimings: sharding,
   };

@@ -105,3 +105,15 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run test:cluster
+
+  # The cluster demo as people run it: docker-compose.cluster.yml built from this checkout, with
+  # node-2 killed and started again (milestone 4, T10). Its own job, since it builds the image.
+  cluster-docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.x
+      - run: npm run cluster:smoke

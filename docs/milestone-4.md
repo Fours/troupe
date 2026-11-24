@@ -350,7 +350,7 @@ Do these in order. Each one ends with passing tests.
 | T7. Passivation, rebalancing, handoff and remembering | Done | 666dd65 |
 | T8. Real processes: the multi-process test and the benchmark | Done | 146c490 |
 | T9. Backstage for clusters, and festival night on the site | Done | a01a605 |
-| T10. Docker Compose, the write-up and 0.2.0 | Not started | |
+| T10. Docker Compose, the write-up and 0.2.0 | In progress | |
 
 ### T1. The wire format and the core's hooks
 
@@ -569,7 +569,7 @@ Notes from T9 (2026-11-24):
 
 Write [0032](#decision-records).
 
-- `docker-compose.cluster.yml`, `npm run cluster:up` and `cluster:down`, a `scripts/cluster-smoke.sh` run in CI
+- `docker-compose.cluster.yml`, `npm run cluster:up` and `cluster:down`, a `scripts/cluster-smoke.ts` run in CI
 - The write-up's new section, the README's cluster section, AGENTS.md's layout and commands
 - 0.2.0 from CI, after your approval of the tag
 
@@ -581,6 +581,14 @@ Write [0032](#decision-records).
 - [ ] Every new export has TSDoc, and the export-list test, `publint`, `attw` and `check-pack.ts` cover the three new entry points
 - [ ] After your approval in chat, `v0.2.0` is tagged and published with provenance, and the smoke script's quick start works from npm on Node 22, 24 and 26
 - [ ] The changelog lists every public API change in 0.2.0
+
+Notes from T10 (2026-11-24):
+
+- **The Docker demo keeps T8's show**, a `buy` entity that stamps each sale with its incarnation, not opening night's holds and returns. It's about failover, and the site already tells the richer story.
+- **The processes still write JSON lines**, which the multi-process test and the smoke script read. `examples/cluster/story.ts` turns them into plain words, and `npm run cluster:logs` runs it on the host over `docker compose logs -t`. A show that answers again is checked against its last confirmed sale: its next sale number must be past it, or the story records a problem.
+- **The smoke script is TypeScript**, `scripts/cluster-smoke.ts`, not the `.sh` first planned: it follows each show's state from JSON lines, which bash would need `jq` for. It waits for node-2 to host shows, kills it, needs each of its shows back on another node within 30 s and past its last confirmed sale, checks Backstage answers, starts node-2 again and needs a show to move back. Locally the shows were back 10.5 s after the kill.
+- **The crowd serves Backstage too**, on 7074, so its grid shows the routing table repoint. Each container listens on the port it's published on, `127.0.0.1:707N`, so `serveBackstage`'s Host check passes unchanged.
+- **The compose file names its project** `troupe-festival-night`. Without it, both compose files in this folder were project `troupe`, and the cluster's Postgres replaced the test one.
 
 ## Stretch goals
 

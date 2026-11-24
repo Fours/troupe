@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   BASELINE_SCENARIOS,
+  CLUSTER_SCENARIOS,
   EVENTS_SCENARIOS,
   NODE_LINES,
   type NodeLine,
@@ -29,6 +30,11 @@ export const SOURCES = {
     '22': '0020-message-events-node22-2026-11-22',
     '24': '0020-message-events-node24-2026-11-22',
     '26': '0020-message-events-node26-2026-11-22',
+  },
+  cluster: {
+    '22': '0031-cluster-node22-2026-11-24',
+    '24': '0031-cluster-node24-2026-11-24',
+    '26': '0031-cluster-node26-2026-11-24',
   },
 } as const satisfies Record<string, Record<NodeLine, string>>;
 
@@ -145,8 +151,20 @@ export function loadWriteupData(dir: string = DATA_DIR): WriteupData {
     const us = (key: string) => stat(summary, key, where).median * 1000;
     return { p50: us('p50Ms'), p99: us('p99Ms') };
   });
+  const clusterRuns = perLine((line) => scenarios(read, SOURCES.cluster[line]));
+  // failover is one run of 20 kills, so its median run is that run.
+  const failoverMs = perLine((line) => {
+    const { summary, where } = scenario(clusterRuns[line], 'failover');
+    return { p50: stat(summary, 'p50Ms', where).median, max: stat(summary, 'maxMs', where).median };
+  });
+  const remoteAskUs = perLine((line) => {
+    const { summary, where } = scenario(clusterRuns[line], 'remote-ask');
+    const us = (key: string) => stat(summary, key, where).median * 1000;
+    return { p50: us('p50Ms'), p99: us('p99Ms') };
+  });
   return {
     baseline: { ...baseline, askLatencyUs },
     events: recorded(read, SOURCES.events, EVENTS_SCENARIOS),
+    cluster: { ...recorded(read, SOURCES.cluster, CLUSTER_SCENARIOS), failoverMs, remoteAskUs },
   };
 }

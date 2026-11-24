@@ -42,7 +42,7 @@ describe("the write-up's record links", () => {
     const sections = WRITEUP.split('<section id="').slice(1);
     const listed = [...WRITEUP.matchAll(/^ {2}\['([a-z-]+)', '/gm)].map((m) => m[1]);
     expect(sections.map((s) => s.slice(0, s.indexOf('"')))).toEqual(listed);
-    expect(listed).toHaveLength(9);
+    expect(listed).toHaveLength(10);
     for (const section of sections) {
       const body = section.slice(0, section.indexOf('</section>'));
       expect(cited(body), `section ${body.slice(0, body.indexOf('"'))}`).not.toEqual([]);

@@ -1,0 +1,81 @@
+# Festival night in Docker (milestone 4): Postgres, three nodes that host shows, and a crowd that
+# buys seats at them. `npm run cluster:up` builds and starts it and follows the narrated log, and
+# `npm run cluster:down` removes it. The README walks through killing and restarting a node.
+#
+# Every process is examples/cluster/ running this checkout's dist/, configured by environment
+# (examples/cluster/env.ts). Nodes talk TCP on the compose network, which nothing outside it can
+# reach. Only Backstage is published, on 127.0.0.1:7071 to 7074, so only this machine can open it.
+
+# Its own project, so it never shares a container with docker-compose.test.yml's Postgres.
+name: troupe-festival-night
+
+x-process: &process
+  build:
+    context: .
+    dockerfile: examples/cluster/Dockerfile
+  image: troupe-festival-night
+  # Node isn't PID 1, so signals reach its handlers and a stop is a graceful leave.
+  init: true
+  # A node that learns it was marked down exits 1 and comes back as a new incarnation. A node you
+  # kill or stop stays down until you start it.
+  restart: on-failure
+  depends_on:
+    postgres:
+      condition: service_healthy
+  environment:
+    &env # Every node proves it knows this, without sending it (decision 0027). Set your own in .env.
+    CLUSTER_SECRET: ${CLUSTER_SECRET:-festival-night-in-docker}
+    SEEDS: node-1:2552,node-2:2552,node-3:2552
+    NODE_HOST: 0.0.0.0
+    TROUPE_POSTGRES_URL: postgres://troupe:troupe@postgres:5432/troupe
+    BACKSTAGE_HOST: 0.0.0.0
+
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: troupe
+      POSTGRES_PASSWORD: troupe
+      POSTGRES_DB: troupe
+    healthcheck:
+      test: ['CMD', 'pg_isready', '-U', 'troupe', '-d', 'troupe']
+      interval: 1s
+      timeout: 3s
+      retries: 30
+
+  node-1:
+    <<: *process
+    environment:
+      <<: *env
+      NODE_ADVERTISE: node-1:2552
+      BACKSTAGE_PORT: 7071
+    # The same port inside and out: Backstage answers only a Host header with its own port.
+    ports: ['127.0.0.1:7071:7071']
+
+  node-2:
+    <<: *process
+    environment:
+      <<: *env
+      NODE_ADVERTISE: node-2:2552
+      BACKSTAGE_PORT: 7072
+    ports: ['127.0.0.1:7072:7072']
+
+  node-3:
+    <<: *process
+    environment:
+      <<: *env
+      NODE_ADVERTISE: node-3:2552
+      BACKSTAGE_PORT: 7073
+    ports: ['127.0.0.1:7073:7073']
+
+  # Hosts nothing and only routes, so its Backstage shows the routing table repoint in a failover.
+  crowd:
+    <<: *process
+    command: ['node', 'examples/cluster/crowd.ts']
+    environment:
+      <<: *env
+      NODE_ADVERTISE: crowd:2552
+      BACKSTAGE_PORT: 7074
+      # Customers pause between buys, so the log is readable and the shows aren't flat out.
+      PAUSE_MS: 250
+    ports: ['127.0.0.1:7074:7074']

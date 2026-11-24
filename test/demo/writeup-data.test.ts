@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { DATA_DIR, SOURCES, SOURCE_FILES, loadWriteupData } from '../../demo/build/writeup-data.ts';
 import {
   BASELINE_SCENARIOS,
+  CLUSTER_SCENARIOS,
   EVENTS_SCENARIOS,
   NODE_LINES,
   type Stat,
@@ -39,9 +40,15 @@ describe("the write-up's data", () => {
     for (const name of EVENTS_SCENARIOS) {
       for (const line of NODE_LINES) expect(sane(data.events.scenarios[name][line])).toBe(true);
     }
+    for (const name of CLUSTER_SCENARIOS) {
+      for (const line of NODE_LINES) expect(sane(data.cluster.scenarios[name][line])).toBe(true);
+    }
     for (const line of NODE_LINES) {
       expect(data.baseline.setup[line].node).toMatch(new RegExp(`^v${line}\\.`));
       expect(data.events.setup[line].node).toMatch(new RegExp(`^v${line}\\.`));
+      expect(data.cluster.setup[line].node).toMatch(new RegExp(`^v${line}\\.`));
+      const { p50, max } = data.cluster.failoverMs[line];
+      expect(p50 > 0 && p50 <= max).toBe(true);
     }
   });
 
@@ -55,13 +62,26 @@ describe("the write-up's data", () => {
     expect(baseline.askLatencyUs['24'].p99).toBeCloseTo(1.15, 2);
   });
 
+  it('gives the cluster numbers 0031 quotes', () => {
+    const { cluster } = loadWriteupData();
+    // 0031's Evidence: the failover table, p50 and max in ms.
+    expect(Math.round(cluster.failoverMs['22'].p50)).toBe(10_437);
+    expect(Math.round(cluster.failoverMs['24'].p50)).toBe(10_648);
+    expect(Math.round(cluster.failoverMs['26'].max)).toBe(11_680);
+    // Its summary.md for Node 24.
+    expect(Math.round(cluster.scenarios['entity-tell-remote']['24'].median)).toBe(58_542);
+    expect(Math.round(cluster.scenarios['cluster-appends-postgres']['24'].median)).toBe(1_595);
+    expect(cluster.remoteAskUs['24'].p50).toBeCloseTo(29.31, 2);
+  });
+
   it('reads each recorded run from its own folder', () => {
     const data = loadWriteupData();
     for (const line of NODE_LINES) {
       expect(data.baseline.setup[line].folder).toBe(SOURCES.baseline[line]);
       expect(data.events.setup[line].folder).toBe(SOURCES.events[line]);
+      expect(data.cluster.setup[line].folder).toBe(SOURCES.cluster[line]);
     }
-    expect(SOURCE_FILES).toHaveLength(12);
+    expect(SOURCE_FILES).toHaveLength(18);
   });
 
   it.each(SOURCE_FILES)('fails, naming the file, when %s is missing', (file) => {
@@ -95,6 +115,19 @@ describe("the write-up's data", () => {
     delete lock.summary.perSecond.max;
     writeFileSync(path, JSON.stringify(results));
     expect(() => loadWriteupData(dir)).toThrow(/no max in .*journal-postgres-100/);
+  });
+
+  it('fails, naming it, when the failover has no worst kill', () => {
+    const dir = copyOfData();
+    const path = join(dir, SOURCES.cluster['24'], 'results.json');
+    const results = JSON.parse(readFileSync(path, 'utf8')) as {
+      scenarios: { name: string; summary: Record<string, unknown> }[];
+    };
+    const failover = results.scenarios.find((s) => s.name === 'failover');
+    if (failover === undefined) throw new Error('the cluster run has no failover');
+    delete failover.summary.maxMs;
+    writeFileSync(path, JSON.stringify(results));
+    expect(() => loadWriteupData(dir)).toThrow(/no maxMs in .*failover/);
   });
 
   it('fails on a file that is not JSON', () => {

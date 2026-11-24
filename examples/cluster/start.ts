@@ -10,6 +10,7 @@ import {
 } from '@kylewillett/troupe/cluster';
 import { postgresShardStore } from '@kylewillett/troupe/cluster/postgres';
 import { tcpTransport } from '@kylewillett/troupe/cluster/tcp';
+import { serveBackstage, type BackstageServer } from '@kylewillett/troupe/backstage/server';
 import { postgresPersistence } from '@kylewillett/troupe/persistence/postgres';
 import type { NodeEnv } from './env.ts';
 import { describeError, emit, emitEvents, jsonLogger } from './log.ts';
@@ -38,6 +39,12 @@ export async function startNode(env: NodeEnv, opts: { host: boolean }): Promise<
 
   const system = createActorSystem({ name: env.clusterName, logger: jsonLogger });
   emitEvents(system);
+  // Before the cluster starts, so Backstage's history has every member and shard from the first.
+  let backstage: BackstageServer | undefined;
+  if (env.backstage !== undefined) {
+    backstage = await serveBackstage(system, env.backstage);
+    emit({ ev: 'backstage', url: backstage.url });
+  }
   const cluster = joinCluster(system, {
     name: env.clusterName,
     transport: tcpTransport({
@@ -81,6 +88,7 @@ export async function startNode(env: NodeEnv, opts: { host: boolean }): Promise<
       emit({ ev: 'leaving', node });
       // Leaves the cluster first, handing every shard off (decision 0030).
       await system.terminate();
+      await backstage?.close();
       await pool.end();
       emit({ ev: 'left', node });
     })());

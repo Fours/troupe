@@ -69,6 +69,7 @@ describe('the environment', () => {
       postgresUrl: 'postgres://troupe:troupe@localhost:5440/troupe',
       schema: 'troupe',
       shardCount: 32,
+      backstage: undefined,
       clusterTimings: {},
       shardingTimings: {},
     });
@@ -90,6 +91,18 @@ describe('the environment', () => {
     );
     expect(() => nodeEnv({ CLUSTER_SECRET: 's', TIMINGS: '[]' })).toThrow('JSON object');
     expect(() => nodeEnv({ CLUSTER_SECRET: 's', NODE_PORT: 'x' })).toThrow('NODE_PORT');
+  });
+
+  it('serves Backstage only when given a port, on loopback unless told otherwise', () => {
+    expect(nodeEnv({ CLUSTER_SECRET: 's', BACKSTAGE_PORT: '' }).backstage).toBeUndefined();
+    expect(nodeEnv({ CLUSTER_SECRET: 's', BACKSTAGE_PORT: '7071' }).backstage).toEqual({
+      port: 7071,
+      host: '127.0.0.1',
+    });
+    expect(
+      nodeEnv({ CLUSTER_SECRET: 's', BACKSTAGE_PORT: '7072', BACKSTAGE_HOST: '0.0.0.0' }).backstage,
+    ).toEqual({ port: 7072, host: '0.0.0.0' });
+    expect(() => nodeEnv({ CLUSTER_SECRET: 's', BACKSTAGE_PORT: '-1' })).toThrow('BACKSTAGE_PORT');
   });
 
   it('gives the crowd its shows and pace', () => {
