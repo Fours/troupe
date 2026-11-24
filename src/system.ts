@@ -45,6 +45,13 @@ const USER_PATH = '/user';
 const SYSTEM_PATH = '/system';
 const TEMP_PATH = '/temp';
 
+/** An actor waiting on a promise, from an async handler or `pipeToSelf`. */
+export interface BusyActor {
+  readonly path: string;
+  /** When it became busy, on the system's scheduler. */
+  readonly since: number;
+}
+
 /** The parts of a system that the testkit needs and the public API hides. */
 export interface SystemHandle {
   readonly system: ActorSystem;
@@ -53,6 +60,12 @@ export interface SystemHandle {
    * isn't counted, because the scheduler completes it (decision 0010).
    */
   busy(): number;
+  /**
+   * The actors that are busy now, each with the time on this system's scheduler when it became
+   * busy, for Rehearsal's stall check. An actor that's busy again straight after settling counts
+   * from the second time.
+   */
+  busyActors(): readonly BusyActor[];
   /** How many asks are waiting for a reply or their timeout. */
   pendingAsks(): number;
   /** Makes a ref whose `ask` works like any actor's, for probes. */
@@ -122,6 +135,8 @@ export function createSystem(opts: ActorSystemOptions = {}): SystemHandle {
   const watchTargetOf = (ref: unknown): WatchTarget | undefined =>
     cellOf(ref) ?? resolveWatch?.(ref);
   let busy = 0;
+  // By path. A cell can wait on more than one promise at once, through pipeToSelf.
+  const busyByPath = new Map<string, { count: number; since: number }>();
   let terminating = false;
   // Set once terminate() has stopped /user and every onTerminate task has settled: from then,
   // actors under /system stop and take no more messages.
@@ -186,8 +201,15 @@ export function createSystem(opts: ActorSystemOptions = {}): SystemHandle {
     setTimer,
     makeRef,
     onAskSettled: (promise, listener) => asker.onSettled(promise, listener),
-    trackBusy: (delta) => {
+    trackBusy: (path, delta) => {
       busy += delta;
+      const entry = busyByPath.get(path);
+      if (delta === 1) {
+        if (entry === undefined) busyByPath.set(path, { count: 1, since: now() });
+        else entry.count++;
+      } else if (entry !== undefined && --entry.count === 0) {
+        busyByPath.delete(path);
+      }
     },
     terminating: (path) => terminating && (systemStopping || !isSystemPath(path)),
     cellOf,
@@ -341,6 +363,7 @@ export function createSystem(opts: ActorSystemOptions = {}): SystemHandle {
   return {
     system,
     busy: () => busy,
+    busyActors: () => [...busyByPath].map(([path, { since }]) => ({ path, since })),
     pendingAsks: () => asker.pending(),
     makeRef,
     watch(ref, watcher) {

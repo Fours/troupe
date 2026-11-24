@@ -52,3 +52,4 @@ When you change a decision, update its record in the same commit as the code.
 | [0030](0030-shards-are-placed-by-rendezvous-hashing.md) | Shards are placed by rendezvous hashing over the reachable members, and move only by handoff or an expired lease | Accepted, routing superseded by 0031 | 4 |
 | [0031](0031-failover-waits-for-the-lease-not-for-downing.md) | Failover waits for the lease, not for downing: a region routes only to a holder it can reach | Accepted | 4 |
 | [0032](0032-1-0-comes-after-rehearsal.md) | 1.0 comes after milestone 5, not milestone 4 | Accepted | 4 |
+| [0033](0033-one-simulation-clock-and-a-clock-per-node.md) | A run has one simulation clock, each node a clock of its own on it, and every I/O call resolves on it | Proposed | 5 |

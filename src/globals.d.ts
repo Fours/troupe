@@ -20,3 +20,17 @@ declare const console: {
   warn(...args: unknown[]): void;
   error(...args: unknown[]): void;
 };
+
+// Rehearsal's run loop yields on a MessageChannel, which every runtime 0004 lists has, and which,
+// unlike setTimeout, isn't clamped (decision 0033). Only what the loop uses is declared.
+declare class MessageChannel {
+  readonly port1: MessagePort;
+  readonly port2: MessagePort;
+}
+
+declare interface MessagePort {
+  addEventListener(type: 'message', listener: () => void): void;
+  start(): void;
+  postMessage(message: null): void;
+  close(): void;
+}

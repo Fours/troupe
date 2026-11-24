@@ -12,6 +12,8 @@ import { FAST, createTestCluster, isolatable, type TestCluster } from '../helper
 // comes back, and a fourth node joins, so shards are handed off. Every entity's spawned and
 // stopped events, from every incarnation of every node, give its live intervals in virtual time,
 // and no two for one id may overlap. Every deposit that was acknowledged must be in the journal.
+// Milestone 5, T1: it also runs with a clock per node, each drifting within ±200 ppm, on Rehearsal's
+// run loop (decision 0033). Intervals are then in simulation time, since each node's `at` drifts.
 
 const SEEDS = Number(process.env.SEEDS ?? 200);
 const ACCOUNTS = ['a', 'b', 'c', 'd', 'e', 'f'];
@@ -24,8 +26,11 @@ interface Interval {
   to: number;
 }
 
-/** One run of the scenario from `seed`. */
-async function run(seed: number): Promise<{
+/** One run of the scenario from `seed`, on one shared clock or, with `clocks`, one per node. */
+async function run(
+  seed: number,
+  clocks?: { driftPpm: number },
+): Promise<{
   intervals: Map<string, Interval[]>;
   acked: Map<string, number[]>;
   journal: Map<string, number[]>;
@@ -43,6 +48,7 @@ async function run(seed: number): Promise<{
   const c: TestCluster = await createTestCluster({
     ...FAST,
     seed,
+    ...(clocks === undefined ? {} : { clocks }),
     addresses: ['node-1', 'node-2', 'node-3', 'node-4'],
     startAll: false,
     wrap: (name, t) => isolatable(t, () => partitioned.has(name)),
@@ -165,14 +171,17 @@ async function run(seed: number): Promise<{
   for (const n of c.incarnations) {
     const open = new Map<string, Interval>();
     // When this incarnation let shards go, or ended: entities that stop at other times passivated.
-    const releases = new Set(n.events.filter((e) => e.type === 'shardReleased').map((e) => e.at));
-    const last = n.events.at(-1)?.at;
-    for (const e of n.events) {
+    const at = (i: number): number => n.times[i] ?? NaN;
+    const releases = new Set(
+      n.events.flatMap((e, i) => (e.type === 'shardReleased' ? [at(i)] : [])),
+    );
+    const last = n.times.at(-1);
+    for (const [i, e] of n.events.entries()) {
       if (e.type === 'failed') failures.push(e);
       if (e.type === 'shardReleased' && (e.reason === 'handoff' || e.reason === 'leaving')) {
         handoffs++;
       }
-      if (e.type === 'stopped' && ENTITY.test(e.path) && !releases.has(e.at) && e.at !== last) {
+      if (e.type === 'stopped' && ENTITY.test(e.path) && !releases.has(at(i)) && at(i) !== last) {
         passivations++;
       }
       if (e.type !== 'spawned' && e.type !== 'stopped') continue;
@@ -181,20 +190,20 @@ async function run(seed: number): Promise<{
       if (e.type === 'spawned') {
         const interval = {
           node: `${n.name}#${String(n.remoting.self.uid)}`,
-          from: e.at,
+          from: at(i),
           to: Infinity,
         };
         open.set(id, interval);
         intervals.set(id, [...(intervals.get(id) ?? []), interval]);
       } else {
         const interval = open.get(id);
-        if (interval !== undefined) interval.to = e.at;
+        if (interval !== undefined) interval.to = at(i);
         open.delete(id);
       }
     }
   }
   const story = c.incarnations.flatMap((n) =>
-    n.events.map((e) => `${n.name} ${String(e.at)} ${JSON.stringify(e, refPaths)}`),
+    n.events.map((e, i) => `${n.name} ${String(at(n, i))} ${JSON.stringify(e, refPaths)}`),
   );
   const journal = new Map<string, number[]>();
   for (const id of ACCOUNTS) {
@@ -221,6 +230,11 @@ async function run(seed: number): Promise<{
   };
 }
 
+/** The simulation time of a node's event. */
+function at(n: { readonly times: readonly number[] }, i: number): number {
+  return n.times[i] ?? NaN;
+}
+
 /** Refs as their paths, so a story compares across runs. */
 function refPaths(_key: string, value: unknown): unknown {
   return typeof value === 'object' && value !== null && 'tell' in value
@@ -228,10 +242,13 @@ function refPaths(_key: string, value: unknown): unknown {
     : value;
 }
 
-describe('the invariant, in process', () => {
+describe.each([
+  ['on one shared clock', undefined],
+  ['with a clock per node', { driftPpm: 200 }],
+])('the invariant, in process, %s', (_name, clocks) => {
   it('is deterministic: two runs of one seed tell the same story, event for event', async () => {
-    const first = await run(7);
-    const second = await run(7);
+    const first = await run(7, clocks);
+    const second = await run(7, clocks);
     expect(first.kills + first.partitions + first.cuts + first.leaves).toBeGreaterThan(0);
     expect(second.story).toEqual(first.story);
   });
@@ -247,7 +264,7 @@ describe('the invariant, in process', () => {
     let incarnations = 0;
     let acks = 0;
     for (let seed = 1; seed <= SEEDS; seed++) {
-      const result = await run(seed);
+      const result = await run(seed, clocks);
       kills += result.kills;
       partitions += result.partitions;
       cuts += result.cuts;

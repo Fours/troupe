@@ -5,7 +5,8 @@
 // With `membership`, each node joins the cluster (T4) rather than starting remoting alone, and
 // with `sharding` too, every node shares one in-memory shard store (T6). Killing a node cuts it
 // off from the store first, as a dead process can't reach Postgres, so its leases expire rather
-// than being released.
+// than being released. With `clocks` (milestone 5, T1), each incarnation gets a clock of its own
+// on one simulation clock, with drift, and settle and advance go through Rehearsal's run loop.
 
 import {
   startCluster,
@@ -15,6 +16,9 @@ import {
 } from '../../src/cluster/membership.js';
 import { inMemoryNetwork } from '../../src/cluster/memory.js';
 import { inMemoryShardStore } from '../../src/cluster/shard-memory.js';
+import { fnv1a } from '../../src/hash.js';
+import { NodeClock, throughClock } from '../../src/rehearsal/clock.js';
+import { RunLoop } from '../../src/rehearsal/loop.js';
 import type { ShardStore } from '../../src/cluster/shard-store.js';
 import type { LeaseOptions } from '../../src/cluster/sharding.js';
 import { startRemoting, type Remoting, type RemotingOptions } from '../../src/cluster/remoting.js';
@@ -62,6 +66,13 @@ export interface TestNode {
   readonly transport: Transport;
   /** Every event this node's system published, in order, messages included when asked for. */
   readonly events: SystemEvent[];
+  /**
+   * The simulation time of each event, by index. On a shared clock it's the event's own `at`.
+   * With `clocks`, `at` is the node's own reading, which drifts, so compare these across nodes.
+   */
+  readonly times: number[];
+  /** Its clock, with `clocks`: pause and resume it to stop the node's process. */
+  readonly clock: NodeClock | undefined;
   readonly logs: LogEntry[];
   readonly handle: SystemHandle;
 }
@@ -91,6 +102,12 @@ export interface TestClusterOptions {
    * wraps the store each node sees, to inject a fault.
    */
   sharding?: { leases?: LeaseOptions; wrapStore?: (store: ShardStore) => ShardStore };
+  /**
+   * Give each incarnation its own clock on the cluster's scheduler, which becomes simulation time,
+   * with a drift drawn within ±`driftPpm` (default 200), and settle and advance through
+   * Rehearsal's run loop, with its stall check. Memory network only.
+   */
+  clocks?: { driftPpm?: number; stallAfterMs?: number };
   /** Start every node at once. Default true. Otherwise `start(i)` starts each. */
   startAll?: boolean;
   /** Wraps each node's transport, to inject a fault. */
@@ -142,6 +159,16 @@ export async function createTestCluster(opts: TestClusterOptions = {}): Promise<
   const addresses = opts.addresses ?? ['node-1', 'node-2', 'node-3'];
   const seed = opts.seed ?? 1;
   const scheduler = new ManualScheduler();
+  if (opts.clocks !== undefined && opts.network === 'tcp') {
+    throw new TypeError('createTestCluster: clocks need the memory network');
+  }
+  const loop =
+    opts.clocks === undefined
+      ? undefined
+      : new RunLoop(
+          scheduler,
+          opts.clocks.stallAfterMs === undefined ? {} : { stallAfterMs: opts.clocks.stallAfterMs },
+        );
   const network =
     opts.network === 'tcp'
       ? await tcpTestNetwork()
@@ -164,14 +191,34 @@ export async function createTestCluster(opts: TestClusterOptions = {}): Promise<
       error: record('error'),
     };
     // Each incarnation gets its own stream, so a restart draws a new uid.
-    const random = seededRandom(seed * 7919 + incarnations++);
-    const handle = createSystem({ name: 'node', ...opts.system, scheduler, random, logger });
+    const incarnation = incarnations++;
+    const random = seededRandom(seed * 7919 + incarnation);
+    let clock: NodeClock | undefined;
+    if (opts.clocks !== undefined) {
+      // Its own stream too, so drawing drift changes none of the node's own draws.
+      const draw = seededRandom(fnv1a(`clock ${String(seed)} ${String(incarnation)}`));
+      const most = opts.clocks.driftPpm ?? 200;
+      clock = new NodeClock(scheduler, { driftPpm: Math.round((draw() * 2 - 1) * most) });
+    }
+    const handle = createSystem({
+      name: 'node',
+      ...opts.system,
+      scheduler: clock ?? scheduler,
+      random,
+      logger,
+    });
+    loop?.watch(handle, clock ?? scheduler, name);
     const events: SystemEvent[] = [];
+    const times: number[] = [];
     handle.system.events.subscribe(
-      (event) => events.push(event),
+      (event) => {
+        events.push(event);
+        times.push(scheduler.now());
+      },
       opts.messages === true ? { messages: true } : undefined,
     );
-    const raw = network.transport(name);
+    const direct = network.transport(name);
+    const raw = clock === undefined ? direct : throughClock(direct, clock);
     const transport = opts.wrap === undefined ? raw : opts.wrap(name, raw);
     const address = transport.address;
     let remoting: Remoting;
@@ -214,6 +261,8 @@ export async function createTestCluster(opts: TestClusterOptions = {}): Promise<
       },
       transport,
       events,
+      times,
+      clock,
       logs,
       handle,
     };
@@ -226,6 +275,10 @@ export async function createTestCluster(opts: TestClusterOptions = {}): Promise<
 
   let held = 0;
   const settle = async (): Promise<void> => {
+    if (loop !== undefined) {
+      await loop.settle();
+      return;
+    }
     const deadline = performance.now() + MAX_REAL_MS;
     for (let ticks = 0; ; ticks++) {
       scheduler.runReady();
@@ -258,6 +311,10 @@ export async function createTestCluster(opts: TestClusterOptions = {}): Promise<
   };
 
   async function advance(ms: number): Promise<void> {
+    if (loop !== undefined) {
+      await loop.advance(ms);
+      return;
+    }
     const target = scheduler.now() + ms;
     await settle();
     for (;;) {

@@ -1,0 +1,105 @@
+{
+  "command": "node scripts/probe-macrotask.ts [--chromium] --out <this file>",
+  "machine": "Apple M5 Pro, darwin 25.4.0",
+  "runtimes": {
+    "node v22.23.5": {
+      "results": {
+        "setTimeout": {
+          "usPerYield": 1144.4728340000004,
+          "yields": 500,
+          "drainsMicrotasks": true
+        },
+        "setImmediate": {
+          "usPerYield": 13.39143334999999,
+          "yields": 20000,
+          "drainsMicrotasks": true
+        },
+        "messageChannelShared": {
+          "usPerYield": 0.3881146000000172,
+          "yields": 20000,
+          "drainsMicrotasks": true
+        },
+        "messageChannelPerYield": {
+          "usPerYield": 3.391899999999987,
+          "yields": 20000,
+          "drainsMicrotasks": true
+        }
+      },
+      "messageChannelClosedExits": true
+    },
+    "node v24.22.3": {
+      "results": {
+        "setTimeout": {
+          "usPerYield": 1143.5365840000004,
+          "yields": 500,
+          "drainsMicrotasks": true
+        },
+        "setImmediate": {
+          "usPerYield": 13.322289550000027,
+          "yields": 20000,
+          "drainsMicrotasks": true
+        },
+        "messageChannelShared": {
+          "usPerYield": 0.37969585000000733,
+          "yields": 20000,
+          "drainsMicrotasks": true
+        },
+        "messageChannelPerYield": {
+          "usPerYield": 3.208435449999979,
+          "yields": 20000,
+          "drainsMicrotasks": true
+        }
+      },
+      "messageChannelClosedExits": true
+    },
+    "node v26.12.1": {
+      "results": {
+        "setTimeout": {
+          "usPerYield": 1139.2462500000001,
+          "yields": 500,
+          "drainsMicrotasks": true
+        },
+        "setImmediate": {
+          "usPerYield": 13.417010399999981,
+          "yields": 20000,
+          "drainsMicrotasks": true
+        },
+        "messageChannelShared": {
+          "usPerYield": 0.3531062499999734,
+          "yields": 20000,
+          "drainsMicrotasks": true
+        },
+        "messageChannelPerYield": {
+          "usPerYield": 2.986364599999979,
+          "yields": 20000,
+          "drainsMicrotasks": true
+        }
+      },
+      "messageChannelClosedExits": true
+    },
+    "chromium 159.0.8154.6": {
+      "results": {
+        "setTimeout": {
+          "usPerYield": 4504.799999237061,
+          "yields": 500,
+          "drainsMicrotasks": true
+        },
+        "setImmediate": {
+          "usPerYield": null,
+          "yields": 20000,
+          "drainsMicrotasks": null
+        },
+        "messageChannelShared": {
+          "usPerYield": 1.2400000095367432,
+          "yields": 20000,
+          "drainsMicrotasks": true
+        },
+        "messageChannelPerYield": {
+          "usPerYield": 4.985000038146973,
+          "yields": 20000,
+          "drainsMicrotasks": true
+        }
+      }
+    }
+  }
+}

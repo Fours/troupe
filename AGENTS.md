@@ -106,6 +106,11 @@ src/
     postgres/       the /persistence/postgres entry point: any runtime, on a structurally typed
                     pg pool it never imports (0016, 0017); pool.ts holds what it shares with
                     /cluster/postgres
+  rehearsal/        Rehearsal, milestone 5 (any runtime, not exported until T5): clock.ts, a
+                    NodeClock per node on one simulation clock, with drift and pauses, and
+                    throughClock, which hands a node its frames through its clock; loop.ts, the
+                    run loop that closes virtual time, and StallError; yield.ts, the one macrotask
+                    it yields, on a MessageChannel (0033)
 test/               mirrors src/; helpers/ holds deferred() and test actors (tree, watcher, idle),
                     the persistent account, faultyJournal() and faultySnapshots() for holding
                     and failing calls, postgres.ts (the test database, fresh schemas, and a
@@ -114,11 +119,13 @@ test/               mirrors src/; helpers/ holds deferred() and test actors (tre
                     advance, start, kill, restart, terminate (which advances while the node hands
                     off) and hold (a promise settle should wait past), membership when asked for,
                     and with sharding one shard store every node shares, which a kill cuts the node
-                    off from).
+                    off from. With clocks, each incarnation gets a NodeClock that drifts, and
+                    settle and advance go through Rehearsal's run loop).
                     cluster/remoting-suite.ts is remoting's suite, run on both networks,
                     cluster/handoff.test.ts T7's passivation, rebalancing, handoff and remembering,
                     and cluster/invariant.test.ts the in-process check of one live instance per
-                    entity
+                    entity, on one clock and on a clock per node
+                    rehearsal/ tests Rehearsal's clocks, run loop and stalls
                     persistence/contract.ts is the journal contract every backend runs, and
                     cluster/shard-store-contract.ts the shard stores';
                     node/ tests the Node-only backends, lint.test.ts the lint config's boundaries
@@ -167,6 +174,8 @@ scripts/            run by Node with type stripping: write-sql.ts ships table SQ
                     check-pack.ts checks the tarball, check-release-tag.ts the release tag,
                     cluster-smoke.ts the Docker Compose demo,
                     smoke-published.sh runs the quick start against the published package,
+                    probe-macrotask.ts times the ways to yield a macrotask, in Node or Chromium
+                    (0033),
                     deploy.sh deploys the demo site (DEPLOY.md)
 deploy/             the deployer's IAM policy
 bench/              the benchmark (0019), run by Node with type stripping against dist/; results
@@ -190,7 +199,7 @@ docs/               roadmap, milestone specs, decision records
 
 ## Tests
 
-- Use the testkit (`createTestKit`, `ManualScheduler`) for anything time-based. Never use real sleeps or timers in tests. The only exceptions are tests of `realScheduler` itself, the dispatcher's yield test, the TCP transport's proof timeout, which is the socket's own timer, and `test/multiprocess/`, whose processes run on real time. They must use real time, and should stay fast. The multi-process tests wait for the lines their processes write, and their only timers are deadlines. Tests on real sockets wait for events, never for a fixed time.
+- Use the testkit (`createTestKit`, `ManualScheduler`) for anything time-based. Never use real sleeps or timers in tests. The only exceptions are tests of `realScheduler` itself, the dispatcher's yield test, the TCP transport's proof timeout, which is the socket's own timer, Rehearsal's run loop, which yields real macrotasks as `settle` does but never waits on a timer, and `test/multiprocess/`, whose processes run on real time. They must use real time, and should stay fast. The multi-process tests wait for the lines their processes write, and their only timers are deadlines. Tests on real sockets wait for events, never for a fixed time.
 - Every behaviour listed in a milestone spec's "Done when" needs a test.
 - Use `expectTypeOf` type tests for API typing claims, such as variance and inference.
 - Keep line coverage on `src/` at 90% or higher.

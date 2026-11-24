@@ -1,0 +1,11 @@
+{
+  "what": "The in-process invariant scenario (test/cluster/invariant.test.ts, 'holds over N seeds'), 1,000 seeds, on one shared ManualScheduler with the test cluster's setImmediate settle, and with a clock per node (±200 ppm) on Rehearsal's run loop",
+  "command": "SEEDS=1000 npx vitest run test/cluster/invariant.test.ts --reporter=verbose",
+  "machine": "Apple M5 Pro, darwin 25.4.0",
+  "date": "2026-11-24",
+  "msFor1000Seeds": {
+    "node v26.12.1": { "sharedClock": [9530, 9309, 9499], "clockPerNode": [6340, 6790, 6479] },
+    "node v24.22.3": { "sharedClock": [10530], "clockPerNode": [7238] },
+    "node v22.23.5": { "sharedClock": [10462], "clockPerNode": [7577] }
+  }
+}

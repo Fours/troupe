@@ -37,6 +37,7 @@ export const RECORDS = {
   '0030': '0030-shards-are-placed-by-rendezvous-hashing',
   '0031': '0031-failover-waits-for-the-lease-not-for-downing',
   '0032': '0032-1-0-comes-after-rehearsal',
+  '0033': '0033-one-simulation-clock-and-a-clock-per-node',
 } as const;
 
 export type RecordId = keyof typeof RECORDS;

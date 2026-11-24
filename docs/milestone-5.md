@@ -139,7 +139,7 @@ Today every node in a test cluster shares one `ManualScheduler`, so every node r
 
 - **Every I/O call resolves on the scheduler.** A journal append is a request that reaches the database after a latency, is applied there, and answers after another, each a timer. So a slow disk takes simulation time, a hung one never answers, and a paused node's answers wait for it.
 - **The run loop** runs every ready task on every node, then lets the real promise continuations they started finish, then does it again until nothing is ready. Then it moves simulation time to the next timer. It doesn't wait for busy actors to finish: an actor awaiting a simulated call is waiting on a timer, and time will reach it.
-- **A stall is an error.** If nothing is ready, no timer is set, and an actor is still busy, it's awaiting something outside the simulation. The run fails with the actor's path, as `settle`'s hint does.
+- **A stall is an error.** If nothing is ready, no timer is set, and an actor is still busy, it's awaiting something outside the simulation. The run fails with the actor's path, as `settle`'s hint does. A cluster's heartbeats always have a timer set, so a run also stalls when one actor stays busy on one message for `stallAfterMs` of its own clock (default 30,000), as T1 settled.
 - **Letting promise continuations finish** needs one macrotask, and it has to be cheap and work in every runtime, since the site runs seeds in the browser. `setTimeout(0)` is at least 1 ms in Node and 4 ms in nested browser calls, which is too slow for a run of tens of thousands of steps. T1 probes `setTimeout`, `MessageChannel` and `setImmediate` on Node 22, 24 and 26 and in Chromium, and records the choice. A new global goes in [globals.d.ts](../src/globals.d.ts) only if every runtime 0004 lists has it.
 - The testkit's `settle` and `advance` don't change. Rehearsal's loop is its own.
 
@@ -347,7 +347,7 @@ Do these in order. Each one ends with passing tests.
 
 | Task | Status | Commit |
 | --- | --- | --- |
-| T1. Node clocks and the run loop | Not started | |
+| T1. Node clocks and the run loop | Done | |
 | T2. The simulated network | Not started | |
 | T3. The simulated database | Not started | |
 | T4. Timeouts | Not started | |
@@ -367,11 +367,11 @@ Write [0033](#decision-records).
 
 **Done when** tests cover:
 
-- [ ] A node's timers fire when its own clock reaches them, at its own rate, and its `now()` never goes backwards
-- [ ] A paused node runs nothing until it resumes, then runs everything that fell due, in order, while the other nodes carry on
-- [ ] An actor awaiting a call that resolves on a timer lets time move on, with no real waiting, and an actor awaiting a promise outside the simulation stalls the run with its path in the error
-- [ ] Three nodes on the existing in-memory network, each on its own clock, converge and shard as on the shared clock, and two runs with one seed give identical events
-- [ ] The macrotask probe's results, on Node 22, 24 and 26 and in Chromium, are in 0033's Evidence, and a run of the existing invariant scenario is no slower than today's 10 ms a seed
+- [x] A node's timers fire when its own clock reaches them, at its own rate, and its `now()` never goes backwards
+- [x] A paused node runs nothing until it resumes, then runs everything that fell due, in order, while the other nodes carry on
+- [x] An actor awaiting a call that resolves on a timer lets time move on, with no real waiting, and an actor awaiting a promise outside the simulation stalls the run with its path in the error
+- [x] Three nodes on the existing in-memory network, each on its own clock, converge and shard as on the shared clock, and two runs with one seed give identical events
+- [x] The macrotask probe's results, on Node 22, 24 and 26 and in Chromium, are in 0033's Evidence, and a run of the existing invariant scenario is no slower than today's 10 ms a seed
 
 ### T2. The simulated network
 

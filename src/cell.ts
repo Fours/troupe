@@ -123,9 +123,10 @@ export interface CellHost {
   setTimer(task: () => void, delayMs: number): () => void;
   /**
    * Called with +1 when a cell starts waiting on a promise, from an async handler or
-   * `pipeToSelf`, and -1 when it settles. The testkit's `settle` waits for the count to reach 0.
+   * `pipeToSelf`, and -1 when it settles, with the cell's path. The testkit's `settle` waits for
+   * the count to reach 0, and Rehearsal's run loop names the actors that stay busy.
    */
-  trackBusy(delta: 1 | -1): void;
+  trackBusy(path: string, delta: 1 | -1): void;
   /** Makes a ref with the system's `ask`. */
   makeRef<M>(path: string, tell: (msg: M) => void): ActorRef<M>;
   /**
@@ -266,9 +267,9 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
         host.events.publish(body);
       },
       track: (promise) => {
-        host.trackBusy(1);
+        host.trackBusy(this.path, 1);
         const done = (): void => {
-          host.trackBusy(-1);
+          host.trackBusy(this.path, -1);
         };
         Promise.resolve(promise).then(done, done);
       },
@@ -511,9 +512,9 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
       Promise.resolve(promise).then(undefined, () => {});
       return;
     }
-    host.trackBusy(1);
+    host.trackBusy(this.path, 1);
     const deliver = (result: Result<unknown>): void => {
-      host.trackBusy(-1);
+      host.trackBusy(this.path, -1);
       enqueue(result);
     };
     Promise.resolve(promise).then(
@@ -741,11 +742,11 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
    */
   #awaitBusy<T>(promise: Promise<T>, ok: (value: T) => void, failed: (error: unknown) => void) {
     this.#busy = true;
-    this.#host.trackBusy(1);
+    this.#host.trackBusy(this.path, 1);
     Promise.resolve(promise).then(
       (value) => {
         this.#busy = false;
-        this.#host.trackBusy(-1);
+        this.#host.trackBusy(this.path, -1);
         this.#asSender(() => {
           ok(value);
         });
@@ -753,7 +754,7 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
       },
       (error: unknown) => {
         this.#busy = false;
-        this.#host.trackBusy(-1);
+        this.#host.trackBusy(this.path, -1);
         this.#asSender(() => {
           failed(error);
         });

@@ -673,7 +673,9 @@ export function WriteUp({ data }: { data: WriteupData }) {
               possible because every clock and coin flip is already injected <Record id="0003" />,
               the transport and the store are interfaces that know nothing of Node{' '}
               <Record id="0026" />, and every lease is timed on its holder’s own clock{' '}
-              <Record id="0029" />.
+              <Record id="0029" />. The first piece is in: each node runs on a clock of its own,
+              which can drift or stop, all on one simulation clock, and a run never waits on real
+              time <Record id="0033" />.
             </p>
             <p>
               Troupe is <a href={NPM_URL}>on npm</a>, published from CI with provenance, which ties
