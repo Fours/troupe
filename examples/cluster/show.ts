@@ -4,21 +4,7 @@
 import type { ActorRef } from '@kylewillett/troupe';
 import { persistentActor, type Persistence } from '@kylewillett/troupe/persistence';
 
-/** The shows the crowd buys seats at. Entity ids, so actor names. */
-export const SHOWS = [
-  'hamlet',
-  'macbeth',
-  'othello',
-  'king-lear',
-  'the-tempest',
-  'twelfth-night',
-  'as-you-like-it',
-  'much-ado',
-  'the-seagull',
-  'uncle-vanya',
-  'three-sisters',
-  'the-cherry-orchard',
-] as const;
+export { SHOWS } from './shows.ts';
 
 /** Seats per show: more than any run sells, so every buy can be acknowledged. */
 export const CAPACITY = 1_000_000;

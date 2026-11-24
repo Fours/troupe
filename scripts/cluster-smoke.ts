@@ -12,7 +12,7 @@ import console from 'node:console';
 import process from 'node:process';
 import { createInterface } from 'node:readline';
 import { parseComposeLine } from '../examples/cluster/compose.ts';
-import { SHOWS } from '../examples/cluster/show.ts';
+import { SHOWS } from '../examples/cluster/shows.ts';
 import { Story } from '../examples/cluster/story.ts';
 
 const FILE = 'docker-compose.cluster.yml';

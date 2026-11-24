@@ -22,7 +22,7 @@
 //   CUSTOMERS_PER_SHOW   how many customers buy at each show at once, default 2
 //   ASK_TIMEOUT_MS       how long a buy waits for its answer, default 2000
 //   PAUSE_MS             how long each customer waits between buys, default 100
-import { SHOWS } from './show.ts';
+import { SHOWS } from './shows.ts';
 
 const DEFAULT_POSTGRES_URL = 'postgres://troupe:troupe@localhost:5440/troupe';
 const CLUSTER_KEYS = new Set([
