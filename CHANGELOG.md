@@ -2,14 +2,15 @@
 
 This project follows [Semantic Versioning](https://semver.org/). Under 0.x, a minor version can break the API. 1.0 comes after milestone 5 ([0032](https://github.com/Fours/troupe/blob/main/docs/decisions/0032-1-0-comes-after-rehearsal.md)). Each design choice behind these entries has a record in [docs/decisions](https://github.com/Fours/troupe/tree/main/docs/decisions).
 
-## Unreleased
+## 0.3.0 (2026-11-24)
 
-Milestone 5, in progress: Rehearsal. These entries go out with 1.0.0.
+Part of milestone 5, Rehearsal, released early for Steadfast: timeouts on every store call, and the JSON check as public API. Rehearsal itself isn't exported yet, and goes out with 1.0.0. The timeouts can break code, and are marked **Breaking**.
 
 - **Breaking:** journal, snapshot, offset and shard store calls that never answer now time out, after 10 s for persistence and `renewMs` for the shard store, instead of waiting forever. Code that relied on a call waiting forever, such as a backend that answers only after minutes, needs a longer `timeoutMs` ([0036](https://github.com/Fours/troupe/blob/main/docs/decisions/0036-timeouts-are-unknown-outcomes-settled-by-recovery.md)).
 - `persistentActor` and `projection` take `timeoutMs`, a positive integer, default 10,000. A journal call or a recovery read that takes longer fails the actor with `PersistenceTimeoutError`, for its supervision to handle, and a persistent actor sends no reply for a write that timed out. The write may still have been made, and the restart recovers from the journal to find out. A snapshot load that times out is skipped, and recovery replays every event. A snapshot save that times out is logged ([0036](https://github.com/Fours/troupe/blob/main/docs/decisions/0036-timeouts-are-unknown-outcomes-settled-by-recovery.md)).
 - `PersistenceTimeoutError` in `@kylewillett/troupe/persistence`, with `id`, the persistence id or projection name, `operation`, a `PersistenceOperation`, and `timeoutMs` ([0036](https://github.com/Fours/troupe/blob/main/docs/decisions/0036-timeouts-are-unknown-outcomes-settled-by-recovery.md)).
 - `joinCluster`'s `leases` takes `storeTimeoutMs`, a positive integer, default `renewMs`: how long each shard store call may take before the node gives up on it. A renewal that times out counts as failed, and the holder still gives its shards up at its deadline. A handoff waits for the entity's own timeout, never for a journal that doesn't answer ([0036](https://github.com/Fours/troupe/blob/main/docs/decisions/0036-timeouts-are-unknown-outcomes-settled-by-recovery.md)).
+- `@kylewillett/troupe` exports `JsonValue`, `isJsonValue(value)` and `jsonProblem(value)`: the check events, snapshot states and messages to entities must pass, for code that wants to check a value before it's written. `jsonProblem` names where a value stops being JSON, as a path such as `$.items[2] is a hole`, or returns `undefined` ([0037](https://github.com/Fours/troupe/blob/main/docs/decisions/0037-the-json-check-is-public.md)).
 
 ## 0.2.0 (2026-11-24)
 
