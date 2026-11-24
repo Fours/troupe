@@ -346,7 +346,7 @@ Do these in order. Each one ends with passing tests.
 | T4. Membership | Done | bd3f20f |
 | T5. Shard leases | Done | d6e0db9 |
 | T6. Cluster sharding: routing and placement | Done | 5941f00 |
-| T7. Passivation, rebalancing, handoff and remembering | Done | |
+| T7. Passivation, rebalancing, handoff and remembering | Done | 666dd65 |
 | T8. Real processes: the multi-process test and the benchmark | Not started | |
 | T9. Backstage for clusters, and festival night on the site | Not started | |
 | T10. Docker Compose, the write-up and 0.2.0 | Not started | |
@@ -547,7 +547,7 @@ Notes from T7 (plan review, 2026-11-23):
 
 ### T10. Docker Compose, the write-up and 0.2.0
 
-Write [0031](#decision-records).
+Write [0032](#decision-records).
 
 - `docker-compose.cluster.yml`, `npm run cluster:up` and `cluster:down`, a `scripts/cluster-smoke.sh` run in CI
 - The write-up's new section, the README's cluster section, AGENTS.md's layout and commands
@@ -556,7 +556,7 @@ Write [0031](#decision-records).
 **Done when:**
 
 - [ ] The demo in "Outcome" works from a clean clone with `npm ci && npm run cluster:up`, and the smoke script kills a node and checks the failover in CI
-- [ ] "How Troupe works" has a section on the cluster that cites 0025 to 0031, and "What's next" is only Rehearsal. The records test passes
+- [ ] "How Troupe works" has a section on the cluster that cites 0025 to 0032, and "What's next" is only Rehearsal. The records test passes
 - [ ] The README covers joining a cluster, sharding an entity type, what's guaranteed (at most one instance, at most once, order per pair) and what isn't, the secret and the private network, and the failover numbers
 - [ ] Every new export has TSDoc, and the export-list test, `publint`, `attw` and `check-pack.ts` cover the three new entry points
 - [ ] After your approval in chat, `v0.2.0` is tagged and published with provenance, and the smoke script's quick start works from npm on Node 22, 24 and 26
@@ -593,7 +593,8 @@ The tasks add these records, as Proposed, and accept them once their tests pass.
 | 0028 | Membership is gossiped with no leader, and downing is automatic, because ownership doesn't depend on it | T4 |
 | 0029 | A shard is owned by whoever holds its lease, and the store and the holder each time the lease on their own clock | T5 |
 | 0030 | Shards are placed by rendezvous hashing over the reachable members, and move only by handoff or an expired lease | T6, T7 |
-| 0031 | 1.0 comes after milestone 5, not milestone 4. It supersedes only 0024's plan for 1.0, so 0024 stays Accepted, and its status line points to 0031 | T10 |
+| 0031 | Failover waits for the lease, not for downing: a region routes only to a holder it can reach, and the lease defaults stay, as measured. Supersedes only 0030's rule for routing to an unreachable holder, so 0030 stays Accepted, and its status line points to 0031 | T8 |
+| 0032 | 1.0 comes after milestone 5, not milestone 4. It supersedes only 0024's plan for 1.0, so 0024 stays Accepted, and its status line points to 0032 | T10 |
 
 ## Open questions
 
@@ -631,4 +632,4 @@ The tasks add these records, as Proposed, and accept them once their tests pass.
 
 9. **The version.** Options: 0.2.0; or 1.0.0, as [0024](decisions/0024-publish-from-ci-with-provenance.md) planned for after this milestone. Recommendation: 0.2.0. Milestone 5's simulated network and store will test `Transport` and `ShardStore` harder than anything here, and journal timeouts (milestone 2, open question 2) still change the persistence interfaces. 1.0 after milestone 5. 0024 is Accepted and plans 1.0 for after this milestone, so choosing 0.2.0 adds a short record that supersedes that plan, rather than rewriting 0024.
 
-   *Answer (spec review, 2026-11-23): 0.2.0, with 1.0 after milestone 5. T10 writes 0031 to record it.*
+   *Answer (spec review, 2026-11-23): 0.2.0, with 1.0 after milestone 5. T10 writes 0031 to record it.* (T8 took 0031 for the failover finding, so this is 0032.)

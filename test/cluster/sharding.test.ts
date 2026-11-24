@@ -525,6 +525,40 @@ describe('ownership', () => {
     expect(c.scheduler.now() - at).toBeLessThan(1_000);
   });
 
+  it('routes around a holder it can’t reach, so failover waits for the lease, not downing', async () => {
+    // Found by T8 on real processes: regions routed to any holder that wasn't down, so a killed
+    // node's entities waited for it to be downed, and failover took unreachable plus down.
+    const c = await cluster({
+      membership: { ...FAST.membership, downAfterMs: 60_000 },
+    });
+    const types = initCounters(c);
+    const all = c.nodes.map((n) => n.address);
+    const [id = ''] = idsOwnedBy('node-3', all, 16);
+    const first = types[0] as EntityType<CounterMsg>;
+    first.ref(id).tell({ type: 'add', by: 1 });
+    await c.advance(500);
+    expect(running(c.node(2), id)).toBe(true);
+
+    c.kill(2);
+    const killedAt = c.scheduler.now();
+    let reply: Count | undefined;
+    while (reply === undefined && c.scheduler.now() - killedAt < 20_000) {
+      try {
+        reply = await ask(c, () =>
+          first.ref(id).ask<Count>((replyTo) => ({ type: 'get', replyTo }), { timeoutMs: 500 }),
+        );
+      } catch {
+        // Lost on its way to the dead node, or still waiting for a home: ask again.
+      }
+    }
+    expect(reply?.id).toBe(id);
+    expect(['node-1', 'node-2']).toContain(reply?.node);
+    // The lease (2 s TTL, last renewed at most 500 ms before the kill) and a backoff, well before
+    // node 3 could be downed, 61 s after it went quiet.
+    expect(c.scheduler.now() - killedAt).toBeLessThan(5_000);
+    expect(c.node(0).events.some((e) => e.type === 'memberDown')).toBe(false);
+  });
+
   it('releases its shards as downed when a node learns it’s down', async () => {
     let muted = false;
     const c = await cluster({

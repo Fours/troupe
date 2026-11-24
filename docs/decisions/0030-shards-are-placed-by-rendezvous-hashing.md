@@ -1,6 +1,6 @@
 # 0030. Shards are placed by rendezvous hashing over the reachable members, and move only by handoff or an expired lease
 
-- **Status:** Accepted
+- **Status:** Accepted. Its rule for routing to an unreachable holder is superseded by [0031](0031-failover-waits-for-the-lease-not-for-downing.md)
 - **Date:** 2026-11-23
 - **Milestone:** 4
 

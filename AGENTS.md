@@ -35,6 +35,8 @@ npm test            # unit tests, no database needed
 npm run postgres:up # the test Postgres from docker-compose.test.yml, on port 5440
 npm run test:integration  # the Postgres backend; needs postgres:up or TROUPE_POSTGRES_URL
 npm run coverage    # unit and integration together, enforces 90% lines on src/
+npm run test:cluster  # builds, then real processes from examples/cluster/ on TCP and Postgres
+                      # (needs postgres:up): kill -9, restarts and graceful leaves, a few minutes
 npm run build       # tsc → dist/
 npm run bench       # the benchmark, against dist/ (build first); --quick for a smoke run
 npm run postgres:down
@@ -47,7 +49,7 @@ scripts/smoke-published.sh [version|tgz]  # the README quick start from npm, in 
 npm run deploy      # the demo site to troupe.kylewillett.com; needs AWS, see DEPLOY.md
 ```
 
-Before you say a task is done, run lint, typecheck, test, test:integration, coverage, build and check:package, and make sure they all pass. When `demo/`, `backstage/`, `e2e/` or the server changed, run test:e2e too. The integration tests fail rather than skip when they can't reach Postgres, and in CI they need `TROUPE_POSTGRES_URL` set.
+Before you say a task is done, run lint, typecheck, test, test:integration, coverage, build and check:package, and make sure they all pass. When `demo/`, `backstage/`, `e2e/` or the server changed, run test:e2e too. When `src/cluster/`, `src/node/cluster/` or `examples/cluster/` changed, run test:cluster too. The integration tests fail rather than skip when they can't reach Postgres, and in CI they need `TROUPE_POSTGRES_URL` set.
 
 ## Layout
 
@@ -114,6 +116,11 @@ test/               mirrors src/; helpers/ holds deferred() and test actors (tre
                     integration/ needs Postgres: its own Vitest project, run by test:integration
                     demo/ tests the demo's domain on the testkit and its driven clock, and the
                     write-up's data and record links
+                    multiprocess/ runs examples/cluster/ as real processes on TCP and Postgres,
+                    against dist/: its own Vitest project, run by test:cluster. harness.ts starts,
+                    kills and restarts them and reads their JSON lines, and journal.ts checks the
+                    journal afterwards: every acknowledged sale there, no two incarnations of a
+                    show writing at once
                     backstage-ui/ tests the Backstage UI's store and diff, with no browser
 backstage/          the Backstage UI (React, plain CSS), with its own tsconfig for the browser.
                     Ships only as built files: npm run build puts index.html and src/standalone/,
@@ -135,14 +142,18 @@ e2e/                Playwright tests of the built demo, run by test:e2e, with it
                     the DOM. frames.spec.ts runs in its own project, after the others, and
                     server.spec.ts in its own, against examples/backstage on port 7071
 examples/           runnable examples, run by Node with type stripping, against dist/: box-office/
-                    (npm run example) and backstage/ (npm run example:backstage)
+                    (npm run example), backstage/ (npm run example:backstage), and cluster/,
+                    festival night's node and crowd on TCP and Postgres, configured by environment
+                    (env.ts), each writing one JSON line per event
 scripts/            run by Node with type stripping: write-sql.ts ships table SQL in dist/,
                     check-pack.ts checks the tarball, check-release-tag.ts the release tag,
                     smoke-published.sh runs the quick start against the published package,
                     deploy.sh deploys the demo site (DEPLOY.md)
 deploy/             the deployer's IAM policy
 bench/              the benchmark (0019), run by Node with type stripping against dist/; results
-                    go in bench/results/ (ignored) or, for a recorded run, docs/decisions/data/
+                    go in bench/results/ (ignored) or, for a recorded run, docs/decisions/data/.
+                    cluster.ts has the cluster rows: the bench joins bench/peer.ts, or three
+                    examples/cluster/ nodes, as a node that only routes
 docs/               roadmap, milestone specs, decision records
 ```
 
@@ -160,7 +171,7 @@ docs/               roadmap, milestone specs, decision records
 
 ## Tests
 
-- Use the testkit (`createTestKit`, `ManualScheduler`) for anything time-based. Never use real sleeps or timers in tests. The only exceptions are tests of `realScheduler` itself, the dispatcher's yield test and the TCP transport's proof timeout, which is the socket's own timer. They must use real time, and should stay fast. Tests on real sockets wait for events, never for a fixed time.
+- Use the testkit (`createTestKit`, `ManualScheduler`) for anything time-based. Never use real sleeps or timers in tests. The only exceptions are tests of `realScheduler` itself, the dispatcher's yield test, the TCP transport's proof timeout, which is the socket's own timer, and `test/multiprocess/`, whose processes run on real time. They must use real time, and should stay fast. The multi-process tests wait for the lines their processes write, and their only timers are deadlines. Tests on real sockets wait for events, never for a fixed time.
 - Every behaviour listed in a milestone spec's "Done when" needs a test.
 - Use `expectTypeOf` type tests for API typing claims, such as variance and inference.
 - Keep line coverage on `src/` at 90% or higher.

@@ -9,6 +9,7 @@ export interface RunResult {
   readonly perSecond: number;
   readonly p50Ms?: number;
   readonly p99Ms?: number;
+  readonly maxMs?: number;
 }
 
 /** One scenario's results. */
@@ -16,12 +17,18 @@ export interface ScenarioResult {
   readonly name: string;
   readonly group: string;
   readonly unit: string;
+  /**
+   * `latency` for a row whose number is how long something took, such as a failover, not how
+   * many a second: its throughput is meaningless, and it's compared by its p50.
+   */
+  readonly kind?: 'latency';
   readonly size: Size;
   readonly runs: readonly RunResult[];
   readonly summary: {
     readonly perSecond: Spread;
     readonly p50Ms?: Spread;
     readonly p99Ms?: Spread;
+    readonly maxMs?: Spread;
   };
 }
 
@@ -35,12 +42,17 @@ export function runResult(sample: Sample): RunResult {
   const base = { ops: sample.ops, ms: sample.ms, perSecond: perSecond(sample.ops, sample.ms) };
   const lat = sample.latenciesMs;
   if (lat === undefined || lat.length === 0) return base;
-  return { ...base, p50Ms: percentile(lat, 50), p99Ms: percentile(lat, 99) };
+  return {
+    ...base,
+    p50Ms: percentile(lat, 50),
+    p99Ms: percentile(lat, 99),
+    maxMs: percentile(lat, 100),
+  };
 }
 
 /** A scenario's runs and their summary. Each metric's median is taken on its own. */
 export function summarise(
-  meta: Pick<ScenarioResult, 'name' | 'group' | 'unit' | 'size'>,
+  meta: Pick<ScenarioResult, 'name' | 'group' | 'unit' | 'size' | 'kind'>,
   samples: readonly Sample[],
 ): ScenarioResult {
   if (samples.length === 0) throw new RangeError(`${meta.name}: no runs`);
@@ -51,6 +63,7 @@ export function summarise(
   };
   const p50Ms = metric((r) => r.p50Ms);
   const p99Ms = metric((r) => r.p99Ms);
+  const maxMs = metric((r) => r.maxMs);
   return {
     ...meta,
     runs,
@@ -58,6 +71,7 @@ export function summarise(
       perSecond: spread(runs.map((r) => r.perSecond)),
       ...(p50Ms === undefined ? {} : { p50Ms }),
       ...(p99Ms === undefined ? {} : { p99Ms }),
+      ...(maxMs === undefined ? {} : { maxMs }),
     },
   };
 }
@@ -73,25 +87,32 @@ function sizeText(size: Size): string {
     .join(', ');
 }
 
-/** A latency spread in µs: an in-process ask takes about one, which ms would round away. */
+/**
+ * A latency spread, with its unit: µs below a millisecond, since an in-process ask takes about
+ * one, which ms would round away, and ms from there, since a failover takes seconds.
+ */
 function latency(s: Spread | undefined): string {
   if (s === undefined) return '';
-  const us = (ms: number) => fmt(ms * 1000, 2);
-  return `${us(s.median)} (${us(s.min)}–${us(s.max)})`;
+  const [scale, unit, digits] = s.median < 1 ? [1000, 'µs', 2] : [1, 'ms', 0];
+  const n = (ms: number) => fmt(ms * scale, digits);
+  return `${n(s.median)} ${unit} (${n(s.min)}–${n(s.max)})`;
 }
 
 /** The results as a Markdown table: one row per scenario, medians with their range. */
 export function table(results: Results): string {
   const lines = [
-    '| Scenario | Size | Runs | Median | Min | Max | Spread | p50 µs | p99 µs |',
-    '| --- | --- | --- | --- | --- | --- | --- | --- | --- |',
+    '| Scenario | Size | Runs | Median | Min | Max | Spread | p50 | p99 | max |',
+    '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |',
   ];
   for (const r of results.scenarios) {
     const s = r.summary.perSecond;
+    const throughput =
+      r.kind === 'latency'
+        ? '— | — | — | —'
+        : `${fmt(s.median)} ${r.unit} | ${fmt(s.min)} | ${fmt(s.max)} | ${fmt(s.spreadPct, 1)}%`;
     lines.push(
-      `| ${r.name} | ${sizeText(r.size)} | ${String(r.runs.length)} | ${fmt(s.median)} ${r.unit} | ` +
-        `${fmt(s.min)} | ${fmt(s.max)} | ${fmt(s.spreadPct, 1)}% | ${latency(r.summary.p50Ms)} | ` +
-        `${latency(r.summary.p99Ms)} |`,
+      `| ${r.name} | ${sizeText(r.size)} | ${String(r.runs.length)} | ${throughput} | ` +
+        `${latency(r.summary.p50Ms)} | ${latency(r.summary.p99Ms)} | ${latency(r.summary.maxMs)} |`,
     );
   }
   return lines.join('\n');
@@ -118,8 +139,13 @@ export function compare(recorded: Results, fresh: Results): Comparison[] {
   for (const f of fresh.scenarios) {
     const r = byName.get(f.name);
     if (r === undefined || sizeText(r.size) !== sizeText(f.size)) continue;
-    const m = f.summary.perSecond.median;
-    const rec = r.summary.perSecond;
+    // A latency row compares its p50: there, lower is better, and the change says so by its sign.
+    const pick = (x: ScenarioResult) =>
+      x.kind === 'latency' ? x.summary.p50Ms : x.summary.perSecond;
+    const fresh = pick(f);
+    const rec = pick(r);
+    if (fresh === undefined || rec === undefined) continue;
+    const m = fresh.median;
     out.push({
       name: f.name,
       recorded: rec,

@@ -552,9 +552,13 @@ export function WriteUp({ data }: { data: WriteupData }) {
               every node scores each shard against each member and picks the highest, so they all
               agree with no coordinator, and a new node takes only the shards it now tops. A shard
               moves only when its owner hands it off, after its entities have finished what they
-              were doing, or when its lease runs out <Record id="0030" />. Sharding’s many writers
-              will meet the Postgres lock first, and the alternative is already named: no lock, and
-              gap detection in the readers <Record id="0016" />.
+              were doing, or when its lease runs out <Record id="0030" />. Real processes found a
+              gap: a node killed with <code>kill -9</code> kept being sent messages until it was
+              marked down, 15 seconds on. Now a node routes only to holders it can hear, so a dead
+              node’s shards come back as soon as its leases run out, in about ten seconds{' '}
+              <Record id="0031" />. Sharding’s many writers will meet the Postgres lock first, and
+              the alternative is already named: no lock, and gap detection in the readers{' '}
+              <Record id="0016" />.
             </p>
             <p>
               <strong>Rehearsal</strong>, in milestone 5: deterministic simulation testing. Run a

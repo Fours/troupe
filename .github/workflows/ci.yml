@@ -74,3 +74,34 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
+
+  # Real processes: three festival-night nodes and a crowd from examples/cluster/, on TCP and
+  # Postgres, killed with kill -9 and stopped gracefully (milestone 4, T8). A job of its own, on
+  # one Node line, since its timings are real ones and its processes want the runner to themselves.
+  cluster:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: troupe
+          POSTGRES_PASSWORD: troupe
+          POSTGRES_DB: troupe
+        ports:
+          - 5440:5432
+        options: >-
+          --health-cmd "pg_isready -U troupe -d troupe"
+          --health-interval 1s
+          --health-timeout 3s
+          --health-retries 30
+    env:
+      TROUPE_POSTGRES_URL: postgres://troupe:troupe@localhost:5440/troupe
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.x
+          cache: npm
+      - run: npm ci
+      - run: npm run test:cluster

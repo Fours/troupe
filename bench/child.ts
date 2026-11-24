@@ -18,8 +18,12 @@ if (mode !== 'full' && mode !== 'quick') throw new TypeError(`mode must be full 
 const tmpDir = join(ROOT, '.troupe', 'bench');
 mkdirSync(tmpDir, { recursive: true });
 let pool: pg.Pool | undefined;
+const deferred: (() => Promise<void>)[] = [];
 const env = {
   tmpDir,
+  defer: (task: () => Promise<void>) => {
+    deferred.push(task);
+  },
   pool: () =>
     (pool ??= new pg.Pool({
       connectionString: postgresUrl(process.env),
@@ -41,6 +45,8 @@ try {
     sample = await scenario.run(size);
   }
 } finally {
+  // Last in, first out: what a scenario started after the schema goes before the schema does.
+  for (const task of deferred.reverse()) await task();
   await pool?.end();
 }
 process.stdout.write(`${JSON.stringify(sample)}\n`);

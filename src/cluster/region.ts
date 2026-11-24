@@ -855,10 +855,15 @@ class Region {
     return out;
   }
 
-  /** Whether messages can go to the holder: a member that isn't down, and wasn't refused. */
+  /**
+   * Whether messages can go to the holder: a member this node can reach, that isn't down, and
+   * wasn't refused. Messages for a holder this node can't reach wait here and look again, rather
+   * than in remoting's buffer until the holder is downed, so a killed holder's shards answer from
+   * elsewhere as soon as its lease expires (found by T8, decision 0031).
+   */
   #usable(holder: string): boolean {
     const member = this.#members.get(holder);
-    if (member === undefined || member.status === 'down') return false;
+    if (member === undefined || member.status === 'down' || !member.reachable) return false;
     const peer = this.#peers.get(member.address);
     return !(peer?.uid === member.uid && peer.refused);
   }

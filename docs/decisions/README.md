@@ -49,4 +49,5 @@ When you change a decision, update its record in the same commit as the code.
 | [0027](0027-nodes-talk-tcp-with-a-shared-secret.md) | Nodes talk over TCP on `node:net` with length-prefixed JSON frames and a challenge-response on a shared secret | Accepted | 4 |
 | [0028](0028-membership-is-gossiped-with-automatic-downing.md) | Membership is gossiped with no leader, and downing is automatic, because ownership doesn't depend on it | Accepted | 4 |
 | [0029](0029-a-shard-is-owned-by-whoever-holds-its-lease.md) | A shard is owned by whoever holds its lease, and the store and the holder each time the lease on their own clock | Accepted | 4 |
-| [0030](0030-shards-are-placed-by-rendezvous-hashing.md) | Shards are placed by rendezvous hashing over the reachable members, and move only by handoff or an expired lease | Accepted | 4 |
+| [0030](0030-shards-are-placed-by-rendezvous-hashing.md) | Shards are placed by rendezvous hashing over the reachable members, and move only by handoff or an expired lease | Accepted, routing superseded by 0031 | 4 |
+| [0031](0031-failover-waits-for-the-lease-not-for-downing.md) | Failover waits for the lease, not for downing: a region routes only to a holder it can reach | Accepted | 4 |

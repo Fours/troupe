@@ -59,7 +59,7 @@ export default defineConfig({
         test: {
           name: 'unit',
           include: ['test/**/*.test.ts'],
-          exclude: ['test/integration/**'],
+          exclude: ['test/integration/**', 'test/multiprocess/**'],
         },
       },
       {
@@ -68,6 +68,17 @@ export default defineConfig({
           name: 'integration',
           include: ['test/integration/**/*.test.ts'],
           globalSetup: ['test/integration/setup.ts'],
+        },
+      },
+      {
+        // npm run test:cluster: real processes from examples/cluster/, against dist/, on TCP and
+        // Postgres. One file at a time, so one test's processes don't slow another's failover.
+        extends: true,
+        test: {
+          name: 'multiprocess',
+          include: ['test/multiprocess/**/*.test.ts'],
+          globalSetup: ['test/multiprocess/setup.ts'],
+          fileParallelism: false,
         },
       },
     ],

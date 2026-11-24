@@ -85,6 +85,7 @@
     "test": "vitest run --project unit",
     "test:watch": "vitest --project unit",
     "test:integration": "vitest run --project integration",
+    "test:cluster": "npm run build && vitest run --project multiprocess",
     "coverage": "vitest run --coverage --project unit --project integration",
     "postgres:up": "docker compose -f docker-compose.test.yml up -d --wait",
     "postgres:down": "docker compose -f docker-compose.test.yml down",

@@ -25,6 +25,9 @@ const command = commandLine(argv, process.env, process.execArgv);
 // The parent only lists scenarios and starts children, so it never needs a pool or a directory.
 const noEnv = {
   tmpDir: '',
+  defer: (): void => {
+    throw new Error('the parent process defers nothing');
+  },
   pool: (): pg.Pool => {
     throw new Error('the parent process opens no pool');
   },
@@ -41,7 +44,7 @@ if (!process.execArgv.includes('--expose-gc')) {
 }
 
 let postgresVersion: string | undefined;
-if (selected.some((s) => s.name.startsWith('journal-postgres'))) {
+if (selected.some((s) => s.postgres === true)) {
   const pool = new pg.Pool({ connectionString: postgresUrl(process.env), max: 1 });
   try {
     const { rows } = await pool.query<{ server_version: string }>('SHOW server_version');
@@ -58,14 +61,14 @@ if (selected.some((s) => s.name.startsWith('journal-postgres'))) {
 }
 
 /** One timed run, in its own process. Its stderr goes to the terminal. */
-function runChild(name: string): Sample {
+function runChild(name: string, warmup: number): Sample {
   const stdout = execFileSync(
     process.execPath,
     [
       ...process.execArgv,
       join(ROOT, 'bench', 'child.ts'),
       name,
-      String(args.warmup),
+      String(warmup),
       args.quick ? 'quick' : 'full',
     ],
     {
@@ -83,16 +86,28 @@ const results: ScenarioResult[] = [];
 for (const scenario of selected) {
   const size = args.quick ? (scenario.quick ?? scenario.full) : scenario.full;
   const samples: Sample[] = [];
-  for (let i = 0; i < args.runs; i++) samples.push(runChild(scenario.name));
+  // A row that repeats inside its one run, or works in other processes, sets its own counts.
+  const runs = args.quick ? args.runs : (scenario.runs ?? args.runs);
+  const warmup = args.quick ? args.warmup : (scenario.warmup ?? args.warmup);
+  for (let i = 0; i < runs; i++) samples.push(runChild(scenario.name, warmup));
   const result = summarise(
-    { name: scenario.name, group: scenario.group, unit: scenario.unit, size },
+    {
+      name: scenario.name,
+      group: scenario.group,
+      unit: scenario.unit,
+      size,
+      ...(scenario.kind === undefined ? {} : { kind: scenario.kind }),
+    },
     samples,
   );
   results.push(result);
   const s = result.summary.perSecond;
+  const p50 = result.summary.p50Ms;
   console.error(
-    `${scenario.name}: ${Math.round(s.median).toLocaleString('en-US')} ${scenario.unit} ` +
-      `(spread ${s.spreadPct.toFixed(1)}%)`,
+    scenario.kind === 'latency' && p50 !== undefined
+      ? `${scenario.name}: p50 ${Math.round(p50.median).toLocaleString('en-US')} ms`
+      : `${scenario.name}: ${Math.round(s.median).toLocaleString('en-US')} ${scenario.unit} ` +
+          `(spread ${s.spreadPct.toFixed(1)}%)`,
   );
 }
 

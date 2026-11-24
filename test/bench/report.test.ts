@@ -20,6 +20,7 @@ describe('runResult', () => {
       perSecond: 2000,
       p50Ms: 0.2,
       p99Ms: 0.4,
+      maxMs: 0.4,
     });
   });
 });
@@ -59,18 +60,32 @@ describe('table', () => {
       ],
     };
     expect(table(results).split('\n')[2]).toBe(
-      '| ping-pong | messages 1,000 | 2 | 1,125 msg/s | 1,000 | 1,250 | 22.2% |  |  |',
+      '| ping-pong | messages 1,000 | 2 | 1,125 msg/s | 1,000 | 1,250 | 22.2% |  |  |  |',
     );
   });
 
-  it('prints latencies in µs', () => {
+  it('prints latencies under a millisecond in µs', () => {
     const results: Results = {
       scenarios: [
         summarise({ ...meta, name: 'ask' }, [{ ops: 2, ms: 1, latenciesMs: [0.0005, 0.0012] }]),
       ],
     };
     expect(table(results).split('\n')[2]).toMatch(
-      /\| 0\.5 \(0\.5–0\.5\) \| 1\.2 \(1\.2–1\.2\) \|$/,
+      /\| 0\.5 µs \(0\.5–0\.5\) \| 1\.2 µs \(1\.2–1\.2\) \| 1\.2 µs \(1\.2–1\.2\) \|$/,
+    );
+  });
+
+  it('prints a latency row’s times in ms, and no throughput', () => {
+    const results: Results = {
+      scenarios: [
+        summarise({ ...meta, name: 'failover', kind: 'latency', size: { kills: 3 } }, [
+          { ops: 3, ms: 60_000, latenciesMs: [9_000.4, 11_000, 12_500] },
+        ]),
+      ],
+    };
+    expect(table(results).split('\n')[2]).toBe(
+      '| failover | kills 3 | 1 | — | — | — | — | 11,000 ms (11,000–11,000) | ' +
+        '12,500 ms (12,500–12,500) | 12,500 ms (12,500–12,500) |',
     );
   });
 });
@@ -109,6 +124,30 @@ describe('compare', () => {
         ],
       }),
     ).toEqual([]);
+  });
+
+  it('compares a latency row by its p50', () => {
+    const latency = { ...meta, name: 'handoff', kind: 'latency' as const, size: { shards: 64 } };
+    const rows = compare(
+      {
+        scenarios: [
+          summarise(
+            latency,
+            [1_000, 1_200, 1_400].map((l) => ({ ops: 20, ms: l, latenciesMs: [l] })),
+          ),
+        ],
+      },
+      { scenarios: [summarise(latency, [{ ops: 20, ms: 1_500, latenciesMs: [1_500] }])] },
+    );
+    expect(rows).toEqual([
+      {
+        name: 'handoff',
+        recorded: { median: 1_200, min: 1_000, max: 1_400, spreadPct: (400 / 1_200) * 100 },
+        fresh: 1_500,
+        changePct: 25,
+        within: false,
+      },
+    ]);
   });
 
   it('prints a row per comparison', () => {

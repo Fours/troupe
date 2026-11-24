@@ -77,6 +77,9 @@ describe('scenarios', () => {
     pool: () => {
       throw new Error('no pool in unit tests');
     },
+    defer: () => {
+      throw new Error('nothing to defer in unit tests');
+    },
   });
 
   it('covers every row of the spec table', () => {
@@ -88,6 +91,10 @@ describe('scenarios', () => {
         'Spawn and stop',
         'Message events',
         'Journal appends',
+        'Entity tell',
+        'Remote',
+        'Failover',
+        'Handoff',
       ]),
     );
     expect(all.map((s) => s.name)).toEqual([
@@ -107,6 +114,14 @@ describe('scenarios', () => {
       'journal-postgres-1',
       'journal-postgres-100',
       'journal-postgres-100-nolock',
+      'entity-tell-local',
+      'entity-tell-local-noyield',
+      'entity-tell-remote',
+      'remote-ping-pong',
+      'remote-ask',
+      'failover',
+      'handoff',
+      'cluster-appends-postgres',
     ]);
   });
 
@@ -117,12 +132,36 @@ describe('scenarios', () => {
     expect(size('fan-out')).toEqual({ children: 10_000, rounds: 100 });
     expect(size('spawn-stop')).toEqual({ actors: 10_000 });
     expect(size('journal-postgres-100')).toMatchObject({ streams: 100 });
+    // Milestone 4: 100,000 remote tells, 10,000 remote asks, 20 kills, and a third of 64 shards.
+    expect(size('remote-ping-pong')).toEqual({ messages: 100_000 });
+    expect(size('remote-ask')).toEqual({ asks: 10_000 });
+    expect(size('failover')).toEqual({ kills: 20 });
+    expect(size('handoff')).toEqual({ shards: 64 });
+  });
+
+  it('marks every row that needs Postgres, and times failover and handoff as latencies', () => {
+    const postgres = all.filter((s) => s.postgres === true).map((s) => s.name);
+    expect(postgres).toEqual(
+      all
+        .map((s) => s.name)
+        .filter(
+          (n) => n.includes('postgres') || /^(remote|failover|handoff|entity-tell-remote)/.test(n),
+        ),
+    );
+    expect(all.filter((s) => s.kind === 'latency').map((s) => s.name)).toEqual([
+      'failover',
+      'handoff',
+    ]);
+    // One run of 20 kills: each kill already is a sample.
+    expect(all.find((s) => s.name === 'failover')?.runs).toBe(1);
   });
 
   it('gives --quick only the in-memory scenarios', () => {
     const quick = all.filter((s) => s.quick !== undefined).map((s) => s.name);
     expect(quick.some((n) => n.includes('sqlite') || n.includes('postgres'))).toBe(false);
     expect(quick).toContain('journal-memory-100');
-    expect(quick).toHaveLength(11);
+    expect(quick).toContain('entity-tell-local');
+    expect(all.filter((s) => s.postgres === true && s.quick !== undefined)).toEqual([]);
+    expect(quick).toHaveLength(13);
   });
 });

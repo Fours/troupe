@@ -35,6 +35,7 @@ export const RECORDS = {
   '0028': '0028-membership-is-gossiped-with-automatic-downing',
   '0029': '0029-a-shard-is-owned-by-whoever-holds-its-lease',
   '0030': '0030-shards-are-placed-by-rendezvous-hashing',
+  '0031': '0031-failover-waits-for-the-lease-not-for-downing',
 } as const;
 
 export type RecordId = keyof typeof RECORDS;

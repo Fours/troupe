@@ -19,6 +19,14 @@ import {
 } from '@kylewillett/troupe/persistence/postgres';
 import { sqlitePersistence } from '@kylewillett/troupe/persistence/sqlite';
 import type pg from 'pg';
+import {
+  clusterAppends,
+  entityTellLocal,
+  failover,
+  handoff,
+  remoteAsk,
+  remotePingPong,
+} from './cluster.ts';
 
 /** What one timed run did. */
 export interface Sample {
@@ -45,6 +53,14 @@ export interface Scenario {
   readonly full: Size;
   /** The size of a `--quick` run. Absent for scenarios `--quick` leaves out (not in-memory). */
   readonly quick?: Size;
+  /** `latency` for a row that times how long something took, not how many a second. */
+  readonly kind?: 'latency';
+  /** How many timed runs, in place of `--runs`, for a row whose one run already repeats. */
+  readonly runs?: number;
+  /** How many warm-ups, in place of `--warmup`, for a row whose work is in other processes. */
+  readonly warmup?: number;
+  /** Whether it needs the Postgres database. */
+  readonly postgres?: true;
   run(size: Size): Promise<Sample>;
 }
 
@@ -54,6 +70,8 @@ export interface BenchEnv {
   readonly tmpDir: string;
   /** The Postgres pool, opened on first use and shared by every run, so connections are warm. */
   readonly pool: () => pg.Pool;
+  /** Runs `task` as the process ends, after its last run: for processes and schemas to clean up. */
+  readonly defer: (task: () => Promise<void>) => void;
 }
 
 /** Reads one parameter, so a misspelt size fails instead of running with `undefined`. */
@@ -334,6 +352,7 @@ export function scenarios(env: BenchEnv): readonly Scenario[] {
       unit: 'appends/s',
       full: { streams, appendsPerStream: perStream },
       ...(quick ? { quick: { streams, appendsPerStream: Math.ceil(perStream / 10) } } : {}),
+      ...(backend === 'postgres' ? { postgres: true as const } : {}),
       run: async (size) => {
         const { journal, close } = await open();
         try {
@@ -467,6 +486,7 @@ export function scenarios(env: BenchEnv): readonly Scenario[] {
       name: 'journal-postgres-100-nolock',
       group: 'Journal appends',
       unit: 'appends/s',
+      postgres: true,
       full: { streams: 100, appendsPerStream: 20 },
       run: async (size) => {
         const { journal, close } = await postgres(false)();
@@ -476,6 +496,78 @@ export function scenarios(env: BenchEnv): readonly Scenario[] {
           await close();
         }
       },
+    },
+    // Milestone 4's cluster rows (bench/cluster.ts). Only the local entity rows need no database.
+    {
+      name: 'entity-tell-local',
+      group: 'Entity tell',
+      unit: 'msg/s',
+      full: { messages: 200_000 },
+      quick: { messages: 2_000 },
+      run: (size) => entityTellLocal(param(size, 'messages')),
+    },
+    {
+      name: 'entity-tell-local-noyield',
+      group: 'Entity tell',
+      unit: 'msg/s',
+      full: { messages: 200_000 },
+      quick: { messages: 2_000 },
+      run: (size) => entityTellLocal(param(size, 'messages'), NO_YIELD),
+    },
+    {
+      name: 'entity-tell-remote',
+      group: 'Entity tell',
+      unit: 'msg/s',
+      full: { messages: 100_000 },
+      postgres: true,
+      run: (size) => remotePingPong(env, param(size, 'messages'), 'entity'),
+    },
+    {
+      name: 'remote-ping-pong',
+      group: 'Remote',
+      unit: 'msg/s',
+      full: { messages: 100_000 },
+      postgres: true,
+      run: (size) => remotePingPong(env, param(size, 'messages'), 'direct'),
+    },
+    {
+      name: 'remote-ask',
+      group: 'Remote',
+      unit: 'asks/s',
+      full: { asks: 10_000 },
+      postgres: true,
+      run: (size) => remoteAsk(env, param(size, 'asks')),
+    },
+    {
+      // One run of 20 kills, each with a restart and a settle: about ten minutes.
+      name: 'failover',
+      group: 'Failover',
+      unit: 'kills/s',
+      kind: 'latency',
+      full: { kills: 20 },
+      runs: 1,
+      warmup: 0,
+      postgres: true,
+      run: (size) => failover(env, param(size, 'kills')),
+    },
+    {
+      name: 'handoff',
+      group: 'Handoff',
+      unit: 'shards/s',
+      kind: 'latency',
+      full: { shards: 64 },
+      warmup: 0,
+      postgres: true,
+      run: (size) => handoff(env, param(size, 'shards')),
+    },
+    {
+      name: 'cluster-appends-postgres',
+      group: 'Journal appends',
+      unit: 'appends/s',
+      full: { entities: 100, buysPerEntity: 20 },
+      warmup: 1,
+      postgres: true,
+      run: (size) => clusterAppends(env, param(size, 'entities'), param(size, 'buysPerEntity')),
     },
   ];
 }
