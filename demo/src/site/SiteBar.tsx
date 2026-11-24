@@ -1,17 +1,24 @@
-// The bar both pages share: the project's name, the two pages, and GitHub and npm.
+// The bar every page shares: the project's name, the pages, and GitHub and npm.
 import { NPM_URL, REPO_URL } from './links.ts';
 import './site.css';
 
-/** Relative to each page, so the links work wherever the site is served from. */
+/** Each page's folder under the site's root, and its label. */
 const PAGES = {
-  demo: { label: 'Opening night', fromDemo: './', fromWriteup: '../' },
-  'how-it-works': { label: 'How it works', fromDemo: 'how-it-works/', fromWriteup: './' },
+  demo: { label: 'Opening night', folder: '' },
+  cluster: { label: 'Festival night', folder: 'cluster/' },
+  'how-it-works': { label: 'How it works', folder: 'how-it-works/' },
 } as const;
 
 export type Page = keyof typeof PAGES;
 
+/** Relative to each page, so the links work wherever the site is served from. */
+function relative(from: Page, to: Page): string {
+  const up = PAGES[from].folder === '' ? '' : '../';
+  return `${up}${PAGES[to].folder}` || './';
+}
+
 export function SiteBar({ page }: { page: Page }) {
-  const href = (to: Page) => (page === 'demo' ? PAGES[to].fromDemo : PAGES[to].fromWriteup);
+  const href = (to: Page) => relative(page, to);
   return (
     <header className="site-bar">
       <a className="brand" href={href('demo')}>

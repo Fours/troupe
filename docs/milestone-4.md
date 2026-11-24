@@ -277,8 +277,9 @@ Tests check it two ways. In process, on the in-memory network and one `ManualSch
 ### Backstage for clusters
 
 - **The sharding tree.** The tree walk includes `/system/sharding`, so regions, shards and entities appear under their type. The UI shows them in their own section above `/user`.
-- **A cluster panel:** this node's member table, with reachability as it sees it, and a grid of shards per type, coloured by owner, from `shardAcquired` and `shardReleased`. Shard moves animate.
+- **A cluster panel:** this node's member table, with reachability as it sees it, and a grid of shards per type, coloured by owner. Shard moves animate.
 - **The protocol goes to version 2.** `hello` gains `cluster`, with this node's address, the members and the shard holders, or `null` for a system with no cluster. The new events are lifecycle events, so they're in `hello.history`.
+- **A `cluster` frame** (open question 1 of T9's plan, 2026-11-24). A node publishes `shardAcquired` and `shardReleased` only for its own shards, so a grid built from events would go stale for every move between other nodes. The source sends a third frame, `{ type: 'cluster', cluster }`, whenever the node's view changes: a member, its reachability, or an owner in its region's holder cache. The changes of one turn go out as one frame, and a view that ended up the same goes out as none. On the crowd's node, the grid is its routing table, repointing as a failover happens.
 - **One view per node** (open question 6). Backstage shows the node it's attached to. In Docker, each node serves its own on its own port. On the demo page, a node picker switches the source, and a cluster map built from all three sources sits above it.
 - Backstage still only watches ([0021](decisions/0021-backstage-only-watches.md)). The demo's kill button is the demo's.
 
@@ -347,8 +348,8 @@ Do these in order. Each one ends with passing tests.
 | T5. Shard leases | Done | d6e0db9 |
 | T6. Cluster sharding: routing and placement | Done | 5941f00 |
 | T7. Passivation, rebalancing, handoff and remembering | Done | 666dd65 |
-| T8. Real processes: the multi-process test and the benchmark | Done | |
-| T9. Backstage for clusters, and festival night on the site | Not started | |
+| T8. Real processes: the multi-process test and the benchmark | Done | 146c490 |
+| T9. Backstage for clusters, and festival night on the site | Done, but for your check | |
 | T10. Docker Compose, the write-up and 0.2.0 | Not started | |
 
 ### T1. The wire format and the core's hooks
@@ -547,12 +548,21 @@ Notes from T8 (2026-11-24):
 
 **Done when:**
 
-- [ ] The store has unit tests for cluster frames: members, reachability, shard owners and moves, and a version 1 `hello` still works
-- [ ] `/cluster/` shows three nodes selling seats. *Kill node* makes its shards fail over, *Restart node* and *Add a node* move shards to it, and *Leave gracefully* hands off with no lost ask
-- [ ] Two runs with the same seed tell the same story, event for event, on every node
-- [ ] Playwright covers each button, the node picker, the phone width and the frame budget (no frame over 50 ms in a kill at 4×)
-- [ ] The site bar links the new page, and it has its own title, link preview and pageviews
+- [x] The store has unit tests for cluster frames: members, reachability, shard owners and moves, and a version 1 `hello` still works
+- [x] `/cluster/` shows three nodes selling seats. *Kill node* makes its shards fail over, *Restart node* and *Add a node* move shards to it, and *Leave gracefully* hands off with no lost ask
+- [x] Two runs with the same seed tell the same story, event for event, on every node
+- [x] Playwright covers each button, the node picker, the phone width and the frame budget (no frame over 50 ms in a kill at 4×)
+- [x] The site bar links the new page, and it has its own title, link preview and pageviews
 - [ ] Someone non-technical can say what happened when a node was killed (you check this)
+
+Notes from T9 (2026-11-24):
+
+- **Protocol version 2 has three frames.** `hello` and `event` as before, and `cluster` (see "Backstage for clusters"). The cluster shows Backstage its view through a hook in `internal.ts`, so `/backstage` still loads nothing from `/cluster`. The tree walk includes `/system/sharding`, and the UI shows it as its own section above `/user`, with shards named `shard <n>`.
+- **The timings on the page:** heartbeats every 500 ms, unreachable after 1.5 s, down 3 s after that, and leases of 4 s renewed every second with a second's margin. A kill fails its shows over about 4 virtual seconds later, as its leases run out, and customers' 3 s asks to its shows time out meanwhile.
+- **32 shards, chosen for the story.** Placement depends only on the addresses and the shard count, and 32 puts the twelve shows two, five and five on the first three nodes, with seven moving to a fourth. At 24, node-2 held one show, and a kill showed almost nothing.
+- **Shows remember** (`remember: true`), and the crowd's node asks every show for its status at the start. So all twelve open at once, and a show that fails over or moves is back on its new node straight away, rather than at its next customer, which kept it off the map for many seconds.
+- **The map is built from events, not from Backstage.** Each node's Backstage source turns message events on, so only the picked node gets one. The cluster map above it follows `spawned` and `stopped` for entity paths on every node, and keeps a killed node's shows on its card, stranded, until they start elsewhere.
+- **Every node starts on node-1.** The first seed forms the cluster a second before the others join, so the shows open there and move out one or two at a time, settling about 12 virtual seconds in.
 
 ### T10. Docker Compose, the write-up and 0.2.0
 

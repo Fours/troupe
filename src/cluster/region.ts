@@ -45,6 +45,39 @@ export interface RegionEnv extends ShardEnv {
   readonly members: () => readonly Member[];
   /** Called once the region has stopped, so nothing more is sent to it. */
   readonly onStopped: () => void;
+  /** Called as the region starts, with its holder cache, which inspectors read but never change. */
+  readonly showHolders: (holders: ReadonlyMap<number, string>) => void;
+  /** Called whenever the holder cache changes, so inspectors see shards move. */
+  readonly changed: () => void;
+}
+
+/** A map that calls `onChange` whenever an entry is added, changed or removed. */
+class WatchedMap<K, V> extends Map<K, V> {
+  readonly #onChange: () => void;
+
+  constructor(onChange: () => void) {
+    super();
+    this.#onChange = onChange;
+  }
+
+  override set(key: K, value: V): this {
+    const changed = !this.has(key) || this.get(key) !== value;
+    super.set(key, value);
+    if (changed) this.#onChange();
+    return this;
+  }
+
+  override delete(key: K): boolean {
+    const deleted = super.delete(key);
+    if (deleted) this.#onChange();
+    return deleted;
+  }
+
+  override clear(): void {
+    const had = this.size > 0;
+    super.clear();
+    if (had) this.#onChange();
+  }
 }
 
 /** A message for an entity, on its way to its shard. */
@@ -180,7 +213,7 @@ class Region {
   readonly #ctx: ActorContext<RegionMsg>;
   readonly #self: { readonly address: string; readonly key: string };
   readonly #prefix: string;
-  readonly #holders = new Map<number, string>();
+  readonly #holders: Map<number, string>;
   readonly #local = new Map<number, Local>();
   readonly #slots = new Map<number, Slot>();
   readonly #peers = new Map<string, Peer>();
@@ -199,6 +232,8 @@ class Region {
     const { address, uid } = env.remoting.self;
     this.#self = { address, key: keyOf(address, uid) };
     this.#prefix = `${env.type}/`;
+    this.#holders = new WatchedMap(env.changed);
+    env.showHolders(this.#holders);
     // Every region ticks, to greet members it hasn't heard from. Only hosting ones rebalance.
     ctx.timers.startPeriodic('rebalance', new Internal({ t: 'rebalance' }), env.rebalanceMs);
   }

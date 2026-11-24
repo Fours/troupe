@@ -62,7 +62,7 @@ aws s3 sync "${DIST}/" "${DEST}/" \
   --exclude "*.html" \
   --cache-control "public, max-age=31536000, immutable"
 
-# 2) The pages (index.html and how-it-works/index.html): no caching, so a new deploy is picked
+# 2) The pages (index.html, how-it-works/index.html and cluster/index.html): no caching, so a new deploy is picked
 #    up immediately. They're the only files whose names never change.
 echo "==> Uploading HTML pages (no-cache)..."
 aws s3 sync "${DIST}/" "${DEST}/" \

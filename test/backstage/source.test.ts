@@ -57,7 +57,7 @@ describe('backstage', () => {
     expect(frames).toHaveLength(1);
     expect(frames[0]).toStrictEqual({
       type: 'hello',
-      protocol: 1,
+      protocol: 2,
       system: 'box-office',
       now: 0,
       actors: [
@@ -69,6 +69,7 @@ describe('backstage', () => {
       history: kit.events
         .filter((e) => e.type === 'spawned' || e.type === 'recovered')
         .map((e) => ({ ...e })),
+      cluster: null,
     });
 
     const before = kit.events.length;

@@ -1,6 +1,6 @@
 # Deploying the demo site
 
-The demo site (`demo/`: opening night, and the write-up at `how-it-works/`) is a static build, `demo/dist/`, hosted on **S3 behind CloudFront**, the same way as the portfolio. This is the site only. The npm package is published from CI on a version tag ([0024](docs/decisions/0024-publish-from-ci-with-provenance.md)).
+The demo site (`demo/`: opening night, festival night at `cluster/`, and the write-up at `how-it-works/`) is a static build, `demo/dist/`, hosted on **S3 behind CloudFront**, the same way as the portfolio. This is the site only. The npm package is published from CI on a version tag ([0024](docs/decisions/0024-publish-from-ci-with-provenance.md)).
 
 - **Site:** https://troupe.kylewillett.com/
 - **Bucket:** `kylewillett.com`, objects under the `troupe/` prefix (`s3://kylewillett.com/troupe/`)
@@ -52,7 +52,7 @@ That runs [`scripts/deploy.sh`](scripts/deploy.sh), which:
 
 1. **Builds** the site (`npm run demo:build` → `demo/dist/`).
 2. **Syncs assets** to `s3://kylewillett.com/troupe/` with a 1-year immutable cache. Their names are content-hashed, so they can be cached forever. `--delete` prunes old bundles.
-3. **Uploads the HTML pages**, `index.html` and `how-it-works/index.html`, with `Cache-Control: no-cache`, so a new deploy is picked up immediately. They're the only files whose names never change.
+3. **Uploads the HTML pages**, `index.html`, `how-it-works/index.html` and `cluster/index.html`, with `Cache-Control: no-cache`, so a new deploy is picked up immediately. They're the only files whose names never change.
 4. **Invalidates CloudFront** (`/*`) so edge caches serve the new pages.
 
 Then run the Playwright suite against the live site. Only the Node server's tests are left out, since there's no Node server beside a static site:

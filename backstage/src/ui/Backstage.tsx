@@ -4,16 +4,18 @@
 
 import { useState, type ReactNode } from 'react';
 import type { BackstageClient } from '../client.ts';
+import { Cluster } from './Cluster.tsx';
 import { Details } from './Details.tsx';
 import { useBackstage } from './hooks.ts';
 import { Timeline } from './Timeline.tsx';
 import { Tree } from './Tree.tsx';
 import './backstage.css';
 
-/** The panels, in the order the phone's tabs show them. */
-export type Panel = 'tree' | 'details' | 'timeline';
+/** The panels, in the order the phone's tabs show them. `cluster` only for a cluster node. */
+export type Panel = 'cluster' | 'tree' | 'details' | 'timeline';
 
 const PANELS: readonly { readonly id: Panel; readonly label: string }[] = [
+  { id: 'cluster', label: 'Cluster' },
   { id: 'tree', label: 'Actors' },
   { id: 'details', label: 'Details' },
   { id: 'timeline', label: 'Timeline' },
@@ -33,6 +35,8 @@ export function Backstage({ client, selected, onSelect, explain = {} }: Backstag
   const view = useBackstage(client);
   const [tab, setTab] = useState<Panel>('tree');
   const actor = view.actors.find((a) => a.path === selected);
+  const { cluster } = view;
+  const panels = cluster === null ? PANELS.filter((p) => p.id !== 'cluster') : PANELS;
 
   const panel = (
     id: Panel,
@@ -62,7 +66,7 @@ export function Backstage({ client, selected, onSelect, explain = {} }: Backstag
     <div className="backstage" data-connection={view.connection}>
       <div className="bs-grid">
         <div role="tablist" aria-label="Backstage panels" className="bs-tabs">
-          {PANELS.map(({ id, label }) => (
+          {panels.map(({ id, label }) => (
             <button
               key={id}
               type="button"
@@ -79,15 +83,32 @@ export function Backstage({ client, selected, onSelect, explain = {} }: Backstag
           ))}
         </div>
 
+        {cluster !== null &&
+          panel(
+            'cluster',
+            `Cluster: ${cluster.address}`,
+            `Several copies of the system, called nodes, share the work. This is how ${cluster.address} sees them: which nodes it can hear, and which node runs each shard. A shard is a slice of the entities, and it lives on one node at a time. When a node goes, its shards start again on the others.`,
+            <p>
+              Members come from this node's table, with reachability as its own heartbeats see it
+              (decision 0028). A shard's owner is the holder of its lease, <code>address#uid</code>{' '}
+              (decision 0029): this node's own shards, and the holders its region last learned for
+              the others as it routed to them, so a shard nobody here has used shows no owner. A
+              shard flashes when its owner changes. Protocol version 2 sends a <code>cluster</code>{' '}
+              frame whenever this view changes.
+            </p>,
+            <Cluster cluster={cluster} />,
+          )}
+
         {panel(
           'tree',
           'Actors',
           'Every row is an actor: a small program with its own mailbox, handling one message at a time. The bar shows how many messages wait for it. A line flashes from sender to receiver as each message is sent.',
           <p>
-            The tree under <code>/user</code>, live from the system's events. A row fades out when
-            its actor stops. Message events carry the sender's path when it's known (decision 0020),
-            which draws the links. Temporary <code>ask</code> refs aren't actors, so they aren't
-            shown.
+            The tree under <code>/user</code>, live from the system's events, and on a cluster node
+            the sharding tree under <code>/system/sharding</code>: a region per entity type, the
+            shards this node runs, and their entities. A row fades out when its actor stops. Message
+            events carry the sender's path when it's known (decision 0020), which draws the links.
+            Temporary <code>ask</code> refs aren't actors, so they aren't shown.
           </p>,
           view.connected ? (
             <Tree

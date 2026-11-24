@@ -26,7 +26,8 @@ function writeupData(): Plugin {
   };
 }
 
-// Two pages: the demo, and the write-up at how-it-works/, which loads none of the demo.
+// Three pages: the demo, the write-up at how-it-works/, which loads none of the demo, and festival
+// night at cluster/, which loads none of opening night's page.
 export default defineConfig({
   root: here('.'),
   plugins: [react(), writeupData()],
@@ -35,6 +36,7 @@ export default defineConfig({
       entry('@kylewillett/troupe/testkit', 'testkit/index.ts'),
       entry('@kylewillett/troupe/persistence', 'persistence/index.ts'),
       entry('@kylewillett/troupe/backstage', 'backstage/index.ts'),
+      entry('@kylewillett/troupe/cluster', 'cluster/index.ts'),
       entry('@kylewillett/troupe', 'index.ts'),
     ],
   },
@@ -45,10 +47,14 @@ export default defineConfig({
       input: {
         demo: here('index.html'),
         howItWorks: here('how-it-works/index.html'),
+        cluster: here('cluster/index.html'),
       },
       // Named chunks, so the build says what each one is: posthog-js on its own, loaded only when
-      // the page is idle (demo/src/site/browser-analytics.ts), and what both pages share. Grouping
-      // puts rolldown's runtime in a chunk of its own, a few hundred bytes, preloaded.
+      // the page is idle (demo/src/site/browser-analytics.ts), what every page shares, and what
+      // the two live pages share: the package's core, Backstage and the parts of opening night's
+      // domain festival night reuses, which the write-up never loads. The cluster's code stays in
+      // festival night's own chunk. Grouping puts rolldown's runtime in a chunk of its own, a few
+      // hundred bytes, preloaded.
       output: {
         codeSplitting: {
           groups: [
@@ -56,6 +62,10 @@ export default defineConfig({
             {
               name: 'site',
               test: /node_modules[\\/](react|react-dom|scheduler)[\\/]|src[\\/]site[\\/]|modulepreload-polyfill/,
+            },
+            {
+              name: 'stage',
+              test: /troupe[\\/]src[\\/](?!cluster[\\/])|backstage[\\/]src[\\/]|demo[\\/]src[\\/](domain[\\/](clock|crowd|shows|sales-board)\.ts|yield\.ts)/,
             },
           ],
         },

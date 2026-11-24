@@ -1,7 +1,9 @@
 import {
   backstage,
   type ActorInfo,
+  type ClusterInfo,
   type Frame,
+  type MemberInfo,
   type WireEvent,
 } from '@kylewillett/troupe/backstage';
 import { describe, expect, it } from 'vitest';
@@ -12,9 +14,11 @@ import {
   FAILURES_PER_ACTOR,
   FLOW_MS,
   MESSAGES_PER_ACTOR,
+  MOVE_MS,
   PENDING,
   type ActorView,
   type BackstageStore,
+  type HelloV1,
 } from '../../backstage/src/store/store.ts';
 import { testNight } from '../demo/helpers.ts';
 
@@ -26,14 +30,20 @@ const ev = <T extends WireEvent['type']>(type: T, fields: Fields<T>): Frame =>
 
 const hello = (
   actors: readonly ActorInfo[] = [],
-  opts: { now?: number; history?: readonly WireEvent[]; system?: string } = {},
+  opts: {
+    now?: number;
+    history?: readonly WireEvent[];
+    system?: string;
+    cluster?: ClusterInfo | null;
+  } = {},
 ): Frame => ({
   type: 'hello',
-  protocol: 1,
+  protocol: 2,
   system: opts.system ?? 'opening-night',
   now: opts.now ?? 0,
   actors,
   history: opts.history ?? [],
+  cluster: opts.cluster ?? null,
 });
 
 const running = (path: string, more: Partial<ActorInfo> = {}): ActorInfo => ({
@@ -511,6 +521,198 @@ describe('the Backstage store', () => {
       const { failures } = actor(store, SHOW);
       expect(failures).toHaveLength(FAILURES_PER_ACTOR);
       expect(failures[0]?.error).toBe(5);
+    });
+  });
+
+  describe('a cluster', () => {
+    const member = (address: string, uid: number, more: Partial<MemberInfo> = {}): MemberInfo => ({
+      address,
+      uid,
+      status: 'up',
+      reachable: true,
+      ...more,
+    });
+    const N1 = 'node-1#11';
+    const N2 = 'node-2#22';
+    const N3 = 'node-3#33';
+    const info = (
+      owners: Record<number, string>,
+      members: readonly MemberInfo[] = [
+        member('node-1', 11),
+        member('node-2', 22),
+        member('node-3', 33),
+      ],
+    ): ClusterInfo => ({
+      address: 'node-1',
+      uid: 11,
+      members,
+      types: [
+        {
+          type: 'show',
+          shardCount: 4,
+          host: true,
+          shards: Object.entries(owners).map(([shard, owner]) => ({ shard: Number(shard), owner })),
+        },
+      ],
+    });
+    const clusterFrame = (cluster: ClusterInfo): Frame => ({ type: 'cluster', cluster });
+    const owners = (store: BackstageStore) =>
+      store.view().cluster?.types[0]?.shards.map((s) => s.owner ?? null);
+
+    it('reads a version 1 hello as a system with no cluster', () => {
+      const store = createStore();
+      const v1: HelloV1 = {
+        type: 'hello',
+        protocol: 1,
+        system: 'opening-night',
+        now: 5,
+        actors: [running(OFFICE), running(SHOW)],
+        history: [],
+      };
+      store.apply(v1);
+      expect(store.view()).toMatchObject({ connected: true, cluster: null, now: 5 });
+      expect(paths(store)).toEqual([OFFICE, SHOW]);
+    });
+
+    it('shows the members, which one it is, and every shard with the owner it knows', () => {
+      const store = createStore();
+      store.apply(hello([], { cluster: info({ 0: N1, 2: N3 }) }));
+      const { cluster } = store.view();
+      expect(cluster?.self).toBe(N1);
+      expect(cluster?.members.map((m) => [m.key, m.self, m.status, m.reachable])).toEqual([
+        [N1, true, 'up', true],
+        [N2, false, 'up', true],
+        [N3, false, 'up', true],
+      ]);
+      expect(cluster?.types[0]).toMatchObject({ type: 'show', shardCount: 4, host: true });
+      // Every shard, owned or not, and none marked as moved on a hello.
+      expect(cluster?.types[0]?.shards).toEqual([
+        { shard: 0, owner: N1 },
+        { shard: 1 },
+        { shard: 2, owner: N3 },
+        { shard: 3 },
+      ]);
+    });
+
+    it('follows reachability and status from cluster frames', () => {
+      const store = createStore();
+      store.apply(hello([], { cluster: info({}) }));
+      store.apply(
+        clusterFrame(
+          info({}, [
+            member('node-1', 11),
+            member('node-2', 22, { reachable: false }),
+            member('node-3', 33),
+          ]),
+        ),
+      );
+      expect(store.view().cluster?.members[1]).toMatchObject({ key: N2, reachable: false });
+      store.apply(
+        clusterFrame(
+          info({}, [
+            member('node-1', 11),
+            member('node-2', 22, { status: 'down', reachable: false }),
+            member('node-3', 33, { status: 'leaving' }),
+          ]),
+        ),
+      );
+      expect(store.view().cluster?.members.map((m) => m.status)).toEqual(['up', 'down', 'leaving']);
+    });
+
+    it('marks a shard that changed owner for MOVE_MS, with where it came from', () => {
+      const store = createStore();
+      store.apply(hello([running(OFFICE)], { cluster: info({ 0: N1, 1: N2 }) }));
+      store.apply(
+        ev('processed', {
+          at: 100,
+          path: OFFICE,
+          id: 1,
+          durationMs: 0,
+          depth: 0,
+          stateChanged: false,
+        }),
+      );
+      // node-2 goes, and its shard comes to node-3. Shard 2 gets its first owner.
+      store.apply(clusterFrame(info({ 0: N1 })));
+      store.apply(clusterFrame(info({ 0: N1, 1: N3, 2: N1 })));
+      const shards = store.view().cluster?.types[0]?.shards;
+      expect(shards?.[0]).toEqual({ shard: 0, owner: N1 });
+      // Its last change was from no owner to node-3: it was node-2's one frame before.
+      expect(shards?.[1]).toEqual({ shard: 1, owner: N3, movedAt: 100 });
+      expect(shards?.[2]).toEqual({ shard: 2, owner: N1, movedAt: 100 });
+      expect(owners(store)).toEqual([N1, N3, N1, null]);
+
+      // Still marked just before MOVE_MS, and not at it.
+      const at = (t: number) =>
+        ev('processed', {
+          at: t,
+          path: OFFICE,
+          id: t,
+          durationMs: 0,
+          depth: 0,
+          stateChanged: false,
+        });
+      store.apply(at(100 + MOVE_MS - 1));
+      expect(store.view().cluster?.types[0]?.shards[1]?.movedAt).toBe(100);
+      store.apply(at(100 + MOVE_MS));
+      expect(store.view().cluster?.types[0]?.shards[1]).toEqual({ shard: 1, owner: N3 });
+    });
+
+    it('says where a shard moved from when it goes straight from one owner to another', () => {
+      const store = createStore();
+      store.apply(hello([], { now: 7, cluster: info({ 3: N2 }) }));
+      store.apply(clusterFrame(info({ 3: N3 })));
+      expect(store.view().cluster?.types[0]?.shards[3]).toEqual({
+        shard: 3,
+        owner: N3,
+        movedAt: 7,
+        movedFrom: N2,
+      });
+      // A new hello starts over: nothing it shows has moved.
+      store.apply(hello([], { now: 8, cluster: info({ 3: N3 }) }));
+      expect(store.view().cluster?.types[0]?.shards[3]).toEqual({ shard: 3, owner: N3 });
+    });
+
+    it('ignores a cluster frame before the hello, and keeps the view while nothing changes', () => {
+      const store = createStore();
+      store.apply(clusterFrame(info({ 0: N1 })));
+      expect(store.view().cluster).toBeNull();
+      store.apply(hello([], { cluster: info({ 0: N1 }) }));
+      const first = store.view().cluster;
+      store.apply(ev('spawned', { at: 1, path: '/user/x' }));
+      expect(store.view().cluster).toBe(first);
+    });
+
+    it('shows the sharding tree above /user, and nothing else under /system', () => {
+      const REGION = '/system/sharding/show';
+      const SHARD = `${REGION}/3`;
+      const ENTITY = `${SHARD}/hamlet`;
+      const store = createStore();
+      store.apply(
+        hello(
+          [
+            running('/user/crowd'),
+            running('/system/sharding'),
+            running(REGION),
+            running(SHARD),
+            running(ENTITY, { persistenceId: 'show-hamlet' }),
+            running('/system/remoting'),
+          ],
+          { cluster: info({ 3: N1 }) },
+        ),
+      );
+      const view = store.view();
+      expect(view.actors.map((a) => [a.path, a.section, a.level, a.parent, a.name])).toEqual([
+        [REGION, 'sharding', 0, undefined, 'show'],
+        [SHARD, 'sharding', 1, REGION, '3'],
+        [ENTITY, 'sharding', 2, SHARD, 'hamlet'],
+        ['/user/crowd', 'user', 0, undefined, 'crowd'],
+      ]);
+      // An entity spawned later joins its shard; it stops and fades as any actor does.
+      store.apply(ev('spawned', { at: 2, path: `${SHARD}/lear` }));
+      expect(paths(store)).toEqual([REGION, SHARD, ENTITY, `${SHARD}/lear`, '/user/crowd']);
+      store.apply(ev('stopped', { at: 3, path: ENTITY }));
+      expect(actor(store, ENTITY).phase).toBe('stopped');
     });
   });
 

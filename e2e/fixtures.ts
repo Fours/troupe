@@ -5,30 +5,51 @@ import { SITE_HOST } from './site.ts';
 
 export { expect };
 
-export const test = base.extend<{ demo: Page }>({
+/** Opens `path` at 4×, hands the page to the test, then checks nothing left the site or failed. */
+async function opened(page: Page, path: string, use: (page: Page) => Promise<void>) {
+  const offsite: string[] = [];
+  const errors: string[] = [];
+  // The demo has no backend: record and block anything that leaves the site.
+  await page.route(
+    (url) => url.hostname !== SITE_HOST,
+    async (route) => {
+      offsite.push(route.request().url());
+      await route.abort();
+    },
+  );
+  page.on('pageerror', (err) => errors.push(err.message));
+  await page.goto(path);
+  await expect(page.getByRole('button', { name: 'Rush' })).toBeEnabled();
+  await page.getByRole('radio', { name: '4×' }).check();
+
+  await use(page);
+
+  expect(offsite).toEqual([]);
+  expect(errors).toEqual([]);
+  await expect(page.getByRole('alert')).toHaveCount(0);
+}
+
+export const test = base.extend<{ demo: Page; festival: Page }>({
   demo: async ({ page }, use) => {
-    const offsite: string[] = [];
-    const errors: string[] = [];
-    // The demo has no backend: record and block anything that leaves the site.
-    await page.route(
-      (url) => url.hostname !== SITE_HOST,
-      async (route) => {
-        offsite.push(route.request().url());
-        await route.abort();
-      },
-    );
-    page.on('pageerror', (err) => errors.push(err.message));
-    await page.goto('/');
-    await expect(page.getByRole('button', { name: 'Rush' })).toBeEnabled();
-    await page.getByRole('radio', { name: '4×' }).check();
-
-    await use(page);
-
-    expect(offsite).toEqual([]);
-    expect(errors).toEqual([]);
-    await expect(page.getByRole('alert')).toHaveCount(0);
+    await opened(page, '/', use);
+  },
+  festival: async ({ page }, use) => {
+    await opened(page, '/cluster/', use);
   },
 });
+
+/** Festival night's card for the node at `address`. */
+export const card = (page: Page, address: string): Locator =>
+  page
+    .getByRole('list', { name: 'Nodes' })
+    .getByRole('listitem')
+    .filter({
+      has: page.getByRole('heading', { name: address, exact: true }),
+    });
+
+/** The shows on a node's card. */
+export const showsOn = (page: Page, address: string): Locator =>
+  page.getByRole('list', { name: `Shows on ${address}` }).getByRole('listitem');
 
 /** The narrated log. */
 export const log = (page: Page) => page.getByRole('list', { name: "What's happening" });

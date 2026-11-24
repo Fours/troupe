@@ -3,7 +3,7 @@
 // receiver. Rows have one fixed height, so the gutter can place links without measuring.
 
 import { memo, useMemo, type KeyboardEvent } from 'react';
-import type { ActorPhase, ActorView, FlowView } from '../store/store.ts';
+import type { ActorPhase, ActorView, FlowView, Section } from '../store/store.ts';
 
 /** The height of one row, in px. The CSS uses the same number. */
 export const ROW = 30;
@@ -27,14 +27,48 @@ export interface TreeProps {
   readonly onSelect: (path: string, open: boolean) => void;
 }
 
+/** A row of the tree: an actor, or the heading of a section when there's more than one. */
+type Line =
+  | { readonly kind: 'actor'; readonly actor: ActorView }
+  | { readonly kind: 'heading'; readonly section: Section };
+
+const SECTION_WORDS: Readonly<Record<Section, string>> = {
+  sharding: 'Sharding: regions, shards and entities',
+  user: 'Your actors',
+};
+
+/** The rows, with a heading before each section once the sharding tree is there. */
+function linesOf(actors: readonly ActorView[]): Line[] {
+  const lines: Line[] = [];
+  const sharded = actors.some((a) => a.section === 'sharding');
+  let section: Section | undefined;
+  for (const actor of actors) {
+    if (sharded && actor.section !== section) {
+      section = actor.section;
+      lines.push({ kind: 'heading', section });
+    }
+    lines.push({ kind: 'actor', actor });
+  }
+  return lines;
+}
+
 /** The actor tree, as a keyboard-navigable ARIA tree. */
 export function Tree({ actors, flows, selected, onSelect }: TreeProps) {
   const scale = useMemo(() => Math.max(8, ...actors.map((a) => a.peakDepth)), [actors]);
-  const rowOf = useMemo(() => new Map(actors.map((a, i) => [a.path, i])), [actors]);
-  const focusable = selected !== undefined && rowOf.has(selected) ? selected : actors[0]?.path;
+  const lines = useMemo(() => linesOf(actors), [actors]);
+  // Where each actor is drawn, headings counted, for the links.
+  const rowOf = useMemo(() => {
+    const rows = new Map<string, number>();
+    lines.forEach((line, i) => {
+      if (line.kind === 'actor') rows.set(line.actor.path, i);
+    });
+    return rows;
+  }, [lines]);
+  const indexOf = useMemo(() => new Map(actors.map((a, i) => [a.path, i])), [actors]);
+  const focusable = selected !== undefined && indexOf.has(selected) ? selected : actors[0]?.path;
 
   const onKeyDown = (e: KeyboardEvent<HTMLUListElement>) => {
-    const index = focusable === undefined ? -1 : (rowOf.get(focusable) ?? -1);
+    const index = focusable === undefined ? -1 : (indexOf.get(focusable) ?? -1);
     const go = (i: number) => {
       const next = actors[Math.max(0, Math.min(actors.length - 1, i))];
       if (next === undefined) return;
@@ -73,7 +107,7 @@ export function Tree({ actors, flows, selected, onSelect }: TreeProps) {
       <svg
         className="bs-flows"
         width={GUTTER}
-        height={Math.max(ROW, actors.length * ROW)}
+        height={Math.max(ROW, lines.length * ROW)}
         aria-hidden="true"
       >
         {flows.map((flow) => {
@@ -93,16 +127,27 @@ export function Tree({ actors, flows, selected, onSelect }: TreeProps) {
         })}
       </svg>
       <ul role="tree" aria-label="Actors" className="bs-tree-list" onKeyDown={onKeyDown}>
-        {actors.map((a) => (
-          <Row
-            key={a.path}
-            actor={a}
-            scale={scale}
-            selected={a.path === selected}
-            focusable={a.path === focusable}
-            onSelect={onSelect}
-          />
-        ))}
+        {lines.map((line) =>
+          line.kind === 'heading' ? (
+            <li
+              key={`section-${line.section}`}
+              role="none"
+              className="bs-section"
+              style={{ paddingLeft: GUTTER + 8 }}
+            >
+              {SECTION_WORDS[line.section]}
+            </li>
+          ) : (
+            <Row
+              key={line.actor.path}
+              actor={line.actor}
+              scale={scale}
+              selected={line.actor.path === selected}
+              focusable={line.actor.path === focusable}
+              onSelect={onSelect}
+            />
+          ),
+        )}
       </ul>
     </div>
   );
@@ -117,7 +162,9 @@ interface RowProps {
 }
 
 const Row = memo(function Row({ actor, scale, selected, focusable, onSelect }: RowProps) {
-  const { path, name, level, phase, depth, failures } = actor;
+  const { path, level, phase, depth, failures } = actor;
+  // A shard's name is its number, which says more with a word in front.
+  const name = actor.section === 'sharding' && level === 1 ? `shard ${actor.name}` : actor.name;
   const waiting = `${String(depth)} waiting`;
   return (
     <li

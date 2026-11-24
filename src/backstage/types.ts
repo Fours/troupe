@@ -52,22 +52,81 @@ type Wire<E> = E extends unknown
 /** A {@link SystemEvent} with what it carries (messages, errors) encoded as {@link WireValue}s. */
 export type WireEvent = Wire<SystemEvent>;
 
+/** One member of a cluster, as the node a source is attached to sees it. */
+export interface MemberInfo {
+  /** The address other nodes reach it at. */
+  readonly address: string;
+  /** Its uid, new on every start. With the address, it names the holder `<address>#<uid>`. */
+  readonly uid: number;
+  /** `up`, `leaving` gracefully, or `down`. */
+  readonly status: 'up' | 'leaving' | 'down';
+  /** Whether this node hears its heartbeats: this node's own view. */
+  readonly reachable: boolean;
+}
+
+/** One entity type on the node, and the owners of its shards as that node knows them. */
+export interface EntityTypeInfo {
+  /** The type's name, such as `show`. */
+  readonly type: string;
+  /** How many shards the type's entities are spread over. */
+  readonly shardCount: number;
+  /** Whether this node hosts the type's shards, or only routes to them. */
+  readonly host: boolean;
+  /**
+   * Each shard whose owner this node knows, in shard order, with its holder, `<address>#<uid>`:
+   * the shards this node runs, and the holders its region last learned for the others. A shard
+   * that isn't listed has no owner this node knows of.
+   */
+  readonly shards: readonly { readonly shard: number; readonly owner: string }[];
+}
+
+/** The node's place in its cluster, as a `hello` or a `cluster` frame gives it. */
+export interface ClusterInfo {
+  /** This node's address. */
+  readonly address: string;
+  /** This node's uid. */
+  readonly uid: number;
+  /** The members as this node sees them, itself included, sorted by address. */
+  readonly members: readonly MemberInfo[];
+  /** The entity types this node has registered, in the order it registered them. */
+  readonly types: readonly EntityTypeInfo[];
+}
+
+/** The protocol's version: 2 since milestone 4, which added the cluster. */
+export const PROTOCOL = 2;
+
 /** What a source sends a connection. */
 export type Frame =
   | {
       readonly type: 'hello';
-      /** The protocol's version. */
-      readonly protocol: 1;
+      /**
+       * The protocol's version. Version 1 had no `cluster` and no `cluster` frames, and an
+       * inspector can read it as a system with no cluster.
+       */
+      readonly protocol: typeof PROTOCOL;
       /** The system's name. */
       readonly system: string;
       /** The system scheduler's time when the frame was made. */
       readonly now: number;
-      /** Every live actor under `/user`, each parent before its children. */
+      /**
+       * Every live actor under `/user`, then under `/system/sharding` (a cluster's regions,
+       * shards and entities), each parent before its children.
+       */
       readonly actors: readonly ActorInfo[];
-      /** Lifecycle events since the source attached, oldest first, at most `history`. */
+      /**
+       * Lifecycle events since the source attached, oldest first, at most `history`: member and
+       * shard events among them.
+       */
       readonly history: readonly WireEvent[];
+      /** The node's place in its cluster, or `null` for a system that isn't in one. */
+      readonly cluster: ClusterInfo | null;
     }
-  | { readonly type: 'event'; readonly event: WireEvent };
+  | { readonly type: 'event'; readonly event: WireEvent }
+  /**
+   * The node's view of its cluster has changed: a member, its reachability, or a shard owner it
+   * knows of. Sent once the change has settled, never twice in a row with the same view.
+   */
+  | { readonly type: 'cluster'; readonly cluster: ClusterInfo };
 
 /** A question for a source. None of them changes anything. */
 export type BackstageRequest =

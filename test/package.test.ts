@@ -86,8 +86,9 @@ const SQLITE_TYPES = ['SqlitePersistence'];
 // a wrapper around a pool can be typed.
 const POSTGRES_VALUES = ['postgresPersistence'];
 const POSTGRES_TYPES = ['PgPool', 'PgPoolClient', 'PgQueryable', 'PostgresPersistence'];
-// The milestone 3 spec's protocol, plus the types its frames and responses are made of.
-const BACKSTAGE_VALUES = ['backstage', 'encode'];
+// The milestone 3 spec's protocol, plus the types its frames and responses are made of, and
+// milestone 4's version 2 (T9): its number, and the cluster a hello and a `cluster` frame carry.
+const BACKSTAGE_VALUES = ['backstage', 'encode', 'PROTOCOL'];
 const BACKSTAGE_TYPES = [
   'ActorInfo',
   'ActorStatus',
@@ -96,7 +97,10 @@ const BACKSTAGE_TYPES = [
   'BackstageRequest',
   'BackstageResponse',
   'BackstageSource',
+  'ClusterInfo',
+  'EntityTypeInfo',
   'Frame',
+  'MemberInfo',
   'TimelineEvent',
   'WireEvent',
   'WireValue',

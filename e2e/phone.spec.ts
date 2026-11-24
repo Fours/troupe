@@ -1,4 +1,4 @@
-import { expect, panel, row, test } from './fixtures.ts';
+import { card, expect, panel, row, test } from './fixtures.ts';
 
 // At 375 px (open question 4): Backstage shows one panel at a time, behind tabs, under the demo's
 // controls, and nothing scrolls sideways. Runs in the phone project only.
@@ -29,4 +29,22 @@ test('shows one Backstage panel at a time, picked with tabs', async ({ demo: pag
 test('the controls work at phone width', async ({ demo: page }) => {
   await page.getByRole('button', { name: 'Bad request' }).click();
   await expect(row(page, 'hamlet')).toContainText('×1');
+});
+
+test('festival night fits a phone, with the cluster panel behind its own tab', async ({
+  festival: page,
+}) => {
+  const tabs = page.getByRole('tablist', { name: 'Backstage panels' });
+  await expect(tabs.getByRole('tab', { name: 'Cluster' })).toBeVisible();
+  await tabs.getByRole('tab', { name: 'Cluster' }).click();
+  await expect(panel(page, 'Cluster: node-1')).toBeVisible();
+  await expect(panel(page, 'Actors')).toBeHidden();
+
+  // The cards stack, and their buttons work.
+  await card(page, 'node-3').getByRole('button', { name: 'Kill node' }).click();
+  await expect(card(page, 'node-3')).toHaveAttribute('data-state', 'killed');
+  await expect(card(page, 'node-3').getByRole('button', { name: 'Restart node' })).toBeVisible();
+
+  const width = await page.evaluate(() => document.documentElement.scrollWidth);
+  expect(width).toBeLessThanOrEqual(375);
 });

@@ -16,6 +16,13 @@
   --bs-bar: #c9768a;
   --bs-flow: #7a2e3a;
   --bs-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  /* One colour per node in the cluster panel, by the number its address ends in. */
+  --bs-node-0: #2b63b5;
+  --bs-node-1: #b4531c;
+  --bs-node-2: #2f7d4f;
+  --bs-node-3: #8a3ea8;
+  --bs-node-4: #a8770b;
+  --bs-node-5: #1f7f86;
 
   /* The layout follows the room Backstage has, not the window, since a page may put it beside
      other things. */
@@ -49,6 +56,12 @@
     --bs-error: #f2b8b5;
     --bs-bar: #b0566c;
     --bs-flow: #e8a0ab;
+    --bs-node-0: #8ab4f8;
+    --bs-node-1: #f29b6b;
+    --bs-node-2: #6fcf97;
+    --bs-node-3: #cf9be6;
+    --bs-node-4: #e6c15c;
+    --bs-node-5: #6ccfd6;
   }
 }
 
@@ -579,6 +592,192 @@
   flex: none;
 }
 
+/* A heading between the sharding tree and the user's actors, one row high. */
+.bs-section {
+  display: flex;
+  align-items: flex-end;
+  height: 30px;
+  padding-bottom: 0.2rem;
+  box-sizing: border-box;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--bs-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The cluster panel spans the grid, above the others. */
+.bs-panel-cluster {
+  grid-column: 1 / -1;
+}
+
+.bs-cluster {
+  display: grid;
+  grid-template-columns: minmax(16rem, auto) minmax(0, 1fr);
+  gap: 0.5rem 1.5rem;
+  align-items: start;
+}
+
+.bs-members {
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.bs-members th,
+.bs-members td {
+  text-align: left;
+  padding: 0.2rem 0.6rem 0.2rem 0;
+  border-bottom: 1px solid var(--bs-line);
+  white-space: nowrap;
+}
+
+.bs-members thead th {
+  font-weight: normal;
+  color: var(--bs-muted);
+  font-size: 0.75rem;
+}
+
+.bs-members tbody th {
+  font-weight: 600;
+}
+
+.bs-members .bs-tag {
+  margin-left: 0.35rem;
+  font-weight: normal;
+}
+
+.bs-uid {
+  margin-left: 0.35rem;
+  font-family: var(--bs-mono);
+  font-weight: normal;
+  font-size: 0.75rem;
+  color: var(--bs-muted);
+}
+
+.bs-members tr[data-status='down'] th,
+.bs-members tr[data-status='down'] td {
+  color: var(--bs-stopped);
+}
+
+.bs-status-leaving {
+  color: var(--bs-restarting);
+}
+
+.bs-status-down,
+.bs-unreachable {
+  color: var(--bs-error);
+}
+
+.bs-swatch {
+  display: inline-block;
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 3px;
+  margin-right: 0.4rem;
+  vertical-align: -0.05rem;
+  background: var(--bs-node);
+}
+
+.bs-shard-type h3 {
+  font-size: 0.9rem;
+}
+
+.bs-shard-type .bs-note {
+  font-weight: normal;
+}
+
+.bs-shards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(1.9rem, 1fr));
+  gap: 3px;
+}
+
+.bs-shard {
+  height: 1.6rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--bs-bg);
+  background: var(--bs-node);
+  transition: background-color 400ms ease;
+}
+
+.bs-unowned {
+  background: none;
+  color: var(--bs-muted);
+  border: 1px dashed var(--bs-line);
+}
+
+/* An owner that has gone: its lease is still running out, so nobody else has the shard yet. */
+.bs-shard.bs-gone {
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--bs-node),
+    var(--bs-node) 3px,
+    var(--bs-panel) 3px,
+    var(--bs-panel) 6px
+  );
+  color: var(--bs-fg);
+}
+
+.bs-moved {
+  animation: bs-moved 1500ms ease-out;
+}
+
+@keyframes bs-moved {
+  0% {
+    transform: scale(1.35);
+    box-shadow: 0 0 0 3px var(--bs-accent);
+  }
+  100% {
+    transform: none;
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+.bs-node-0 {
+  --bs-node: var(--bs-node-0);
+}
+
+.bs-node-1 {
+  --bs-node: var(--bs-node-1);
+}
+
+.bs-node-2 {
+  --bs-node: var(--bs-node-2);
+}
+
+.bs-node-3 {
+  --bs-node: var(--bs-node-3);
+}
+
+.bs-node-4 {
+  --bs-node: var(--bs-node-4);
+}
+
+.bs-node-5 {
+  --bs-node: var(--bs-node-5);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bs-moved {
+    animation: none;
+    outline: 2px solid var(--bs-accent);
+  }
+
+  .bs-shard {
+    transition: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .bs-row,
   .bs-flow,
@@ -637,5 +836,14 @@
 
   .bs-tree {
     max-height: none;
+  }
+
+  .bs-cluster {
+    display: block;
+  }
+
+  .bs-members {
+    width: 100%;
+    margin-bottom: 0.75rem;
   }
 }

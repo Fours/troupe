@@ -221,7 +221,8 @@ export function show(name: string, capacity: number, persistence: Persistence) {
   });
 }
 
-function unknownShow(msg: CustomerRequest): void {
+/** Answers a request for a show that isn't on, so its customer isn't left waiting. */
+export function unknownShow(msg: CustomerRequest): void {
   const reason = `no show "${msg.show}"`;
   switch (msg.type) {
     case 'hold':

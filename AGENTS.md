@@ -64,7 +64,8 @@ src/
   ask.ts            refs, ask and its temporary refs under /temp (0009)
   timers.ts         keyed timers, checked by generation when their messages are dequeued
   internal.ts       hooks for the other entry points, never exported: the start hook, ctx internals,
-                    the inspection hook, and the cluster's (/system and children under it, lookup
+                    the inspection hook with the cluster's view for Backstage, and the cluster's
+                    hooks (/system and children under it, lookup
                     by path, makeRef (0025), stopWhenIdle, and onTerminate, which runs the
                     cluster's leave between /user stopping and /system stopping (0030))
   json.ts           what a JSON value is, once: the check events use (0014), with a ref hook for
@@ -78,7 +79,10 @@ src/
                     backstage/ is /backstage/server, serveBackstage() on node:http (0023), and
                     cluster/ is /cluster/tcp, tcpTransport() on node:net and node:crypto (0027)
   backstage/        the /backstage entry point (any runtime): backstage() the in-process source,
-                    the protocol types, encode() the wire encoding, and the read-only requests (0021)
+                    the protocol types, encode() the wire encoding, and the read-only requests
+                    (0021). Protocol version 2: on a cluster node, hello.cluster and a `cluster`
+                    frame whenever the node's view changes, read through internal.ts's cluster
+                    view, so /backstage still loads nothing from /cluster
   testkit/          the /testkit entry point: ManualScheduler, seededRandom, createTestKit, TestProbe
   cluster/          the /cluster entry point (any runtime): wire.ts, the wire format (0025);
                     transport.ts, memory.ts (the in-memory network) and remoting.ts (0026);
@@ -114,8 +118,8 @@ test/               mirrors src/; helpers/ holds deferred() and test actors (tre
                     cluster/shard-store-contract.ts the shard stores';
                     node/ tests the Node-only backends, lint.test.ts the lint config's boundaries
                     integration/ needs Postgres: its own Vitest project, run by test:integration
-                    demo/ tests the demo's domain on the testkit and its driven clock, and the
-                    write-up's data and record links
+                    demo/ tests the demo's domain on the testkit and its driven clock, festival
+                    night's on its in-memory cluster, and the write-up's data and record links
                     multiprocess/ runs examples/cluster/ as real processes on TCP and Postgres,
                     against dist/: its own Vitest project, run by test:cluster. harness.ts starts,
                     kills and restarts them and reads their JSON lines, and journal.ts checks the
@@ -126,21 +130,28 @@ backstage/          the Backstage UI (React, plain CSS), with its own tsconfig f
                     Ships only as built files: npm run build puts index.html and src/standalone/,
                     the page serveBackstage serves, in dist/backstage-ui/. src/store/ turns frames
                     into a view model with no React and no clock of its own; src/ui/ draws it
-                    against a BackstageClient: the demo's in-process one, or src/http-client.ts
+                    against a BackstageClient: the demo's in-process ones, or src/http-client.ts.
+                    A cluster node gets a Cluster panel, and the sharding tree above /user
 demo/               the demo site (Vite, React, plain CSS), with its own tsconfig for the browser
   src/domain/       opening night, with no React: shows, the crowd, the sales board, the faulty
                     journal, the driven clock (0022), the log's narration, and the Backstage client
                     that follows a restart. No Date.now or Math.random: it runs on virtual time
                     and seeded chance
+  src/festival/     festival night, the site's third page (cluster/): domain/ has no React, and
+                    runs opening night's shows as entities on three in-memory nodes and a crowd's
+                    node, one ManualScheduler, journal and shard store (festival-night.ts), with
+                    the log's narration, the cluster map (stage.ts) and the Backstage client for
+                    the picked node. It loads none of opening night's page
   src/writeup/      the write-up, "How Troupe works", the site's second page (how-it-works/):
                     the prose in TSX, citing records with <Record id>, and the SVG charts
-  src/site/         what both pages share: the base styles, the site bar, the links, and
+  src/site/         what every page shares: the base styles, the site bar, the links, and
                     PostHog, which loads on idle and never under automation
   build/            writeup-data.ts reads the charts' numbers from docs/decisions/data/ when the
                     site builds, and fails the build if a source is missing
 e2e/                Playwright tests of the built demo, run by test:e2e, with its own tsconfig for
-                    the DOM. frames.spec.ts runs in its own project, after the others, and
-                    server.spec.ts in its own, against examples/backstage on port 7071
+                    the DOM. cluster.spec.ts is festival night's. frames.spec.ts runs in its own
+                    project, after the others, and server.spec.ts in its own, against
+                    examples/backstage on port 7071
 examples/           runnable examples, run by Node with type stripping, against dist/: box-office/
                     (npm run example), backstage/ (npm run example:backstage), and cluster/,
                     festival night's node and crowd on TCP and Postgres, configured by environment

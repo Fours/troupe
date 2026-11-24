@@ -1,0 +1,358 @@
+/* Festival night's page. The tokens and base styles every page shares are in site/site.css. The
+   controls, log and stage follow opening night's page, which this one doesn't load. */
+main {
+  max-width: 96rem;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 3rem;
+}
+
+h1 {
+  margin: 0 0 0.5rem;
+  font-size: 1.75rem;
+}
+
+h2 {
+  font-size: 1.1rem;
+  margin: 1.5rem 0 0.5rem;
+}
+
+.lede {
+  color: var(--muted);
+  margin: 0;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1.5rem;
+  margin-top: 1.25rem;
+  padding: 1rem 0;
+  border-block: 1px solid var(--line);
+}
+
+.speed {
+  display: flex;
+  gap: 0.75rem;
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.speed legend {
+  float: left;
+  margin-right: 0.5rem;
+  color: var(--muted);
+}
+
+.clock {
+  margin: 0;
+  color: var(--muted);
+}
+
+.clock output {
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.controls button {
+  font: inherit;
+  padding: 0.4rem 0.9rem;
+  border-radius: 0.4rem;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--accent-fg);
+  cursor: pointer;
+}
+
+.controls button[aria-pressed='true'] {
+  background: var(--pressed);
+  color: var(--fg);
+}
+
+.controls button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.error {
+  color: var(--error);
+}
+
+.lede {
+  max-width: 52rem;
+}
+
+.stage {
+  display: grid;
+  grid-template-columns: 19rem minmax(0, 1fr);
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.log ol {
+  max-height: 44rem;
+  overflow-y: auto;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 0.95rem;
+}
+
+.log li {
+  padding: 0.2rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.log time {
+  display: inline-block;
+  min-width: 4.5rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 1280px) {
+  .stage {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .log ol {
+    max-height: 14rem;
+  }
+}
+
+.section-lede {
+  color: var(--muted);
+  margin: 0 0 0.75rem;
+  max-width: 52rem;
+}
+
+.controls button.secondary,
+.node-buttons button.secondary {
+  background: none;
+  color: var(--accent);
+}
+
+/* The cluster map: a card per node. The node colours match Backstage's cluster panel. */
+.cluster-map {
+  --node-0: #2b63b5;
+  --node-1: #b4531c;
+  --node-2: #2f7d4f;
+  --node-3: #8a3ea8;
+  --node-4: #a8770b;
+  --node-5: #1f7f86;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: 0.75rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  .cluster-map {
+    --node-0: #8ab4f8;
+    --node-1: #f29b6b;
+    --node-2: #6fcf97;
+    --node-3: #cf9be6;
+    --node-4: #e6c15c;
+    --node-5: #6ccfd6;
+  }
+}
+
+.node-0 {
+  --node: var(--node-0);
+}
+
+.node-1 {
+  --node: var(--node-1);
+}
+
+.node-2 {
+  --node: var(--node-2);
+}
+
+.node-3 {
+  --node: var(--node-3);
+}
+
+.node-4 {
+  --node: var(--node-4);
+}
+
+.node-5 {
+  --node: var(--node-5);
+}
+
+.node-card {
+  border: 1px solid var(--line);
+  border-top: 4px solid var(--node);
+  border-radius: 8px;
+  padding: 0.6rem 0.75rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  transition: opacity 300ms ease;
+}
+
+.node-card h3 {
+  margin: 0;
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.swatch {
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 3px;
+  background: var(--node);
+}
+
+.node-state {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.state-up {
+  color: var(--fg);
+}
+
+.state-killed {
+  color: var(--error);
+  font-weight: 600;
+}
+
+.state-leaving,
+.state-joining {
+  font-style: italic;
+}
+
+.node-killed,
+.node-left {
+  opacity: 0.75;
+}
+
+.node-shows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  min-height: 1.6rem;
+}
+
+.node-shows li {
+  font-size: 0.8rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  background: var(--node);
+  color: var(--bg);
+  animation: arrive 500ms ease-out;
+}
+
+/* Stranded on a killed node: its lease hasn't run out, so nobody else may run it yet. */
+.node-shows li.stranded {
+  color: var(--fg);
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--line),
+    var(--line) 4px,
+    var(--bg) 4px,
+    var(--bg) 8px
+  );
+  border: 1px dashed var(--muted);
+  animation: none;
+}
+
+@keyframes arrive {
+  from {
+    transform: scale(1.3);
+    box-shadow: 0 0 0 3px var(--accent);
+  }
+}
+
+.node-empty,
+.node-note {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.node-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: auto;
+}
+
+.node-buttons button {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: 0.4rem;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--accent-fg);
+  cursor: pointer;
+}
+
+.node-buttons button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Which node Backstage shows. */
+.picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.9rem;
+  border: 0;
+  margin: 0 0 0.75rem;
+  padding: 0;
+}
+
+.picker legend {
+  float: left;
+  margin-right: 0.5rem;
+  color: var(--muted);
+}
+
+.picker label:has(input:disabled) {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.frozen {
+  margin: 0 0 0.75rem;
+  color: var(--error);
+  font-size: 0.9rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .node-shows li {
+    animation: none;
+  }
+}

@@ -107,10 +107,10 @@ test('a chart row shows its median and range on hover', async ({ page }) => {
 test('loads none of the demo', async ({ page }) => {
   const { scripts } = await open(page);
   expect(scripts.some((s) => s.includes('/howItWorks-'))).toBe(true);
-  expect(scripts.filter((s) => s.includes('/demo-'))).toEqual([]);
+  expect(scripts.filter((s) => s.includes('/demo-') || s.includes('/cluster-'))).toEqual([]);
 });
 
-test('the site bar links the two pages', async ({ page }) => {
+test('the site bar links the pages', async ({ page }) => {
   await open(page);
   const bar = page.getByRole('navigation', { name: 'Site' });
   await expect(bar.getByRole('link', { name: 'How it works' })).toHaveAttribute(

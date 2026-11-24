@@ -9,6 +9,7 @@
 // frames, sent only on an open connection, so none waits in a buffer to arrive stale.
 
 import { checkInt, checkKeys, describe } from '../checks.js';
+import type { EventBody } from '../events.js';
 import { hooksOf, type SystemHooks } from '../internal.js';
 import type { ActorSystem } from '../types.js';
 import { isTransport, startRemoting, type PeerId, type Remoting } from './remoting.js';
@@ -283,6 +284,8 @@ class Membership {
   #left: Promise<void> | undefined;
   readonly #sharding: ShardingNode;
   #closing: Promise<void> | undefined;
+  // Tells inspectors, such as Backstage, that this node's view of the cluster may have changed.
+  readonly #changed: () => void;
 
   constructor(
     system: ActorSystem,
@@ -329,7 +332,18 @@ class Membership {
       leases: opts.leases,
       maxFrameBytes: opts.maxFrameBytes,
       members,
+      changed: () => {
+        this.#changed();
+      },
     });
+    this.#changed = hooks.setCluster(
+      Object.freeze({
+        address,
+        uid,
+        members,
+        entityTypes: () => this.#sharding.entityTypes(),
+      }),
+    );
     this.api = Object.freeze({
       self: Object.freeze({ address, uid }),
       members,
@@ -470,9 +484,9 @@ class Membership {
       }
       const type = EVENT[entry.status];
       if (type !== undefined) {
-        this.#hooks.publish({ type, address: entry.address, uid: entry.uid });
+        this.#publish({ type, address: entry.address, uid: entry.uid });
       } else if (before !== undefined) {
-        this.#hooks.publish({ type: 'memberRemoved', address: entry.address, uid: entry.uid });
+        this.#publish({ type: 'memberRemoved', address: entry.address, uid: entry.uid });
       }
       if (key !== this.#selfKey && isAfter(entry.status, 'leaving')) {
         this.#remoting.nodeDown(entry.address, entry.uid);
@@ -495,6 +509,12 @@ class Membership {
       }
     }
     return next;
+  }
+
+  /** Publishes a member event, and tells inspectors the view has changed. */
+  #publish(body: EventBody): void {
+    this.#hooks.publish(body);
+    this.#changed();
   }
 
   #members(): Member[] {
@@ -565,7 +585,7 @@ class Membership {
         local.reachable = false;
         local.unreachableAt = now;
         this.#hooks.log.info(`cluster: ${peer.address} is unreachable`, { address: peer.address });
-        this.#hooks.publish({
+        this.#publish({
           type: 'reachability',
           address: peer.address,
           uid: peer.uid,
@@ -617,7 +637,7 @@ class Membership {
       this.#local.delete(key);
       this.#pruned.set(key, now);
       if (entry.status === 'down') {
-        this.#hooks.publish({ type: 'memberRemoved', address: entry.address, uid: entry.uid });
+        this.#publish({ type: 'memberRemoved', address: entry.address, uid: entry.uid });
       }
     }
     if (next !== undefined) this.#table = next;
@@ -667,7 +687,7 @@ class Membership {
     if (local.reachable) return;
     local.reachable = true;
     this.#hooks.log.info(`cluster: ${from.address} is reachable again`, { address: from.address });
-    this.#hooks.publish({
+    this.#publish({
       type: 'reachability',
       address: from.address,
       uid: from.uid,

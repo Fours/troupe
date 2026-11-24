@@ -3,6 +3,7 @@
 
 export { backstage } from './source.js';
 export { encode } from './encode.js';
+export { PROTOCOL } from './types.js';
 export type { WireValue } from './encode.js';
 export type {
   ActorInfo,
@@ -12,7 +13,10 @@ export type {
   BackstageRequest,
   BackstageResponse,
   BackstageSource,
+  ClusterInfo,
+  EntityTypeInfo,
   Frame,
+  MemberInfo,
   TimelineEvent,
   WireEvent,
 } from './types.js';

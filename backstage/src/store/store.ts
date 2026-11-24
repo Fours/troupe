@@ -4,7 +4,13 @@
 // animation frame during a rush, so `apply` only updates mutable records and marks what changed.
 // `view()` builds immutable objects for the changed actors only, so the UI can skip the rest.
 
-import type { ActorStatus, Frame, WireEvent, WireValue } from '@kylewillett/troupe/backstage';
+import type {
+  ActorStatus,
+  ClusterInfo,
+  Frame,
+  WireEvent,
+  WireValue,
+} from '@kylewillett/troupe/backstage';
 
 /** How long an actor stays in the tree after it stops, so it fades out rather than vanishing. */
 export const FADE_MS = 1_500;
@@ -29,6 +35,20 @@ export const FLOWS = 64;
 
 /** How many messages can be waiting for their end before the oldest is given up on. */
 export const PENDING = 5_000;
+
+/** How long a shard that changed owner stays marked as moved, in ms of system time. */
+export const MOVE_MS = 1_500;
+
+/** A version 1 `hello`, from a source older than the cluster: read as a system with no cluster. */
+export type HelloV1 = Omit<Extract<Frame, { type: 'hello' }>, 'protocol' | 'cluster'> & {
+  readonly protocol: 1;
+};
+
+/**
+ * Where an actor lives: under `/user`, or under `/system/sharding`, where a cluster keeps its
+ * regions, shards and entities.
+ */
+export type Section = 'user' | 'sharding';
 
 /** Where an actor is in its life, or `stopped` while it fades out. */
 export type ActorPhase = ActorStatus | 'stopped';
@@ -78,9 +98,10 @@ export interface ActorView {
   readonly path: string;
   /** The last part of its path. */
   readonly name: string;
-  /** Its parent's path, or `undefined` for a child of `/user`. */
+  readonly section: Section;
+  /** Its parent's path, or `undefined` for a child of `/user` or `/system/sharding`. */
   readonly parent?: string;
-  /** How deep it is under `/user`: 0 for a child of `/user`. */
+  /** How deep it is in its section: 0 for a child of `/user` or `/system/sharding`. */
   readonly level: number;
   readonly phase: ActorPhase;
   /** How many messages wait in its mailbox. */
@@ -121,6 +142,49 @@ export interface Totals {
   readonly deadLetters: number;
 }
 
+/** One member of the cluster, as the node the store is connected to sees it. */
+export interface MemberView {
+  readonly address: string;
+  readonly uid: number;
+  /** Its holder name, `<address>#<uid>`, as shard owners are named. */
+  readonly key: string;
+  readonly status: 'up' | 'leaving' | 'down';
+  readonly reachable: boolean;
+  /** Whether it's the node the store is connected to. */
+  readonly self: boolean;
+}
+
+/** One shard, and its owner as the node knows it. */
+export interface ShardView {
+  readonly shard: number;
+  /** Its holder, `<address>#<uid>`, or `undefined` while the node knows of none. */
+  readonly owner?: string;
+  /** When its owner last changed, while that's within {@link MOVE_MS}. */
+  readonly movedAt?: number;
+  /** Its owner before that change, if it had one. */
+  readonly movedFrom?: string;
+}
+
+/** One entity type's shards. */
+export interface EntityTypeView {
+  readonly type: string;
+  readonly shardCount: number;
+  readonly host: boolean;
+  /** Every shard, in order, `shardCount` of them. */
+  readonly shards: readonly ShardView[];
+}
+
+/** The node's place in its cluster. */
+export interface ClusterView {
+  readonly address: string;
+  readonly uid: number;
+  /** This node's holder name, `<address>#<uid>`. */
+  readonly self: string;
+  /** Sorted by address, as the node gave them. */
+  readonly members: readonly MemberView[];
+  readonly types: readonly EntityTypeView[];
+}
+
 /** Everything the UI draws. Unchanged parts keep their identity from one view to the next. */
 export interface ViewModel {
   /** Whether a `hello` has arrived. */
@@ -131,8 +195,13 @@ export interface ViewModel {
   readonly connection: number;
   /** The system's time, as far as the frames have told it. */
   readonly now: number;
-  /** Every actor under `/user`, each parent before its children, in spawn order. */
+  /**
+   * Every actor under `/system/sharding`, then every one under `/user`, each parent before its
+   * children, in spawn order.
+   */
   readonly actors: readonly ActorView[];
+  /** The node's place in its cluster, or `null` for a system that isn't in one. */
+  readonly cluster: ClusterView | null;
   /** Links for messages sent in the last {@link FLOW_MS}, oldest first. */
   readonly flows: readonly FlowView[];
   readonly totals: Totals;
@@ -140,16 +209,37 @@ export interface ViewModel {
 
 /** The store: apply each frame as it comes, and read the view at most once per animation frame. */
 export interface BackstageStore {
-  apply(frame: Frame): void;
+  apply(frame: Frame | HelloV1): void;
   /** The current view. The same object until another frame changes something. */
   view(): ViewModel;
 }
 
-const USER = '/user';
+/** Each section's root, which isn't shown, and how many `/`-separated parts it has. */
+const SECTIONS: readonly {
+  readonly section: Section;
+  readonly root: string;
+  readonly parts: number;
+}[] = [
+  { section: 'sharding', root: '/system/sharding', parts: 3 },
+  { section: 'user', root: '/user', parts: 2 },
+];
+
+/** The section `path` is in, if it's in one. */
+function sectionOf(path: string) {
+  return SECTIONS.find(({ root }) => path.startsWith(`${root}/`));
+}
+
+/** Shard owners, by type and shard, with when each last changed. */
+interface ShardRecord {
+  owner: string | undefined;
+  movedAt: number | undefined;
+  movedFrom: string | undefined;
+}
 
 interface ActorRecord {
   readonly path: string;
   readonly name: string;
+  readonly section: Section;
   readonly parent: string | undefined;
   readonly level: number;
   phase: ActorPhase;
@@ -177,7 +267,12 @@ export function createStore(): BackstageStore {
   let connection = 0;
   let now = 0;
   let actors = new Map<string, ActorRecord>();
-  let roots: string[] = [];
+  let roots: Record<Section, string[]> = { sharding: [], user: [] };
+  let clusterInfo: ClusterInfo | null = null;
+  // Kept across cluster frames, and hellos, so a move shows whichever brought it.
+  let shardRecords = new Map<string, ShardRecord[]>();
+  let clusterView: ClusterView | null = null;
+  let clusterChanged = false;
   let pending = new Map<number, Pending>();
   let flows: FlowView[] = [];
   let totals = zeroTotals();
@@ -194,16 +289,19 @@ export function createStore(): BackstageStore {
   const parentOf = (path: string): string | undefined => {
     const cut = path.lastIndexOf('/');
     const parent = path.slice(0, cut);
-    return parent === USER ? undefined : parent;
+    return SECTIONS.some(({ root }) => root === parent) ? undefined : parent;
   };
 
-  const add = (path: string, phase: ActorPhase, depth: number): ActorRecord => {
+  const add = (path: string, phase: ActorPhase, depth: number): ActorRecord | undefined => {
+    const where = sectionOf(path);
+    if (where === undefined) return undefined;
     const parent = parentOf(path);
     const record: ActorRecord = {
       path,
       name: path.slice(path.lastIndexOf('/') + 1),
+      section: where.section,
       parent,
-      level: path.split('/').length - 3,
+      level: path.split('/').length - 1 - where.parts,
       phase,
       depth,
       persistenceId: undefined,
@@ -217,9 +315,9 @@ export function createStore(): BackstageStore {
       view: undefined,
     };
     actors.set(path, record);
-    const siblings = parent === undefined ? roots : actors.get(parent)?.children;
+    const siblings = parent === undefined ? undefined : actors.get(parent)?.children;
     // A child whose parent the store never saw is shown at the top, rather than lost.
-    (siblings ?? roots).push(path);
+    (siblings ?? roots[where.section]).push(path);
     treeChanged = true;
     touch(record);
     return record;
@@ -232,7 +330,7 @@ export function createStore(): BackstageStore {
     }
     actors.delete(record.path);
     const parent = record.parent === undefined ? undefined : actors.get(record.parent);
-    const siblings = parent?.children ?? roots;
+    const siblings = parent?.children ?? roots[record.section];
     const index = siblings.indexOf(record.path);
     if (index >= 0) siblings.splice(index, 1);
     for (const [id, waiting] of pending) if (waiting.record === record) pending.delete(id);
@@ -265,13 +363,53 @@ export function createStore(): BackstageStore {
     touch(record);
   };
 
-  const hello = (frame: Extract<Frame, { type: 'hello' }>): void => {
+  /** Takes the node's view of its cluster, and marks each shard whose owner changed. */
+  const cluster = (info: ClusterInfo | null): void => {
+    clusterInfo = info;
+    clusterChanged = true;
+    cached = undefined;
+    if (info === null) {
+      shardRecords = new Map();
+      return;
+    }
+    const next = new Map<string, ShardRecord[]>();
+    for (const { type, shardCount, shards } of info.types) {
+      const before = shardRecords.get(type);
+      const records: ShardRecord[] = [];
+      for (let shard = 0; shard < shardCount; shard++) {
+        const old = before?.[shard];
+        records.push(
+          old === undefined
+            ? { owner: undefined, movedAt: undefined, movedFrom: undefined }
+            : { ...old },
+        );
+      }
+      const owners = new Map(shards.map(({ shard, owner }) => [shard, owner]));
+      records.forEach((record, shard) => {
+        const owner = owners.get(shard);
+        if (owner === record.owner) return;
+        // A shard first seen with an owner, as on a hello, didn't move.
+        if (before !== undefined) {
+          record.movedAt = now;
+          record.movedFrom = record.owner;
+        }
+        record.owner = owner;
+      });
+      next.set(type, records);
+    }
+    shardRecords = next;
+  };
+
+  const hello = (frame: Extract<Frame, { type: 'hello' }> | HelloV1): void => {
     connected = true;
     system = frame.system;
     connection++;
     now = frame.now;
     actors = new Map();
-    roots = [];
+    roots = { sharding: [], user: [] };
+    // A new connection, or a new system: nothing it shows has moved yet.
+    shardRecords = new Map();
+    cluster(frame.protocol === 1 ? null : frame.cluster);
     pending = new Map();
     flows = [];
     totals = zeroTotals();
@@ -279,8 +417,8 @@ export function createStore(): BackstageStore {
     treeChanged = true;
     cached = undefined;
     for (const info of frame.actors) {
-      if (!info.path.startsWith(`${USER}/`)) continue;
       const record = add(info.path, info.status, info.depth);
+      if (record === undefined) continue;
       record.persistenceId = info.persistenceId;
       record.depths.push({ at: frame.now, depth: info.depth, peak: info.depth });
     }
@@ -363,11 +501,11 @@ export function createStore(): BackstageStore {
     cached = undefined;
     switch (e.type) {
       case 'spawned': {
-        if (!e.path.startsWith(`${USER}/`)) return;
+        if (sectionOf(e.path) === undefined) return;
         const existing = actors.get(e.path);
         // A name used again while the last one with it fades out.
         if (existing !== undefined) remove(existing);
-        add(e.path, 'running', 0).depths.push({ at: e.at, depth: 0, peak: 0 });
+        add(e.path, 'running', 0)?.depths.push({ at: e.at, depth: 0, peak: 0 });
         // Children are spawned from a running handler, so the parent has started.
         const parent = actors.get(parentOf(e.path) ?? '');
         if (parent !== undefined) started(parent);
@@ -475,6 +613,7 @@ export function createStore(): BackstageStore {
     return {
       path: actor.path,
       name: actor.name,
+      section: actor.section,
       ...(actor.parent === undefined ? {} : { parent: actor.parent }),
       level: actor.level,
       phase: actor.phase,
@@ -491,11 +630,54 @@ export function createStore(): BackstageStore {
   };
 
   let lastActors: readonly ActorView[] = [];
+  // Moves still marked, so the view is rebuilt as each mark runs out.
+  let marked = false;
+
+  const buildCluster = (): ClusterView | null => {
+    const info = clusterInfo;
+    if (info === null) return null;
+    if (!clusterChanged && !marked && clusterView !== null) return clusterView;
+    clusterChanged = false;
+    marked = false;
+    const self = `${info.address}#${String(info.uid)}`;
+    const types = info.types.map(({ type, shardCount, host }): EntityTypeView => {
+      const records = shardRecords.get(type) ?? [];
+      return {
+        type,
+        shardCount,
+        host,
+        shards: records.map((record, shard): ShardView => {
+          const { movedAt } = record;
+          const moving = movedAt !== undefined && now - movedAt < MOVE_MS;
+          if (moving) marked = true;
+          return {
+            shard,
+            ...(record.owner === undefined ? {} : { owner: record.owner }),
+            ...(moving ? { movedAt } : {}),
+            ...(moving && record.movedFrom !== undefined ? { movedFrom: record.movedFrom } : {}),
+          };
+        }),
+      };
+    });
+    clusterView = {
+      address: info.address,
+      uid: info.uid,
+      self,
+      members: info.members.map((m) => {
+        const key = `${m.address}#${String(m.uid)}`;
+        return { ...m, key, self: key === self };
+      }),
+      types,
+    };
+    return clusterView;
+  };
 
   return {
     apply(frame) {
       if (frame.type === 'hello') hello(frame);
-      else event(frame.event);
+      else if (frame.type === 'cluster') {
+        if (connected) cluster(frame.cluster);
+      } else event(frame.event);
     },
     view() {
       if (cached !== undefined) return cached;
@@ -512,7 +694,8 @@ export function createStore(): BackstageStore {
           ordered.push(actor.view);
           for (const child of actor.children) visit(child);
         };
-        for (const root of roots) visit(root);
+        for (const root of roots.sharding) visit(root);
+        for (const root of roots.user) visit(root);
         lastActors = ordered;
         treeChanged = false;
       }
@@ -522,6 +705,7 @@ export function createStore(): BackstageStore {
         connection,
         now,
         actors: lastActors,
+        cluster: buildCluster(),
         flows: [...flows],
         totals,
       };

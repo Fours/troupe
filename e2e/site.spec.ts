@@ -1,14 +1,15 @@
 import { expect, test, type Page } from '@playwright/test';
 import { LOCAL, SITE_HOST } from './site.ts';
 
-// Both pages as the deployed site serves them (milestone 3, T9): each names its own URL on
+// Every page as the deployed site serves them (milestone 3, T9): each names its own URL on
 // troupe.kylewillett.com for search engines and link previews, and PostHog is a chunk of its own
-// that neither page waits for. Under automation it never loads.
+// that no page waits for. Under automation it never loads.
 
 const SITE = 'https://troupe.kylewillett.com/';
 const PAGES = [
   { path: '/', url: SITE },
   { path: '/how-it-works/', url: `${SITE}how-it-works/` },
+  { path: '/cluster/', url: `${SITE}cluster/` },
 ];
 
 /** Opens a page with nothing leaving the site, and returns every URL it requested. */

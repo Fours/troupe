@@ -1,4 +1,4 @@
-import { expect, test } from './fixtures.ts';
+import { card, expect, test } from './fixtures.ts';
 
 // The page keeps up: a rush of 30 customers at 4×, with Backstage drawing, and no animation frame
 // takes longer than 50 ms. Chromium's long-animation-frame entries time every frame that runs
@@ -22,5 +22,38 @@ test(`a rush at 4× keeps every frame under ${String(BUDGET_MS)} ms`, async ({ d
     () => (window as unknown as { longFrames: number[] }).longFrames,
   );
   // Every entry is past 50 ms by definition, so there should be none.
+  expect(long).toEqual([]);
+});
+
+// Festival night runs four or five systems in the page. Killing a node at 4×, through its
+// failover, with Backstage drawing node-1, keeps the same budget.
+test(`a kill at 4× on festival night keeps every frame under ${String(BUDGET_MS)} ms`, async ({
+  festival: page,
+}) => {
+  // Past the start, once the shows have spread out.
+  await expect
+    .poll(
+      async () => {
+        const [m = '0', sec = '0'] = (
+          (await page.getByLabel('Showtime').textContent()) ?? '0:0'
+        ).split(':');
+        return Number(m) * 60 + Number(sec);
+      },
+      { timeout: 20_000 },
+    )
+    .toBeGreaterThan(13);
+  await page.evaluate(() => {
+    const seen: number[] = [];
+    (window as unknown as { longFrames: number[] }).longFrames = seen;
+    new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) seen.push(Math.round(entry.duration));
+    }).observe({ type: 'long-animation-frame' });
+  });
+  await card(page, 'node-2').getByRole('button', { name: 'Kill node' }).click();
+  // Long enough at 4× for the leases to run out and the shows to come back elsewhere.
+  await page.waitForTimeout(5_000);
+  const long = await page.evaluate(
+    () => (window as unknown as { longFrames: number[] }).longFrames,
+  );
   expect(long).toEqual([]);
 });

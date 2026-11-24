@@ -8,6 +8,7 @@ import {
   HOOKS,
   INSPECT,
   type CellInspection,
+  type ClusterInspection,
   type SystemHooks,
   type SystemInspection,
   type Watcher,
@@ -213,10 +214,27 @@ export function createSystem(opts: ActorSystemOptions = {}): SystemHandle {
     },
   };
 
+  let clusterView: ClusterInspection | undefined;
+  const clusterListeners = new Set<() => void>();
   const inspection: SystemInspection = Object.freeze({
     scheduler,
     log,
-    walk: () => walk(guardian.childCells, []),
+    walk: () => {
+      const out = walk(guardian.childCells, []);
+      const sharding = systemGuardian.childCells.get('sharding');
+      return sharding === undefined ? out : walk(sharding.childCells, out);
+    },
+    cluster: () => clusterView,
+    onClusterChange(listener: () => void) {
+      // A wrapper per call, so adding one listener twice gives two subscriptions.
+      const own = () => {
+        listener();
+      };
+      clusterListeners.add(own);
+      return () => {
+        clusterListeners.delete(own);
+      };
+    },
   });
 
   const system: ActorSystem = {
@@ -292,6 +310,19 @@ export function createSystem(opts: ActorSystemOptions = {}): SystemHandle {
     onTerminate(task: () => Promise<void>) {
       if (tasksRun) throw new Error('onTerminate: the system has already stopped /user');
       terminateTasks.push(task);
+    },
+    setCluster(view: ClusterInspection) {
+      if (clusterView !== undefined) throw new Error('a cluster view is already set');
+      clusterView = view;
+      return () => {
+        for (const listener of [...clusterListeners]) {
+          try {
+            listener();
+          } catch (error) {
+            log.error('a cluster view listener threw; skipped it', { error });
+          }
+        }
+      };
     },
     tellFrom(ref: AnyRef, message: unknown, from: string | undefined) {
       const outer = host.senderOverride;

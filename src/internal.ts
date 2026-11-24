@@ -92,8 +92,50 @@ export interface SystemInspection {
   readonly scheduler: Scheduler;
   /** The system's logger, wrapped so it never throws. For an inspector's own failures. */
   readonly log: Logger;
-  /** Every live actor under `/user`, depth first, each parent before its children in spawn order. */
+  /**
+   * Every live actor under `/user`, then every one under `/system/sharding` (the cluster's
+   * regions, shards and entities), depth first, each parent before its children in spawn order.
+   */
   walk(): CellInspection[];
+  /** This node's place in a cluster, once it has joined one. */
+  cluster(): ClusterInspection | undefined;
+  /**
+   * Calls `listener` whenever this node's view of its cluster may have changed: a member, its
+   * reachability, or a shard owner this node knows of. It must not throw.
+   * @returns A function that stops the calls.
+   */
+  onClusterChange(listener: () => void): () => void;
+}
+
+/** One member of a cluster, as the node an inspector is attached to sees it. */
+export interface MemberInspection {
+  readonly address: string;
+  readonly uid: number;
+  readonly status: 'up' | 'leaving' | 'down';
+  readonly reachable: boolean;
+}
+
+/** One entity type on a node, and the shard owners that node knows of. */
+export interface EntityTypeInspection {
+  readonly type: string;
+  readonly shardCount: number;
+  /** Whether this node hosts the type's shards, or only routes to them. */
+  readonly host: boolean;
+  /**
+   * The holder of each shard this node knows of, `<address>#<uid>`, in shard order: its own
+   * shards, and the holders its region last learned for the others (decision 0030).
+   */
+  readonly owners: readonly (readonly [shard: number, holder: string])[];
+}
+
+/** What the cluster shows an inspector of the node it runs on. Read-only. */
+export interface ClusterInspection {
+  readonly address: string;
+  readonly uid: number;
+  /** The members as this node sees them, itself included, sorted by address. */
+  members(): readonly MemberInspection[];
+  /** The entity types this node has registered, in the order it registered them. */
+  entityTypes(): readonly EntityTypeInspection[];
 }
 
 /** What a persistent actor's definition offers an inspector, without touching a live actor. */
@@ -213,6 +255,12 @@ export interface SystemHooks {
   onTerminate(task: () => Promise<void>): void;
   /** Tells `ref` with `from` as the sender, for a message from another node (decision 0026). */
   tellFrom(ref: AnyRef, message: unknown, from: string | undefined): void;
+  /**
+   * Shows `view` to inspectors of this system, such as Backstage. One per system.
+   * @returns A function the cluster calls whenever the view may have changed.
+   * @throws Error if a view is already set.
+   */
+  setCluster(view: ClusterInspection): () => void;
 }
 
 /** The cluster's hook on a system the core made. */

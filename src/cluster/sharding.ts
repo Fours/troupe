@@ -6,7 +6,7 @@
 import { actor } from '../actor.js';
 import { checkInt, checkKeys, describe } from '../checks.js';
 import { ActorNameError } from '../errors.js';
-import type { SystemHooks } from '../internal.js';
+import type { EntityTypeInspection, SystemHooks } from '../internal.js';
 import { isValidName } from '../names.js';
 import type { StandardSchemaV1 } from '../persistence/standard-schema.js';
 import { checkStrategy, supervise, type SupervisorStrategy } from '../supervision.js';
@@ -105,6 +105,8 @@ export interface ShardingEnv {
   readonly leases: Required<LeaseOptions>;
   readonly maxFrameBytes: number;
   readonly members: () => readonly Member[];
+  /** Tells inspectors that this node's view of its shards' owners may have changed. */
+  readonly changed: () => void;
 }
 
 const OPTIONS = new Set([
@@ -159,11 +161,16 @@ export function isShardStore(value: unknown): value is ShardStore {
 interface Registered {
   readonly region: ActorRef<RegionMsg>;
   readonly shardCount: number;
+  readonly host: boolean;
+  /** The region's holder cache, once it has started. */
+  readonly cache: { holders: ReadonlyMap<number, string> | undefined };
 }
 
 /** Sharding for one node, as its cluster sees it. */
 export interface ShardingNode {
   readonly api: Sharding;
+  /** Each entity type on this node, and the shard owners its region knows of, for inspectors. */
+  entityTypes(): EntityTypeInspection[];
   /**
    * Resolves once every region has stopped: after a leave, once each has handed its shards off.
    */
@@ -280,6 +287,8 @@ export function startSharding(env: ShardingEnv): ShardingNode {
         actor<never, null>({ initial: null, receive: (s) => s }),
         'sharding',
       );
+      // Filled in as the region starts.
+      const cache: Registered['cache'] = { holders: undefined };
       const region = hooks.spawnSystem(
         regionDef({
           type,
@@ -299,6 +308,10 @@ export function startSharding(env: ShardingEnv): ShardingNode {
           store,
           keeper: checked.host ? keeperFor(store) : undefined,
           members: env.members,
+          showHolders: (holders) => {
+            cache.holders = holders;
+          },
+          changed: env.changed,
           onStopped: () => {
             stopped.add(type);
             if (allStopped()) for (const resolve of waitingForStop.splice(0)) resolve();
@@ -308,7 +321,7 @@ export function startSharding(env: ShardingEnv): ShardingNode {
         undefined,
         guardian,
       );
-      types.set(type, { region, shardCount });
+      types.set(type, { region, shardCount, host: checked.host, cache });
       region.tell(
         stopping === undefined
           ? new Internal({ t: 'members' })
@@ -330,6 +343,13 @@ export function startSharding(env: ShardingEnv): ShardingNode {
   });
   return {
     api,
+    entityTypes: () =>
+      [...types].map(([type, { shardCount, host, cache }]) => ({
+        type,
+        shardCount,
+        host,
+        owners: [...(cache.holders ?? [])].sort(([a], [b]) => a - b),
+      })),
     whenStopped: () =>
       allStopped()
         ? Promise.resolve()
