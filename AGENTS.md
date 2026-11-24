@@ -110,22 +110,27 @@ src/
                     NodeClock per node on one simulation clock, with drift and pauses, and
                     throughClock, which hands a node its frames through its clock; loop.ts, the
                     run loop that closes virtual time, and StallError; yield.ts, the one macrotask
-                    it yields, on a MessageChannel (0033)
+                    it yields, on a MessageChannel (0033); network.ts, simulatedNetwork, a
+                    Transport on simulation time with partitions, resets, delay and reordering,
+                    and in chaos mode lost, reordered and repeated frames (0035)
 test/               mirrors src/; helpers/ holds deferred() and test actors (tree, watcher, idle),
                     the persistent account, faultyJournal() and faultySnapshots() for holding
                     and failing calls, postgres.ts (the test database, fresh schemas, and a
                     pool that holds a COMMIT or any statement), and cluster.ts (N nodes on one ManualScheduler and
-                    one network, in memory or TCP on loopback through tcp-network.ts, with settle,
+                    one network, in memory, simulated, or TCP on loopback through tcp-network.ts,
+                    with settle,
                     advance, start, kill, restart, terminate (which advances while the node hands
                     off) and hold (a promise settle should wait past), membership when asked for,
                     and with sharding one shard store every node shares, which a kill cuts the node
                     off from. With clocks, each incarnation gets a NodeClock that drifts, and
                     settle and advance go through Rehearsal's run loop).
-                    cluster/remoting-suite.ts is remoting's suite, run on both networks,
+                    cluster/remoting-suite.ts is remoting's suite, run on all three networks,
                     cluster/handoff.test.ts T7's passivation, rebalancing, handoff and remembering,
                     and cluster/invariant.test.ts the in-process check of one live instance per
                     entity, on one clock and on a clock per node
-                    rehearsal/ tests Rehearsal's clocks, run loop and stalls
+                    rehearsal/ tests Rehearsal's clocks, run loop and stalls, and the simulated
+                    network: on its own, as a property over random faults, and under clusters
+                    (chaos.test.ts)
                     persistence/contract.ts is the journal contract every backend runs, and
                     cluster/shard-store-contract.ts the shard stores';
                     node/ tests the Node-only backends, lint.test.ts the lint config's boundaries

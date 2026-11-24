@@ -19,6 +19,11 @@ import { inMemoryShardStore } from '../../src/cluster/shard-memory.js';
 import { fnv1a } from '../../src/hash.js';
 import { NodeClock, throughClock } from '../../src/rehearsal/clock.js';
 import { RunLoop } from '../../src/rehearsal/loop.js';
+import {
+  simulatedNetwork,
+  type SimulatedNetwork,
+  type SimulatedNetworkOptions,
+} from '../../src/rehearsal/network.js';
 import type { ShardStore } from '../../src/cluster/shard-store.js';
 import type { LeaseOptions } from '../../src/cluster/sharding.js';
 import { startRemoting, type Remoting, type RemotingOptions } from '../../src/cluster/remoting.js';
@@ -47,8 +52,8 @@ export interface TestNetwork {
   close(): Promise<void>;
 }
 
-/** Which network a test cluster runs on. */
-export type NetworkKind = 'memory' | 'tcp';
+/** Which network a test cluster runs on: `simulated` is Rehearsal's (milestone 5, T2). */
+export type NetworkKind = 'memory' | 'tcp' | 'simulated';
 
 /** One node of a test cluster. */
 export interface TestNode {
@@ -87,6 +92,8 @@ export interface TestClusterOptions {
   seed?: number;
   /** The in-memory network's latency. Default 1. */
   latencyMs?: number;
+  /** The simulated network's options. Its random is drawn from the seed. */
+  simulated?: Omit<SimulatedNetworkOptions, 'scheduler' | 'random'>;
   /** The cluster's name. Default `test`. */
   cluster?: string;
   /** Record message events too. Default false. */
@@ -105,7 +112,7 @@ export interface TestClusterOptions {
   /**
    * Give each incarnation its own clock on the cluster's scheduler, which becomes simulation time,
    * with a drift drawn within ±`driftPpm` (default 200), and settle and advance through
-   * Rehearsal's run loop, with its stall check. Memory network only.
+   * Rehearsal's run loop, with its stall check. Not on TCP.
    */
   clocks?: { driftPpm?: number; stallAfterMs?: number };
   /** Start every node at once. Default true. Otherwise `start(i)` starts each. */
@@ -119,6 +126,8 @@ export interface TestClusterOptions {
 export interface TestCluster {
   readonly scheduler: ManualScheduler;
   readonly network: TestNetwork;
+  /** The simulated network, to inject faults into, on `network: 'simulated'`. */
+  readonly simulated: SimulatedNetwork | undefined;
   /** The shard store every node shares, with `sharding`, on the scheduler's clock. */
   readonly store: ShardStore;
   /** The live node at each index. `restart` replaces one. Unstarted ones are missing. */
@@ -160,7 +169,7 @@ export async function createTestCluster(opts: TestClusterOptions = {}): Promise<
   const seed = opts.seed ?? 1;
   const scheduler = new ManualScheduler();
   if (opts.clocks !== undefined && opts.network === 'tcp') {
-    throw new TypeError('createTestCluster: clocks need the memory network');
+    throw new TypeError('createTestCluster: clocks need an in-process network');
   }
   const loop =
     opts.clocks === undefined
@@ -169,10 +178,20 @@ export async function createTestCluster(opts: TestClusterOptions = {}): Promise<
           scheduler,
           opts.clocks.stallAfterMs === undefined ? {} : { stallAfterMs: opts.clocks.stallAfterMs },
         );
+  const simulated =
+    opts.network === 'simulated'
+      ? simulatedNetwork({
+          ...opts.simulated,
+          scheduler,
+          random: seededRandom(fnv1a(`network ${String(seed)}`)),
+        })
+      : undefined;
   const network =
     opts.network === 'tcp'
       ? await tcpTestNetwork()
-      : memoryTestNetwork(inMemoryNetwork({ scheduler, latencyMs: opts.latencyMs ?? 1 }));
+      : memoryTestNetwork(
+          simulated ?? inMemoryNetwork({ scheduler, latencyMs: opts.latencyMs ?? 1 }),
+        );
   const all: TestNode[] = [];
   let incarnations = 0;
   const store = inMemoryShardStore({ clock: () => scheduler.now() });
@@ -329,6 +348,7 @@ export async function createTestCluster(opts: TestClusterOptions = {}): Promise<
   return {
     scheduler,
     network,
+    simulated,
     store,
     nodes,
     incarnations: all,
@@ -386,7 +406,7 @@ export async function createTestCluster(opts: TestClusterOptions = {}): Promise<
   };
 }
 
-function memoryTestNetwork(network: ReturnType<typeof inMemoryNetwork>): TestNetwork {
+function memoryTestNetwork(network: Pick<SimulatedNetwork, 'transport' | 'kill'>): TestNetwork {
   const live = new Set<Transport>();
   return {
     real: false,

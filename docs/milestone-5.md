@@ -171,6 +171,8 @@ Each stream is `seededRandom` of a hash of the seed and the stream's name. Remov
 - **Contract mode** (the default) only does what TCP can: lose frames by closing the connection, never one in the middle, and never reorder or repeat within one.
 - **Chaos mode** adds the last three. The `Transport` contract promises order and no duplicates ([0026](decisions/0026-remoting-is-at-most-once-behind-a-transport.md)), so ordering checks are off in chaos mode. Safety checks stay on: one live instance and no lost acknowledged write rest on the lease and the journal, never on the network, and chaos mode tests that claim.
 - With no faults, it passes remoting's suite, as the in-memory and TCP networks do.
+- **A partition in contract mode holds frames,** as TCP retransmits across a dropped cable: they arrive in order once it heals, or the connection resets at both ends after `resetAfterMs` (default 10,000) with them lost. A dial across one opens on heal or fails after `resetAfterMs`. In chaos mode a partition loses what it cuts. Settled in T2 ([0035](decisions/0035-safety-under-any-network-ordering-under-the-contract.md)).
+- **Latency is drawn per open, frame and close,** from 1 to 3 ms by default, so frames on different connections overtake each other even with no faults.
 
 ### The simulated database
 
@@ -347,8 +349,8 @@ Do these in order. Each one ends with passing tests.
 
 | Task | Status | Commit |
 | --- | --- | --- |
-| T1. Node clocks and the run loop | Done | |
-| T2. The simulated network | Not started | |
+| T1. Node clocks and the run loop | Done | 3fb3a2a |
+| T2. The simulated network | Done | |
 | T3. The simulated database | Not started | |
 | T4. Timeouts | Not started | |
 | T5. Fault plans, the history and the invariants | Not started | |
@@ -381,11 +383,11 @@ Write [0035](#decision-records).
 
 **Done when** tests cover:
 
-- [ ] With no faults, remoting's suite passes on it, as on the in-memory and TCP networks
-- [ ] Each fault does what its row says, on simulation time: partitions both ways and one way, resets, delay, reordering across connections
-- [ ] Contract mode never loses a frame from the middle of a connection, or reorders or repeats one within it: a property test over random faults
-- [ ] Chaos mode does each of the three, and remoting, membership and sharding never throw on what it does
-- [ ] Membership converges after a partition heals, with frames lost and reordered on the way
+- [x] With no faults, remoting's suite passes on it, as on the in-memory and TCP networks
+- [x] Each fault does what its row says, on simulation time: partitions both ways and one way, resets, delay, reordering across connections
+- [x] Contract mode never loses a frame from the middle of a connection, or reorders or repeats one within it: a property test over random faults
+- [x] Chaos mode does each of the three, and remoting, membership and sharding never throw on what it does
+- [x] Membership converges after a partition heals, with frames lost and reordered on the way
 
 ### T3. The simulated database
 

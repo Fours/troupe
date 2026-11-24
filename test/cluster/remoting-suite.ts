@@ -99,8 +99,14 @@ function tapped(transport: Transport) {
   return { tap, sent, dialed, accepted };
 }
 
-/** Runs the remoting suite on `kind` of network. */
-export function remotingSuite(kind: NetworkKind): void {
+/**
+ * Runs the remoting suite on `kind` of network. `defaults` go to every cluster it makes: its short
+ * advances assume the in-memory network's 1 ms latency.
+ */
+export function remotingSuite(
+  kind: NetworkKind,
+  defaults: Parameters<typeof createTestCluster>[0] = {},
+): void {
   let open: TestCluster[] = [];
   afterEach(async () => {
     for (const made of open) await made.shutdown();
@@ -108,7 +114,7 @@ export function remotingSuite(kind: NetworkKind): void {
   });
 
   async function cluster(opts: Parameters<typeof createTestCluster>[0] = {}): Promise<TestCluster> {
-    const made = await createTestCluster({ network: kind, ...opts });
+    const made = await createTestCluster({ network: kind, ...defaults, ...opts });
     open.push(made);
     return made;
   }
@@ -230,7 +236,7 @@ export function remotingSuite(kind: NetworkKind): void {
     });
 
     // Only on the in-memory network: on TCP the reply needs real I/O, so the event loop has to run.
-    it.runIf(kind === 'memory')(
+    it.runIf(kind !== 'tcp')(
       'pipes on the scheduler: the reply frame and the piped message run in one task',
       async () => {
         const c = await cluster({ addresses: ['node-1', 'node-2'] });
@@ -869,7 +875,7 @@ export function remotingSuite(kind: NetworkKind): void {
   });
 
   // Only on the in-memory network: TCP's timing is the operating system's, not the seed's.
-  describe.runIf(kind === 'memory')('determinism', () => {
+  describe.runIf(kind !== 'tcp')('determinism', () => {
     async function run(seed: number): Promise<string[][]> {
       const c = await createTestCluster({ seed, messages: true, system: { askTimeoutMs: 500 } });
       const nodes = c.nodes;

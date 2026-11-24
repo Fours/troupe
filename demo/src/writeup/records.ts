@@ -38,6 +38,7 @@ export const RECORDS = {
   '0031': '0031-failover-waits-for-the-lease-not-for-downing',
   '0032': '0032-1-0-comes-after-rehearsal',
   '0033': '0033-one-simulation-clock-and-a-clock-per-node',
+  '0035': '0035-safety-under-any-network-ordering-under-the-contract',
 } as const;
 
 export type RecordId = keyof typeof RECORDS;

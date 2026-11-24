@@ -147,7 +147,7 @@ describe('three nodes, each on its own clock', () => {
 
   it('can’t run on TCP', async () => {
     await expect(createTestCluster({ network: 'tcp', clocks: {} })).rejects.toThrow(
-      /clocks need the memory network/,
+      /clocks need an in-process network/,
     );
   });
 });
