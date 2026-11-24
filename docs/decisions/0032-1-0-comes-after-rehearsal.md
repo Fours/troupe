@@ -1,6 +1,6 @@
 # 0032. 1.0 comes after milestone 5, not milestone 4
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-24
 - **Milestone:** 4
 
@@ -25,7 +25,14 @@
 
 ## Evidence
 
-When 0.2.0 has been published from CI with provenance, and installs from npm with the README's quick start working on Node 22, 24 and 26, this record is Accepted, with the release run here.
+0.2.0 was published on 2026-11-24 by [release run 45440820039](https://github.com/Fours/troupe/actions/runs/45440820039), first attempt, from the tag `v0.2.0` on `c64bd90`.
+
+- **The changes 1.0 would have broken:** 0.2.0's changelog marks four, all needed by milestone 4: `deadLetter`'s three new reasons, `SystemEvent`'s five membership events and two shard events, and Backstage's protocol version 2. Each would have been a major version after 1.0.
+- **CI first:** the run's six CI jobs (`check` on Node 22, 24 and 26, `demo`, `cluster` and `cluster-docker`) passed before `publish` started.
+- **Provenance:** the publish step signed a provenance statement from GitHub Actions, and npm lists a SLSA v1 provenance attestation for 0.2.0. In an empty project, `npm audit signatures` after installing 0.2.0 reports a verified registry signature and a verified attestation.
+- **What ships:** `check-pack.ts`, `publint` and `attw` passed in CI and again in the publish job: 142 files, 242.7 kB packed, with `/cluster`, `/cluster/postgres` and `/cluster/tcp` resolving for ESM. Installed from npm, the three load and export what the export-list test expects, and `PROTOCOL` is 2.
+- **What users get:** `scripts/smoke-published.sh 0.2.0` installed 0.2.0 from npm into an empty folder and ran the README's quick start on Node 22.23.5, 24.22.3 and 26.13.1, and each printed `2`.
+- **Still 0.x:** npm's `latest` is 0.2.0.
 
 ## Consequences
 

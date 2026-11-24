@@ -350,7 +350,7 @@ Do these in order. Each one ends with passing tests.
 | T7. Passivation, rebalancing, handoff and remembering | Done | 666dd65 |
 | T8. Real processes: the multi-process test and the benchmark | Done | 146c490 |
 | T9. Backstage for clusters, and festival night on the site | Done | a01a605 |
-| T10. Docker Compose, the write-up and 0.2.0 | In progress | |
+| T10. Docker Compose, the write-up and 0.2.0 | Done | 4397025 |
 
 ### T1. The wire format and the core's hooks
 
@@ -575,12 +575,12 @@ Write [0032](#decision-records).
 
 **Done when:**
 
-- [ ] The demo in "Outcome" works from a clean clone with `npm ci && npm run cluster:up`, and the smoke script kills a node and checks the failover in CI
-- [ ] "How Troupe works" has a section on the cluster that cites 0025 to 0032, and "What's next" is only Rehearsal. The records test passes
-- [ ] The README covers joining a cluster, sharding an entity type, what's guaranteed (at most one instance, at most once, order per pair) and what isn't, the secret and the private network, and the failover numbers
-- [ ] Every new export has TSDoc, and the export-list test, `publint`, `attw` and `check-pack.ts` cover the three new entry points
-- [ ] After your approval in chat, `v0.2.0` is tagged and published with provenance, and the smoke script's quick start works from npm on Node 22, 24 and 26
-- [ ] The changelog lists every public API change in 0.2.0
+- [x] The demo in "Outcome" works from a clean clone with `npm ci && npm run cluster:up`, and the smoke script kills a node and checks the failover in CI
+- [x] "How Troupe works" has a section on the cluster that cites 0025 to 0032, and "What's next" is only Rehearsal. The records test passes
+- [x] The README covers joining a cluster, sharding an entity type, what's guaranteed (at most one instance, at most once, order per pair) and what isn't, the secret and the private network, and the failover numbers
+- [x] Every new export has TSDoc, and the export-list test, `publint`, `attw` and `check-pack.ts` cover the three new entry points
+- [x] After your approval in chat, `v0.2.0` is tagged and published with provenance, and the smoke script's quick start works from npm on Node 22, 24 and 26
+- [x] The changelog lists every public API change in 0.2.0
 
 Notes from T10 (2026-11-24):
 
@@ -589,6 +589,8 @@ Notes from T10 (2026-11-24):
 - **The smoke script is TypeScript**, `scripts/cluster-smoke.ts`, not the `.sh` first planned: it follows each show's state from JSON lines, which bash would need `jq` for. It waits for node-2 to host shows, kills it, needs each of its shows back on another node within 30 s and past its last confirmed sale, checks Backstage answers, starts node-2 again and needs a show to move back. Locally the shows were back 10.5 s after the kill.
 - **The crowd serves Backstage too**, on 7074, so its grid shows the routing table repoint. Each container listens on the port it's published on, `127.0.0.1:707N`, so `serveBackstage`'s Host check passes unchanged.
 - **The compose file names its project** `troupe-festival-night`. Without it, both compose files in this folder were project `troupe`, and the cluster's Postgres replaced the test one.
+- **CI's first `cluster-docker` run failed**: the smoke script imported the shows from `show.ts`, which loads the package from `dist/`, and that job builds the package only inside the image. The shows moved to `examples/cluster/shows.ts`, which imports nothing (`c64bd90`), checked from a copy with no `dist/`.
+- **0.2.0 is on npm**, from [release run 45440820039](https://github.com/Fours/troupe/actions/runs/45440820039) on `v0.2.0` (`c64bd90`), with provenance. The quick start works from npm on Node 22, 24 and 26 (0032's Evidence).
 
 ## Stretch goals
 
@@ -600,14 +602,14 @@ Only after T10, and only if the milestone is otherwise done.
 
 ## Definition of done
 
-- [ ] T1 to T10 are complete.
-- [ ] `npm run lint`, `typecheck`, `test`, `test:integration`, `coverage`, `build` and `check:package` all pass, locally and in CI, and so do the Playwright job and the `test:cluster` job.
-- [ ] Line coverage is at least 90% for `src/`.
-- [ ] There are no runtime dependencies, and no peer dependencies.
-- [ ] Everything outside `src/node/` builds with no Node types and imports no Node built-ins.
-- [ ] Both shard stores pass the contract suite, and the invariant holds over every seed in the in-process test and every kill in the multi-process one.
-- [ ] `@kylewillett/troupe` 0.2.0 is on npm with provenance.
-- [ ] The cluster demo works in Docker Compose and is live on the site.
+- [x] T1 to T10 are complete.
+- [x] `npm run lint`, `typecheck`, `test`, `test:integration`, `coverage`, `build` and `check:package` all pass, locally and in CI, and so do the Playwright job and the `test:cluster` job.
+- [x] Line coverage is at least 90% for `src/`.
+- [x] There are no runtime dependencies, and no peer dependencies.
+- [x] Everything outside `src/node/` builds with no Node types and imports no Node built-ins.
+- [x] Both shard stores pass the contract suite, and the invariant holds over every seed in the in-process test and every kill in the multi-process one.
+- [x] `@kylewillett/troupe` 0.2.0 is on npm with provenance.
+- [x] The cluster demo works in Docker Compose and is live on the site.
 
 ## Decision records
 

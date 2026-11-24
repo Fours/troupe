@@ -51,4 +51,4 @@ When you change a decision, update its record in the same commit as the code.
 | [0029](0029-a-shard-is-owned-by-whoever-holds-its-lease.md) | A shard is owned by whoever holds its lease, and the store and the holder each time the lease on their own clock | Accepted | 4 |
 | [0030](0030-shards-are-placed-by-rendezvous-hashing.md) | Shards are placed by rendezvous hashing over the reachable members, and move only by handoff or an expired lease | Accepted, routing superseded by 0031 | 4 |
 | [0031](0031-failover-waits-for-the-lease-not-for-downing.md) | Failover waits for the lease, not for downing: a region routes only to a holder it can reach | Accepted | 4 |
-| [0032](0032-1-0-comes-after-rehearsal.md) | 1.0 comes after milestone 5, not milestone 4 | Proposed | 4 |
+| [0032](0032-1-0-comes-after-rehearsal.md) | 1.0 comes after milestone 5, not milestone 4 | Accepted | 4 |
