@@ -7,7 +7,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { exportsOf, program, root } from './helpers/exports.js';
 
 // The public API, as the milestone 1 spec lists it under T6, plus the JSON check events and
-// snapshots must pass (0037).
+// snapshots must pass (0037) and pipeToSelf's options (0038).
 const MAIN_VALUES = [
   'ActorNameError',
   'ActorStoppedError',
@@ -35,6 +35,8 @@ const MAIN_TYPES = [
   'JsonValue',
   'LogLevel',
   'Logger',
+  'PipeOptions',
+  'PipeSignal',
   'Result',
   'Scheduler',
   'Signal',

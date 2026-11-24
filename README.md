@@ -163,6 +163,7 @@ const session = actor<SessionMsg, { lastLoaded?: string }>({
 
 - **Timers** are keyed. `startSingle` and `startPeriodic` replace any timer with the same key, and `cancel(key)` stops one. Once a timer is cancelled or replaced, its message is never received, even if it's already in the mailbox. Every timer is cancelled when the actor stops or restarts.
 - **`ctx.pipeToSelf(promise, map)`** waits for a promise without blocking the mailbox. When the promise settles, the actor gets `map(result)` as a message, where `result` is `{ ok: true, value }` or `{ ok: false, error }`. The mapper runs inside the actor, so a throw there goes to supervision.
+- **`ctx.pipeToSelf(promise, map, { signal })`** also ends the pipe when `signal` aborts: the actor gets `map({ ok: false, error: signal.reason })` at once, and whatever the promise does afterwards is ignored. Use it for work that one of the actor's own timers, or its `postStop`, cancels, such as a call with a timeout. A promise that ignores its signal then can't hold the actor up ([0038](docs/decisions/0038-a-pipe-with-a-signal-ends-on-the-scheduler.md)).
 
 ## The testkit
 
@@ -184,7 +185,7 @@ await kit.advance(60_000); // fires every timer due in the next minute, in order
 await kit.shutdown();
 ```
 
-- **`kit.settle()`** runs everything that can happen without time passing: queued messages, due timers, and async `receive` work. It throws `SettleTimeoutError` if an actor stays busy, for example awaiting a promise that never settles.
+- **`kit.settle()`** runs everything that can happen without time passing: queued messages, due timers, and async `receive` work. It throws `SettleTimeoutError` if an actor stays busy, for example awaiting a promise that never settles. A pipe with a signal isn't waited for, since the signal ends it, so `advance` can let time pass until the actor's timer aborts it. It gets one event-loop turn, so a promise that has already settled still arrives.
 - **`kit.advance(ms)`** moves virtual time forward. It fires timers in order, and settles at each due time.
 - **Probes** are refs that record what they're sent. Their assertions are synchronous: `expectMessage(value | predicate)`, `expectNoMessage()`, `messages()`, and `watch(ref)` then `expectTerminated(ref)`. Settle or advance first, then assert.
 - **`kit.events`** and **`kit.logs`** record everything the system published and logged.

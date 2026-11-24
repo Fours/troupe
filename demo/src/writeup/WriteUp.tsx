@@ -303,7 +303,11 @@ export function WriteUp({ data }: { data: WriteupData }) {
               The testkit needed one more piece. Piping an ask into an actor’s mailbox is the
               pattern that avoids the deadlock above, so a piped ask is delivered by the system
               itself rather than through a promise. It then runs entirely on the scheduler, and
-              virtual time can settle it, timeouts included <Record id="0010" />.
+              virtual time can settle it, timeouts included <Record id="0010" />. Work an actor
+              bounds with its own timer, such as a call it cancels after a timeout, gets the same
+              treatment once the actor pipes it with an abort signal. The signal aborting ends the
+              pipe on the spot, so the pipe isn’t waiting on anything time can’t reach, and virtual
+              time is free to move on to the timer <Record id="0038" />.
             </p>
           </section>
 

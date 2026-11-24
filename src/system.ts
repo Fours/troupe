@@ -61,6 +61,12 @@ export interface SystemHandle {
    */
   busy(): number;
   /**
+   * How many `pipeToSelf` promises with a signal are still pending. They aren't busy work, since
+   * their signal ends them, but `settle` gives them a turn to arrive if they already have
+   * (decision 0038).
+   */
+  boundedPipes(): number;
+  /**
    * The actors that are busy now, each with the time on this system's scheduler when it became
    * busy, for Rehearsal's stall check. An actor that's busy again straight after settling counts
    * from the second time.
@@ -135,6 +141,7 @@ export function createSystem(opts: ActorSystemOptions = {}): SystemHandle {
   const watchTargetOf = (ref: unknown): WatchTarget | undefined =>
     cellOf(ref) ?? resolveWatch?.(ref);
   let busy = 0;
+  let bounded = 0;
   // By path. A cell can wait on more than one promise at once, through pipeToSelf.
   const busyByPath = new Map<string, { count: number; since: number }>();
   let terminating = false;
@@ -210,6 +217,9 @@ export function createSystem(opts: ActorSystemOptions = {}): SystemHandle {
       } else if (entry !== undefined && --entry.count === 0) {
         busyByPath.delete(path);
       }
+    },
+    trackBounded: (delta) => {
+      bounded += delta;
     },
     terminating: (path) => terminating && (systemStopping || !isSystemPath(path)),
     cellOf,
@@ -363,6 +373,7 @@ export function createSystem(opts: ActorSystemOptions = {}): SystemHandle {
   return {
     system,
     busy: () => busy,
+    boundedPipes: () => bounded,
     busyActors: () => [...busyByPath].map(([path, { since }]) => ({ path, since })),
     pendingAsks: () => asker.pending(),
     makeRef,

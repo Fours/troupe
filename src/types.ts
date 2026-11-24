@@ -67,6 +67,33 @@ export type Result<T> =
   { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: unknown };
 
 /**
+ * What `pipeToSelf` needs from an `AbortSignal`, so the core needs no DOM or Node types. Every
+ * runtime's `AbortSignal` fits it (decision 0038).
+ */
+export interface PipeSignal {
+  /** Whether it has aborted already. */
+  readonly aborted: boolean;
+  /** Why it aborted: what the pipe delivers as its error. */
+  readonly reason: unknown;
+  /** Adds the listener the pipe waits on. */
+  addEventListener(type: 'abort', listener: () => void): void;
+  /** Removes it, once the promise has settled first. */
+  removeEventListener(type: 'abort', listener: () => void): void;
+}
+
+/** Options for `pipeToSelf`. */
+export interface PipeOptions {
+  /**
+   * Ends the pipe when it aborts: the actor gets `map({ ok: false, error: signal.reason })` at
+   * once, without waiting for the promise, and whatever the promise does later is ignored. A pipe
+   * with a signal doesn't count as busy for the testkit's `settle`, so `advance` lets time pass
+   * while it's pending. Abort it from one of the actor's timers or from its `postStop`, so
+   * something on the scheduler always ends it (decision 0038).
+   */
+  readonly signal?: PipeSignal | undefined;
+}
+
+/**
  * Keyed timers that send the actor a message. They belong to one incarnation: every timer is
  * cancelled when the actor stops or restarts, and a stale context's timer methods do nothing.
  */
@@ -146,10 +173,13 @@ export interface ActorContext<M> {
    * Waits for `promise` without holding the mailbox, then sends the actor `map(result)`. `map`
    * runs inside the actor when that message is taken, so a mapper that throws is a failure for
    * supervision. If the actor has stopped by then, the raw `Result` becomes a dead letter. Unlike
-   * timers, a result still arrives after a restart, as a `self.tell` would.
-   * @throws TypeError if `map` isn't a function.
+   * timers, a result still arrives after a restart, as a `self.tell` would. With `opts.signal`,
+   * the signal aborting ends the pipe early, and the pipe isn't busy work for `settle`
+   * ({@link PipeOptions}).
+   * @throws TypeError if `map` isn't a function, or `opts` has an unknown key or a `signal` that
+   * isn't an abort signal.
    */
-  pipeToSelf<T>(promise: PromiseLike<T>, map: (result: Result<T>) => M): void;
+  pipeToSelf<T>(promise: PromiseLike<T>, map: (result: Result<T>) => M, opts?: PipeOptions): void;
 }
 
 /** A lifecycle event, delivered to `onSignal`. */

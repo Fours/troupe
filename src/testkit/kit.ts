@@ -41,7 +41,8 @@ export interface TestKit {
   probe<M>(name?: string): TestProbe<M>;
   /**
    * Runs everything that can happen without time passing: queued work, due timers and actors'
-   * messages, until nothing is left.
+   * messages, until nothing is left. It waits for async handlers and piped promises, but not for
+   * a pipe with a signal, which only gets one event-loop turn to arrive (`PipeOptions`).
    * @throws SettleTimeoutError if actors are still busy after 1,000 real event-loop ticks.
    */
   settle(): Promise<void>;
@@ -97,9 +98,12 @@ export function createTestKit(opts: TestKitOptions = {}): TestKit {
   let generated = 0;
 
   const settle = async (): Promise<void> => {
+    let yielded = false;
     for (let ticks = 0; ; ticks++) {
-      scheduler.runReady();
-      if (handle.busy() === 0) return;
+      const ran = scheduler.runReady();
+      // A pipe with a signal ends when its signal aborts, so settle doesn't wait for it. It gets
+      // one event-loop turn, so a promise that has already settled still arrives (decision 0038).
+      if (handle.busy() === 0 && (handle.boundedPipes() === 0 || (yielded && ran === 0))) return;
       if (ticks >= MAX_TICKS) {
         // An ask only time can complete is the likeliest culprit when one is pending.
         const hint =
@@ -114,6 +118,7 @@ export function createTestKit(opts: TestKitOptions = {}): TestKit {
       // Async receive runs on real promises, so let one real event-loop turn pass. This is the
       // one place the testkit uses real time (decision 0003).
       await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      yielded = true;
     }
   };
 
