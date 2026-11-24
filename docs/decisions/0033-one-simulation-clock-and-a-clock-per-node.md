@@ -1,6 +1,6 @@
 # 0033. A run has one simulation clock, each node a clock of its own on it, and every I/O call resolves on it
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-24
 - **Milestone:** 5
 
@@ -14,7 +14,7 @@ Until now every node in a test cluster has shared one `ManualScheduler`, so ever
 - **Each node gets a `NodeClock`,** a `Scheduler` that views simulation time at its own rate, `1 + driftPpm / 1,000,000`, fixed for each incarnation. Its `now()` is whole milliseconds and never goes back. A timer fires at the first whole millisecond of simulation time when the node's own clock reaches it.
 - **A node clock keeps no queue of its own.** Every task and timer goes onto the simulation's heap, converted to simulation time, so one heap orders everything every node does, by due time and then creation. That's what makes a run repeat exactly.
 - **A pause** stops the node's process: what falls due while it's paused waits in a backlog, and its clock keeps going. On resume, the backlog runs in the order it fell due, before anything newer. Every transport callback a node gets goes through its clock (`throughClock`), so a paused node's frames wait at its sockets, and frames that come before it has accepted a connection are kept, as a socket buffers them.
-- **Every I/O call resolves on the caller's clock,** as a timer. T3's simulated database does this, so a slow disk takes simulation time, a hung one never answers, and a paused caller gets its answer only when it wakes.
+- **Every I/O call resolves on simulation time,** its request and its reply each a timer, and the reply reaches the caller through its node's clock. T3's simulated database does this, so a slow disk takes simulation time, a hung one answers only once it lets go, and a paused caller gets its answer only when it wakes.
 - **The run loop** runs everything that's ready, yields one macrotask so the promise continuations that work started can finish, and repeats until a round starts nothing new. Then it moves simulation time to the next timer. It never waits for a busy actor: one awaiting a simulated call is waiting on a timer, and time will reach it.
 - **A stall is an error,** `StallError`, naming the busy actors by node and path. A run stalls when an actor is busy and no timer is set, so nothing could ever finish it. It also stalls when an actor stays busy on one message for `stallAfterMs` of its own clock (default 30,000). In a cluster, heartbeats mean a timer is always set, so the first rule alone would never fire there.
 - **The yield is a `MessageChannel`,** one channel per loop call, closed when the call ends, since an open port keeps a Node process alive. Every runtime 0004 lists has it, so it's declared in `src/globals.d.ts`, with only the members the loop uses.
@@ -71,7 +71,24 @@ The tests:
 
 Breaking each behaviour fails a test: ignoring the rate, running timers while paused, yielding a microtask instead of a macrotask, turning off the stall check, and handing frames to a node without its clock.
 
-The record stays Proposed until T3's simulated database resolves every journal and shard store call on the caller's clock, the half of the decision T1 can't show.
+**T3 (2026-11-24):**
+
+`simulatedDatabase` serves a journal, snapshot store, offset store and shard store on one endpoint, on the in-memory backends. Each call's request and reply is a timer of simulation time, and the reply reaches the caller through its node's clock.
+
+- `test/rehearsal/database.test.ts`:
+  - With no faults, the journal's contract suite and the shard stores' contract suite pass on it, driven by the run loop.
+  - An append made at 0, with 5 ms each way, is applied at 5 and answered at 10. Latencies are drawn from the database's own stream, so calls overtake each other, and one seed repeats them exactly.
+  - A paused caller's append is applied while it's paused, and its reply waits until it resumes, at 1,000 ms, while another node's call is answered at 10.
+  - A hang holds calls unapplied and unanswered, for good if it never ends. A lost reply leaves the events in the journal, the caller never hears, and its retry at the same sequence number conflicts.
+- `test/cluster/invariant.test.ts` runs the milestone 4 invariant on the simulated database too, with a clock per node, over 200 seeds in `npm test`. It holds, and two runs of one seed tell the same story. Over 1,000 seeds it costs about a millisecond a seed more than on instant stores. Raw data: [0033-database-2026-11-24.json](data/0033-database-2026-11-24.json).
+
+| Node | One shared clock (ms a seed) | A clock per node (ms a seed) | A clock per node, on the database (ms a seed) |
+| --- | --- | --- | --- |
+| 22.23.5 | 10.8 | 7.7 | 8.6 |
+| 24.22.3 | 10.0 | 7.1 | 8.1 |
+| 26.12.1 | 9.3 | 6.3 | 7.2 |
+
+Breaking each behaviour fails a test: handing replies to the caller without its clock, applying calls during a hang, answering a lost reply, ignoring a cut, leaving jumps out of the lease clock, giving replies no latency, and closing a client without failing its waiting calls.
 
 ## Consequences
 

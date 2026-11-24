@@ -14,6 +14,8 @@ import { FAST, createTestCluster, isolatable, type TestCluster } from '../helper
 // and no two for one id may overlap. Every deposit that was acknowledged must be in the journal.
 // Milestone 5, T1: it also runs with a clock per node, each drifting within ±200 ppm, on Rehearsal's
 // run loop (decision 0033). Intervals are then in simulation time, since each node's `at` drifts.
+// Milestone 5, T3: and on Rehearsal's simulated database, where every journal and shard store call
+// takes simulation time, and a node cut off from the store is cut off from its journal too.
 
 const SEEDS = Number(process.env.SEEDS ?? 200);
 const ACCOUNTS = ['a', 'b', 'c', 'd', 'e', 'f'];
@@ -30,11 +32,13 @@ interface Interval {
 async function run(
   seed: number,
   clocks?: { driftPpm: number },
+  database = false,
 ): Promise<{
   intervals: Map<string, Interval[]>;
   acked: Map<string, number[]>;
   journal: Map<string, number[]>;
   failures: SystemEvent[];
+  cutOffFailures: number;
   kills: number;
   partitions: number;
   cuts: number;
@@ -49,6 +53,7 @@ async function run(
     ...FAST,
     seed,
     ...(clocks === undefined ? {} : { clocks }),
+    ...(database ? { database: {} } : {}),
     addresses: ['node-1', 'node-2', 'node-3', 'node-4'],
     startAll: false,
     wrap: (name, t) => isolatable(t, () => partitioned.has(name)),
@@ -65,7 +70,7 @@ async function run(
       type: 'account',
       shardCount: 8,
       passivation: { idleMs: 1_000 },
-      entity: (id) => account(persistence, { id }),
+      entity: (id) => account(node.database?.persistence ?? persistence, { id }),
     });
     if (type === undefined) throw new Error('no cluster');
     types.set(i, (id) => type.ref(id));
@@ -166,6 +171,17 @@ async function run(
 
   const intervals = new Map<string, Interval[]>();
   const failures: SystemEvent[] = [];
+  // On the database, a node cut off from the store is cut off from its journal too, and so is
+  // what's left of a killed one in this process. A persistent actor whose call fails stops, as
+  // 0013 has it. Those are the cut and the kill doing their job.
+  let cutOffFailures = 0;
+  const cutOff = (e: SystemEvent): boolean =>
+    database &&
+    e.type === 'failed' &&
+    e.error instanceof Error &&
+    /cannot reach the database|connection to the database was lost|database client has closed/.test(
+      e.error.message,
+    );
   let handoffs = 0;
   let passivations = 0;
   for (const n of c.incarnations) {
@@ -177,7 +193,8 @@ async function run(
     );
     const last = n.times.at(-1);
     for (const [i, e] of n.events.entries()) {
-      if (e.type === 'failed') failures.push(e);
+      if (cutOff(e)) cutOffFailures++;
+      else if (e.type === 'failed') failures.push(e);
       if (e.type === 'shardReleased' && (e.reason === 'handoff' || e.reason === 'leaving')) {
         handoffs++;
       }
@@ -207,7 +224,7 @@ async function run(
   );
   const journal = new Map<string, number[]>();
   for (const id of ACCOUNTS) {
-    const events = await persistence.journal.read(id, 1, 10_000);
+    const events = c.database?.events(id) ?? (await persistence.journal.read(id, 1, 10_000));
     journal.set(
       id,
       events.map((e) => (e.event as { amount: number }).amount),
@@ -219,6 +236,7 @@ async function run(
     acked,
     journal,
     failures,
+    cutOffFailures,
     kills,
     partitions,
     cuts,
@@ -243,12 +261,13 @@ function refPaths(_key: string, value: unknown): unknown {
 }
 
 describe.each([
-  ['on one shared clock', undefined],
-  ['with a clock per node', { driftPpm: 200 }],
-])('the invariant, in process, %s', (_name, clocks) => {
+  ['on one shared clock', undefined, false],
+  ['with a clock per node', { driftPpm: 200 }, false],
+  ['with a clock per node, on the simulated database', { driftPpm: 200 }, true],
+])('the invariant, in process, %s', (_name, clocks, database) => {
   it('is deterministic: two runs of one seed tell the same story, event for event', async () => {
-    const first = await run(7, clocks);
-    const second = await run(7, clocks);
+    const first = await run(7, clocks, database);
+    const second = await run(7, clocks, database);
     expect(first.kills + first.partitions + first.cuts + first.leaves).toBeGreaterThan(0);
     expect(second.story).toEqual(first.story);
   });
@@ -263,8 +282,9 @@ describe.each([
     let passivations = 0;
     let incarnations = 0;
     let acks = 0;
+    let cutOffFailures = 0;
     for (let seed = 1; seed <= SEEDS; seed++) {
-      const result = await run(seed, clocks);
+      const result = await run(seed, clocks, database);
       kills += result.kills;
       partitions += result.partitions;
       cuts += result.cuts;
@@ -291,6 +311,7 @@ describe.each([
           expect(stored.has(a), `seed ${String(seed)}: ${id} lost ${String(a)}`).toBe(true);
       }
       expect(result.failures, `seed ${String(seed)}`).toEqual([]);
+      cutOffFailures += result.cutOffFailures;
     }
     // The runs did what they’re for: nodes died or were cut off, entities moved, and sales were
     // made.
@@ -303,5 +324,7 @@ describe.each([
     expect(passivations).toBeGreaterThan(SEEDS);
     expect(incarnations).toBeGreaterThan(SEEDS * ACCOUNTS.length);
     expect(acks).toBeGreaterThan(SEEDS * 20);
+    if (database) expect(cutOffFailures).toBeGreaterThan(0);
+    else expect(cutOffFailures).toBe(0);
   }, 120_000);
 });

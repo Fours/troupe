@@ -12,6 +12,7 @@
 import { checkInt, checkKeys, describe } from '../checks.js';
 import type { Connection, Transport } from '../cluster/transport.js';
 import type { Scheduler } from '../scheduler.js';
+import { checkRange, checkRate, draw, type Range } from './ranges.js';
 
 /** `contract` keeps the `Transport` contract. `chaos` breaks it: loss, reordering and repeats. */
 export type NetworkMode = 'contract' | 'chaos';
@@ -233,7 +234,6 @@ export function simulatedNetwork(opts: SimulatedNetworkOptions): SimulatedNetwor
   };
 }
 
-type Range = readonly [number, number];
 type Side = 'a' | 'b';
 
 /** A partition, one way: frames from `from` to `to` are stopped. */
@@ -518,21 +518,17 @@ class Net {
     return hit;
   }
 
-  #draw([min, max]: Range): number {
-    return min + Math.floor(this.random() * (max - min + 1));
-  }
-
   #schedule(link: Link, side: Side, packet: Packet): void {
     const [from, to] = link.route(side);
     const pipe = link.pipe(side);
-    let latency = this.#draw(this.latency);
+    let latency = draw(this.random, this.latency);
     for (const rule of this.delays) {
-      if (matches(rule, from, to)) latency = Math.max(latency, this.#draw(rule.range));
+      if (matches(rule, from, to)) latency = Math.max(latency, draw(this.random, rule.range));
     }
     let within = false;
     for (const rule of this.reorders) {
       if (!matches(rule, from, to)) continue;
-      latency += this.#draw([0, rule.windowMs]);
+      latency += draw(this.random, [0, rule.windowMs]);
       if (rule.within) within = true;
     }
     const now = this.scheduler.now();
@@ -692,26 +688,4 @@ function checkSelector(opts: { node?: unknown; peer?: unknown }, where: string):
   checkAddress(opts.node, `${where}: node`);
   if (opts.peer !== undefined) checkAddress(opts.peer, `${where}: peer`);
   return { node: opts.node, peer: opts.peer };
-}
-
-function checkRange(range: unknown, what: string): Range {
-  if (!Array.isArray(range) || range.length !== 2) {
-    throw new TypeError(`${what} must be [min, max], got ${describe(range)}`);
-  }
-  const [min, max] = range as unknown[];
-  checkInt(min, `${what}[0]`, { min: 0 });
-  checkInt(max, `${what}[1]`, { min: 0 });
-  if ((max as number) < (min as number)) {
-    throw new TypeError(`${what} must have min at most max, got [${String(min)}, ${String(max)}]`);
-  }
-  return [min as number, max as number];
-}
-
-function checkRate(rate: unknown, what: string): number {
-  if (typeof rate !== 'number' || !(rate > 0 && rate <= 1)) {
-    throw new TypeError(
-      `${what}: rate must be a number above 0 and at most 1, got ${describe(rate)}`,
-    );
-  }
-  return rate;
 }

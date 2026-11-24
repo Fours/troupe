@@ -18,6 +18,12 @@ import { inMemoryNetwork } from '../../src/cluster/memory.js';
 import { inMemoryShardStore } from '../../src/cluster/shard-memory.js';
 import { fnv1a } from '../../src/hash.js';
 import { NodeClock, throughClock } from '../../src/rehearsal/clock.js';
+import {
+  simulatedDatabase,
+  type DatabaseClient,
+  type SimulatedDatabase,
+  type SimulatedDatabaseOptions,
+} from '../../src/rehearsal/database.js';
 import { RunLoop } from '../../src/rehearsal/loop.js';
 import {
   simulatedNetwork,
@@ -66,8 +72,13 @@ export interface TestNode {
   readonly cluster: Cluster | undefined;
   /** Whether the node can reach the shard store: false once it's killed. */
   readonly reachesStore: () => boolean;
-  /** Cuts the node off from the shard store, or reconnects it, as a partition from Postgres. */
+  /**
+   * Cuts the node off from the shard store, or reconnects it, as a partition from Postgres. With
+   * `database`, it cuts the node off from the simulated database, persistence included.
+   */
   setReachesStore(reaches: boolean): void;
+  /** Its client of the simulated database, with `database`. */
+  readonly database: DatabaseClient | undefined;
   readonly transport: Transport;
   /** Every event this node's system published, in order, messages included when asked for. */
   readonly events: SystemEvent[];
@@ -115,6 +126,12 @@ export interface TestClusterOptions {
    * Rehearsal's run loop, with its stall check. Not on TCP.
    */
   clocks?: { driftPpm?: number; stallAfterMs?: number };
+  /**
+   * Put the cluster on Rehearsal's simulated database (milestone 5, T3), with these options: its
+   * shard store in place of the shared in-memory one, and each incarnation a client of it on its
+   * own clock. Its random is drawn from the seed. Needs `clocks`, since calls take simulation time.
+   */
+  database?: Omit<SimulatedDatabaseOptions, 'scheduler' | 'random'>;
   /** Start every node at once. Default true. Otherwise `start(i)` starts each. */
   startAll?: boolean;
   /** Wraps each node's transport, to inject a fault. */
@@ -128,8 +145,10 @@ export interface TestCluster {
   readonly network: TestNetwork;
   /** The simulated network, to inject faults into, on `network: 'simulated'`. */
   readonly simulated: SimulatedNetwork | undefined;
-  /** The shard store every node shares, with `sharding`, on the scheduler's clock. */
+  /** The shard store every node shares, with `sharding` and no `database`, on the scheduler's clock. */
   readonly store: ShardStore;
+  /** The simulated database, with `database`. */
+  readonly database: SimulatedDatabase | undefined;
   /** The live node at each index. `restart` replaces one. Unstarted ones are missing. */
   readonly nodes: TestNode[];
   /** Every incarnation of every node, in the order they started, killed ones included. */
@@ -171,6 +190,9 @@ export async function createTestCluster(opts: TestClusterOptions = {}): Promise<
   if (opts.clocks !== undefined && opts.network === 'tcp') {
     throw new TypeError('createTestCluster: clocks need an in-process network');
   }
+  if (opts.database !== undefined && opts.clocks === undefined) {
+    throw new TypeError('createTestCluster: database needs clocks');
+  }
   const loop =
     opts.clocks === undefined
       ? undefined
@@ -195,6 +217,14 @@ export async function createTestCluster(opts: TestClusterOptions = {}): Promise<
   const all: TestNode[] = [];
   let incarnations = 0;
   const store = inMemoryShardStore({ clock: () => scheduler.now() });
+  const database =
+    opts.database === undefined
+      ? undefined
+      : simulatedDatabase({
+          ...opts.database,
+          scheduler,
+          random: seededRandom(fnv1a(`database ${String(seed)}`)),
+        });
 
   const start = (name: string): TestNode => {
     const logs: LogEntry[] = [];
@@ -243,6 +273,20 @@ export async function createTestCluster(opts: TestClusterOptions = {}): Promise<
     let remoting: Remoting;
     let cluster: Cluster | undefined;
     let reaches = true;
+    const client = database?.connect(name, clock ?? scheduler);
+    let heal: (() => void) | undefined;
+    const setReachesStore = (value: boolean): void => {
+      reaches = value;
+      if (database === undefined) return;
+      if (!value) heal ??= database.cutOff(name);
+      else {
+        heal?.();
+        heal = undefined;
+      }
+    };
+    // Wrapped first, then gated, so a fault a test injects never sees a cut-off node's calls.
+    const shards = (wrap: (s: ShardStore) => ShardStore = (s) => s): ShardStore =>
+      client === undefined ? cutOff(wrap(store), () => reaches) : wrap(client.shards);
     if (opts.membership === undefined) {
       remoting = startRemoting(handle.system, {
         cluster: opts.cluster ?? 'test',
@@ -260,7 +304,7 @@ export async function createTestCluster(opts: TestClusterOptions = {}): Promise<
           ...(opts.sharding === undefined
             ? {}
             : {
-                shards: cutOff(opts.sharding.wrapStore?.(store) ?? store, () => reaches),
+                shards: shards(opts.sharding.wrapStore),
                 ...(opts.sharding.leases === undefined ? {} : { leases: opts.sharding.leases }),
               }),
           ...membership,
@@ -275,9 +319,8 @@ export async function createTestCluster(opts: TestClusterOptions = {}): Promise<
       remoting,
       cluster,
       reachesStore: () => reaches,
-      setReachesStore: (value: boolean) => {
-        reaches = value;
-      },
+      setReachesStore,
+      database: client,
       transport,
       events,
       times,
@@ -293,6 +336,7 @@ export async function createTestCluster(opts: TestClusterOptions = {}): Promise<
   await Promise.all(nodes.map((n) => n.remoting.whenListening));
 
   let held = 0;
+  const killed = new Set<TestNode>();
   const settle = async (): Promise<void> => {
     if (loop !== undefined) {
       await loop.settle();
@@ -325,7 +369,13 @@ export async function createTestCluster(opts: TestClusterOptions = {}): Promise<
     });
     for (let waited = 0; !state.finished && waited < maxMs; waited += 100) await advance(100);
     await settle();
-    if (!state.finished) throw new Error(`${what} still hadn’t finished after ${String(maxMs)} ms`);
+    if (!state.finished) {
+      const busy = all.flatMap((n) => n.handle.busyActors().map((a) => `${n.name} ${a.path}`));
+      throw new Error(
+        `${what} still hadn’t finished after ${String(maxMs)} ms` +
+          (busy.length === 0 ? '' : `, with ${busy.join(', ')} busy`),
+      );
+    }
     await watched;
   };
 
@@ -350,6 +400,7 @@ export async function createTestCluster(opts: TestClusterOptions = {}): Promise<
     network,
     simulated,
     store,
+    database,
     nodes,
     incarnations: all,
     node: (i) => {
@@ -375,7 +426,11 @@ export async function createTestCluster(opts: TestClusterOptions = {}): Promise<
     kill(i) {
       const node = nodes[i];
       if (node === undefined) throw new RangeError(`no node ${String(i)}`);
-      node.setReachesStore(false);
+      // A dead process can't reach the store. On the database, its client closes: what it sent
+      // still lands, and the cut doesn't outlive it into the next incarnation.
+      killed.add(node);
+      if (node.database === undefined) node.setReachesStore(false);
+      else node.database.close();
       network.kill(node.name);
       void node.remoting.close();
       void node.system.terminate();
@@ -400,7 +455,12 @@ export async function createTestCluster(opts: TestClusterOptions = {}): Promise<
     async shutdown() {
       // A node that terminates leaves gracefully, handing its shards off over the network, so
       // virtual time has to pass for it to finish.
-      await until(Promise.all(all.map((n) => n.system.terminate())), 60_000, 'shutdown');
+      // A killed node's process is gone, so only the others need to finish. What's left of a
+      // killed one in this process was told to terminate when it was killed, and may never
+      // finish: on the simulated database, a node killed while leaving can't reach the store
+      // to hand off its last shard, and retries until the run ends.
+      const survivors = all.filter((n) => !killed.has(n));
+      await until(Promise.all(survivors.map((n) => n.system.terminate())), 60_000, 'shutdown');
       await network.close();
     },
   };

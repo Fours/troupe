@@ -190,6 +190,15 @@ Each stream is `seededRandom` of a hash of the seed and the stream's name. Remov
 
 With no faults, it passes the journal's contract suite and the shard stores' contract suite.
 
+Settled in T3:
+
+- **Calls are independent,** as on a pool of connections: two from one node can overtake each other. Latency is drawn per request and per reply, from 1 to 3 ms by default, from the database's own stream. Arguments are checked and copied when a call is made, and bad ones reject at once, as a driver's do.
+- **A hang holds** the calls that arrive, unapplied and unanswered, and applies them in arrival order when it lets go. A hang that never lets go hangs them for good.
+- **A cut-off node** has its calls refused, unapplied, and replies already on their way to it arrive as a lost connection, so an applied call can report failure. A cut is by node name, so it reaches every incarnation.
+- **A client closes** when its node is killed: what it sent still lands, but its waiting calls and every later one fail at once, so what's left of the node in the process can wind down.
+- The database's wall clock is simulation time by default, or a `clock` option, as the in-memory backends take one, plus any jumps.
+- On the database, the in-process invariant scenario's cut from the store cuts a node off from its journal too, so a persistent actor whose call fails stops, as 0013 has it. The scenario counts those apart from other failures. A node killed while leaving can't reach the store to hand off its last shard and retries until the run ends, so the test cluster's `shutdown` no longer waits for killed incarnations.
+
 ### Timeouts
 
 A call that never answers leaves its caller stuck: a persistent actor awaiting an append holds its mailbox for good ([0011](decisions/0011-persisting-holds-the-mailbox.md)), and a handoff waiting on that actor holds its leave until the lease's deadline (0030). Milestone 2 deferred the fix to here, where the problem first bites ([0036](#decision-records)).
@@ -350,8 +359,8 @@ Do these in order. Each one ends with passing tests.
 | Task | Status | Commit |
 | --- | --- | --- |
 | T1. Node clocks and the run loop | Done | 3fb3a2a |
-| T2. The simulated network | Done | |
-| T3. The simulated database | Not started | |
+| T2. The simulated network | Done | 2f7e1ff |
+| T3. The simulated database | Done | |
 | T4. Timeouts | Not started | |
 | T5. Fault plans, the history and the invariants | Not started | |
 | T6. `rehearse()`, shrinking, replay and planted bugs | Not started | |
@@ -395,11 +404,11 @@ Write [0035](#decision-records).
 
 **Done when** tests cover:
 
-- [ ] With no faults, the journal's contract suite and the shard stores' contract suite pass on it
-- [ ] Each fault does what its row says: latency, slow spells, hangs, errors, lost replies, a node cut off, and a clock jump
-- [ ] A lost reply after an append leaves the events in the journal, and the caller never learns of it
-- [ ] Every call's request and reply take simulation time, so a paused caller gets its reply only when it wakes
-- [ ] T6's in-process invariant scenario from milestone 4 passes on it, with no faults beyond what it already injects
+- [x] With no faults, the journal's contract suite and the shard stores' contract suite pass on it
+- [x] Each fault does what its row says: latency, slow spells, hangs, errors, lost replies, a node cut off, and a clock jump
+- [x] A lost reply after an append leaves the events in the journal, and the caller never learns of it
+- [x] Every call's request and reply take simulation time, so a paused caller gets its reply only when it wakes
+- [x] T6's in-process invariant scenario from milestone 4 passes on it, with no faults beyond what it already injects
 
 ### T4. Timeouts
 

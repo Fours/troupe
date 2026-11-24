@@ -112,7 +112,11 @@ src/
                     run loop that closes virtual time, and StallError; yield.ts, the one macrotask
                     it yields, on a MessageChannel (0033); network.ts, simulatedNetwork, a
                     Transport on simulation time with partitions, resets, delay and reordering,
-                    and in chaos mode lost, reordered and repeated frames (0035)
+                    and in chaos mode lost, reordered and repeated frames (0035); database.ts,
+                    simulatedDatabase, a Persistence and a ShardStore on one endpoint, the
+                    in-memory backends behind request and reply latencies, with slow spells,
+                    hangs, errors, lost replies, cut-off nodes and clock jumps; ranges.ts, the
+                    range and rate checks the network and the database share
 test/               mirrors src/; helpers/ holds deferred() and test actors (tree, watcher, idle),
                     the persistent account, faultyJournal() and faultySnapshots() for holding
                     and failing calls, postgres.ts (the test database, fresh schemas, and a
@@ -123,14 +127,17 @@ test/               mirrors src/; helpers/ holds deferred() and test actors (tre
                     off) and hold (a promise settle should wait past), membership when asked for,
                     and with sharding one shard store every node shares, which a kill cuts the node
                     off from. With clocks, each incarnation gets a NodeClock that drifts, and
-                    settle and advance go through Rehearsal's run loop).
+                    settle and advance go through Rehearsal's run loop. With database, the nodes
+                    share a simulated database instead, each incarnation a client of it on its
+                    own clock, which a kill closes; shutdown waits only for nodes not killed).
                     cluster/remoting-suite.ts is remoting's suite, run on all three networks,
                     cluster/handoff.test.ts T7's passivation, rebalancing, handoff and remembering,
                     and cluster/invariant.test.ts the in-process check of one live instance per
-                    entity, on one clock and on a clock per node
-                    rehearsal/ tests Rehearsal's clocks, run loop and stalls, and the simulated
+                    entity, on one clock, on a clock per node, and on the simulated database
+                    rehearsal/ tests Rehearsal's clocks, run loop and stalls, the simulated
                     network: on its own, as a property over random faults, and under clusters
-                    (chaos.test.ts)
+                    (chaos.test.ts), and the simulated database, its faults and both contract
+                    suites on it (database.test.ts)
                     persistence/contract.ts is the journal contract every backend runs, and
                     cluster/shard-store-contract.ts the shard stores';
                     node/ tests the Node-only backends, lint.test.ts the lint config's boundaries

@@ -1,0 +1,23 @@
+{
+  "what": "The in-process invariant scenario (test/cluster/invariant.test.ts, 'holds over N seeds'), 1,000 seeds, on one shared ManualScheduler, with a clock per node (±200 ppm) on Rehearsal's run loop, and with a clock per node on the simulated database, where every journal and shard store call takes a request and a reply latency of 1 to 3 ms",
+  "command": "SEEDS=1000 npx vitest run test/cluster/invariant.test.ts --reporter=verbose",
+  "machine": "Apple M5 Pro, darwin 25.4.0",
+  "date": "2026-11-24",
+  "msFor1000Seeds": {
+    "node v26.12.1": {
+      "sharedClock": [9546, 9297],
+      "clockPerNode": [6794, 6348],
+      "clockPerNodeOnTheDatabase": [7517, 7218]
+    },
+    "node v24.22.3": {
+      "sharedClock": [9967],
+      "clockPerNode": [7114],
+      "clockPerNodeOnTheDatabase": [8139]
+    },
+    "node v22.23.5": {
+      "sharedClock": [10833],
+      "clockPerNode": [7654],
+      "clockPerNodeOnTheDatabase": [8572]
+    }
+  }
+}
