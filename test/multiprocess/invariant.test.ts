@@ -58,6 +58,7 @@ describe(`${String(KILLS)} kills`, () => {
         `round ${String(round)}: every shard on its desired owner`,
         () => cluster.placed(active),
         30_000,
+        () => cluster.misplaced(active),
       );
     }
 

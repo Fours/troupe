@@ -199,9 +199,8 @@ class Region {
     const { address, uid } = env.remoting.self;
     this.#self = { address, key: keyOf(address, uid) };
     this.#prefix = `${env.type}/`;
-    if (env.host) {
-      ctx.timers.startPeriodic('rebalance', new Internal({ t: 'rebalance' }), env.rebalanceMs);
-    }
+    // Every region ticks, to greet members it hasn't heard from. Only hosting ones rebalance.
+    ctx.timers.startPeriodic('rebalance', new Internal({ t: 'rebalance' }), env.rebalanceMs);
   }
 
   receive(msg: RegionMsg): void {
@@ -694,6 +693,7 @@ class Region {
    * start without waiting for a message.
    */
   #onRebalance(): void {
+    this.#greetSilent();
     if (this.#leaving || this.#env.keeper === undefined) return;
     if (this.#env.remember && !this.#silentPeers()) {
       this.#ctx.pipeToSelf(
@@ -786,6 +786,19 @@ class Region {
       this.#regionAt(member.address, member.uid)?.tell(this.#hello(false));
     }
     this.#kick();
+  }
+
+  /**
+   * Says hello again to each up, reachable member whose hello this region hasn't had. Remoting is
+   * at most once, so a hello lost both ways, as connections come and go around a restart, would
+   * otherwise leave that member out of placement for good (found by T8, decision 0031).
+   */
+  #greetSilent(): void {
+    for (const [key, member] of this.#members) {
+      if (key === this.#self.key || member.status !== 'up' || !member.reachable) continue;
+      if (this.#peers.get(member.address)?.uid === member.uid) continue;
+      this.#regionAt(member.address, member.uid)?.tell(this.#hello(false));
+    }
   }
 
   #hello(reply: boolean): RegionMsg {

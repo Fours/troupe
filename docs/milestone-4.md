@@ -537,6 +537,7 @@ Notes from T8 (2026-11-24):
 - The failover row is one run of 20 kills, not 10 runs, and the 20-kill test runs on timings a tenth of the defaults, so `test:cluster` takes under two minutes in CI.
 - Every shard acquired on demand, so "a third of the shards" is a third of those in use: the restart test checks it gets back exactly the ones it tops.
 - `examples/cluster/`'s show is a simple `buy` entity that stamps each sale with its incarnation. T10 decides whether the Docker demo also uses opening night's holds and returns.
+- CI's second `test:cluster` run found that a region greeted each member only once: with hellos lost both ways around a restart, the restarted node never got its shards back. Regions now greet every `rebalanceMs` until they're answered (0030's Evidence).
 - The process tests can't catch a handoff that releases its lease early: a kill or a restart never gives a show two writers at once. T7's in-process handoff test does.
 
 ### T9. Backstage for clusters, and festival night on the site

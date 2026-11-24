@@ -194,7 +194,7 @@ export class TestCluster {
   waitFor(
     what: string,
     match: (seen: Seen) => boolean,
-    opts: { timeoutMs?: number; since?: number; proc?: Proc } = {},
+    opts: { timeoutMs?: number; since?: number; proc?: Proc; explain?: () => string } = {},
   ): Promise<Seen> {
     const { timeoutMs = 30_000, since = this.seen.length } = opts;
     const found = this.seen.slice(since).find(match);
@@ -214,9 +214,10 @@ export class TestCluster {
           .join('\n');
         const stderr =
           opts.proc === undefined ? '' : `\n${opts.proc.name} stderr:\n${opts.proc.stderr}`;
+        const explained = opts.explain === undefined ? '' : `\n${opts.explain()}`;
         fail(
           new Error(
-            `timed out after ${String(timeoutMs)} ms waiting for ${what}\n${tail}${stderr}`,
+            `timed out after ${String(timeoutMs)} ms waiting for ${what}\n${tail}${stderr}${explained}`,
           ),
         );
       }, timeoutMs);
@@ -225,9 +226,36 @@ export class TestCluster {
   }
 
   /** Waits until `check` holds, checking again after every line. */
-  async until(what: string, check: () => boolean, timeoutMs = 30_000): Promise<void> {
+  async until(
+    what: string,
+    check: () => boolean,
+    timeoutMs = 30_000,
+    explain?: () => string,
+  ): Promise<void> {
     if (check()) return;
-    await this.waitFor(what, () => check(), { timeoutMs });
+    await this.waitFor(what, () => check(), {
+      timeoutMs,
+      ...(explain === undefined ? {} : { explain }),
+    });
+  }
+
+  /** The shards in `shards` that aren't on their desired owner, and where each one is. */
+  misplaced(shards: Iterable<number>): string {
+    const live = this.live();
+    const holders = this.holders();
+    const out: string[] = [];
+    for (const shard of shards) {
+      const owner = desiredOwner(
+        `${TYPE}/${String(shard)}`,
+        live.map((n) => n.address),
+      );
+      const holder = holders.get(shard);
+      if (holder === undefined || owner === undefined || !holder.startsWith(`${owner}#`)) {
+        out.push(`shard ${String(shard)}: held by ${String(holder)}, wanted on ${String(owner)}`);
+      }
+    }
+    const nodes = this.nodes.map((n) => `${n.name} ${n.address} ${String(n.key)}`).join(', ');
+    return `misplaced: ${out.join('; ') || 'none'}\nnodes: ${nodes}`;
   }
 
   /** Who holds each shard now, by the lines so far: a shard's last acquire, unless released. */

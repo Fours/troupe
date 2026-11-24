@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { actor } from '../../src/actor.js';
 import { desiredOwner, shardOf } from '../../src/cluster/placement.js';
 import type { EntityType, EntityTypeOptions } from '../../src/cluster/sharding.js';
+import type { Connection, Transport } from '../../src/cluster/transport.js';
 import { inMemoryPersistence } from '../../src/persistence/memory.js';
 import type { Persistence } from '../../src/persistence/types.js';
 import type { ActorRef, SystemEvent } from '../../src/types.js';
@@ -269,6 +270,45 @@ describe('rebalancing', () => {
     // Every note arrived, once.
     expect([...notes].sort((a, b) => a - b)).toEqual(sent);
     expect(deadLetters(c)).toEqual([]);
+  });
+
+  it('greets a node again until it answers, so lost hellos can’t keep its shards from it', async () => {
+    // Found by T8's CI run: remoting is at most once, and each region said hello to a new member
+    // only once, so a node whose hellos were lost was never a candidate, and never got a shard.
+    const addresses = ['node-1', 'node-2', 'node-3', 'node-4'];
+    let dropHellos = false;
+    const c = await createTestCluster({
+      ...FAST,
+      addresses,
+      startAll: false,
+      wrap: (_, t) => dropping(t, (frame) => dropHellos && frame.includes('shardCount')),
+    });
+    open.push(c);
+    for (const i of [0, 1, 2]) await c.start(i);
+    await c.advance(2_000);
+    const types = [0, 1, 2].map((i) => init(c.node(i), { shardCount: 64 }));
+    for (const id of oneIdPerShard(64)) types[0]?.ref(id).tell({ type: 'add', by: 1 });
+    await c.advance(3_000);
+
+    // Every hello between node 4 and the others is lost, both ways.
+    dropHellos = true;
+    await c.start(3);
+    await c.advance(1_000);
+    init(c.node(3), { shardCount: 64 });
+    await c.advance(3_000);
+    expect(acquired(c.node(3))).toEqual([]);
+
+    // The next ticks greet again, and the shards move, two at a time from each node.
+    dropHellos = false;
+    await c.advance(12_000);
+    const theirs = Array.from({ length: 64 }, (_, s) => s).filter(
+      (s) => desiredOwner(`counter/${String(s)}`, addresses) === 'node-4',
+    );
+    expect(
+      acquired(c.node(3))
+        .map((e) => e.shard)
+        .sort((a, b) => a - b),
+    ).toEqual(theirs);
   });
 
   it('waits for an entity’s persist in flight before it releases the lease', async () => {
@@ -560,3 +600,30 @@ describe('options', () => {
     ).toThrow('can’t passivate');
   });
 });
+
+/** Wraps a transport so frames `drop` picks are never sent. */
+function dropping(inner: Transport, drop: (frame: string) => boolean): Transport {
+  const wrap = (c: Connection): Connection => ({
+    send: (frame) => {
+      if (!drop(frame)) c.send(frame);
+    },
+    onFrame: (listener) => {
+      c.onFrame(listener);
+    },
+    onClose: (listener) => {
+      c.onClose(listener);
+    },
+    close: () => {
+      c.close();
+    },
+  });
+  return {
+    address: inner.address,
+    listen: (onConnection, onRefused) =>
+      inner.listen((c) => {
+        onConnection(wrap(c));
+      }, onRefused),
+    connect: (address) => wrap(inner.connect(address)),
+    close: () => inner.close(),
+  };
+}

@@ -40,6 +40,7 @@ describe('three nodes and a crowd, with the default timings', () => {
       'every show answered from its desired owner',
       () => answeredSince(0) && cluster.placed(active),
       60_000,
+      () => cluster.misplaced(active),
     );
 
     // Kill the node with the most shows, with no warning.
@@ -77,6 +78,7 @@ describe('three nodes and a crowd, with the default timings', () => {
       'every shard on its desired owner again',
       () => cluster.placed(active),
       60_000,
+      () => cluster.misplaced(active),
     );
     const addresses = cluster.nodes.map((n) => n.address);
     const expected = [...active].filter(
@@ -108,6 +110,7 @@ describe('three nodes and a crowd, with the default timings', () => {
       'every show answered after the leave, from the nodes left',
       () => cluster.placed(active) && answeredSince(stopped, leaver.address),
       30_000,
+      () => cluster.misplaced(active),
     );
     // Asks sent before the leave and answered after it count too: none may have timed out.
     const lost = cluster.seen
