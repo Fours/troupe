@@ -122,6 +122,11 @@ export function createSystem(opts: ActorSystemOptions = {}): SystemHandle {
     cellOf(ref) ?? resolveWatch?.(ref);
   let busy = 0;
   let terminating = false;
+  // Set once terminate() has stopped /user and every onTerminate task has settled: from then,
+  // actors under /system stop and take no more messages.
+  let systemStopping = false;
+  const terminateTasks: (() => Promise<void>)[] = [];
+  let tasksRun = false;
   let resolveTerminated!: () => void;
   const whenTerminated = new Promise<void>((resolve) => {
     resolveTerminated = resolve;
@@ -139,15 +144,36 @@ export function createSystem(opts: ActorSystemOptions = {}): SystemHandle {
   // The last stopped event is published right after a removeChild returns, before anyone
   // awaiting whenTerminated can run.
   const checkTerminated = (): void => {
+    if (!systemStopping) return;
     if (guardian.childCells.size === 0 && systemGuardian.childCells.size === 0) {
       resolveTerminated();
     }
   };
+  // Once /user is empty, the onTerminate tasks run, such as the cluster's graceful leave, which
+  // hands shards off while /system still works. Only then does /system stop.
   const stopSystemActors = (): void => {
-    if (guardian.childCells.size > 0) return;
-    if (systemGuardian.childCells.size === 0) resolveTerminated();
-    for (const child of [...systemGuardian.childCells.values()]) child.requestStop();
+    if (guardian.childCells.size > 0 || tasksRun) return;
+    tasksRun = true;
+    const stopSystem = (): void => {
+      systemStopping = true;
+      if (systemGuardian.childCells.size === 0) resolveTerminated();
+      for (const child of [...systemGuardian.childCells.values()]) child.requestStop();
+    };
+    if (terminateTasks.length === 0) {
+      stopSystem();
+      return;
+    }
+    const running = terminateTasks.map(async (task) => {
+      try {
+        await task();
+      } catch (error) {
+        log.error('terminate: a termination task failed', { error });
+      }
+    });
+    void Promise.all(running).then(stopSystem);
   };
+  const isSystemPath = (path: string): boolean =>
+    path === SYSTEM_PATH || path.startsWith(`${SYSTEM_PATH}/`);
 
   const host: CellHost = {
     dispatcher,
@@ -162,7 +188,7 @@ export function createSystem(opts: ActorSystemOptions = {}): SystemHandle {
     trackBusy: (delta) => {
       busy += delta;
     },
-    terminating: () => terminating,
+    terminating: (path) => terminating && (systemStopping || !isSystemPath(path)),
     cellOf,
     watchTargetOf,
     spawn<M, S>(
@@ -171,7 +197,7 @@ export function createSystem(opts: ActorSystemOptions = {}): SystemHandle {
       childName: string | undefined,
       spawnOpts: SpawnOptions | undefined,
     ): ActorRef<M> {
-      if (terminating) {
+      if (terminating && (systemStopping || !isSystemPath(parent.path))) {
         throw new ActorSystemTerminatedError(`system "${name}" is terminating, so it can't spawn`);
       }
       checkDef(def);
@@ -257,6 +283,16 @@ export function createSystem(opts: ActorSystemOptions = {}): SystemHandle {
       resolveWatch = resolve;
     },
     sender: () => host.senderOverride ?? dispatcher.current?.path,
+    stopWhenIdle(ref: AnyRef) {
+      const cell = cellOf(ref);
+      if (cell === undefined)
+        throw new TypeError('stopWhenIdle: the ref is not an actor of this system');
+      cell.stopWhenIdle();
+    },
+    onTerminate(task: () => Promise<void>) {
+      if (tasksRun) throw new Error('onTerminate: the system has already stopped /user');
+      terminateTasks.push(task);
+    },
     tellFrom(ref: AnyRef, message: unknown, from: string | undefined) {
       const outer = host.senderOverride;
       host.senderOverride = from;

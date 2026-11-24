@@ -3,15 +3,15 @@ import { inMemoryPersistence } from '../../src/persistence/memory.js';
 import { seededRandom } from '../../src/testkit/random.js';
 import type { ActorRef, SystemEvent } from '../../src/types.js';
 import { account, type AccountCmd, type Receipt } from '../helpers/account.js';
-import type { Connection, Transport } from '../../src/cluster/transport.js';
-import { FAST, createTestCluster, type TestCluster } from '../helpers/cluster.js';
+import { FAST, createTestCluster, isolatable, type TestCluster } from '../helpers/cluster.js';
 
-// Milestone 4, T6: the invariant, in process (decision 0030). At most one live instance per entity
-// id. Three nodes on one ManualScheduler sell to a handful of persistent accounts while, at random,
-// a node is killed and restarted, cut off from the others while it still runs (so they down it),
-// or cut off from the shard store. Every entity's spawned and stopped events, from every
-// incarnation of every node, give its live intervals in virtual time, and no two for one id may
-// overlap. Every deposit that was acknowledged must be in the journal.
+// Milestone 4, T6 and T7: the invariant, in process (decision 0030). At most one live instance per
+// entity id. Three nodes on one ManualScheduler sell to a handful of persistent accounts, which
+// passivate when idle, while, at random, a node is killed and restarted, cut off from the others
+// while it still runs (so they down it), cut off from the shard store, or leaves gracefully and
+// comes back, and a fourth node joins, so shards are handed off. Every entity's spawned and
+// stopped events, from every incarnation of every node, give its live intervals in virtual time,
+// and no two for one id may overlap. Every deposit that was acknowledged must be in the journal.
 
 const SEEDS = Number(process.env.SEEDS ?? 200);
 const ACCOUNTS = ['a', 'b', 'c', 'd', 'e', 'f'];
@@ -33,14 +33,21 @@ async function run(seed: number): Promise<{
   kills: number;
   partitions: number;
   cuts: number;
+  leaves: number;
+  joins: number;
+  handoffs: number;
+  passivations: number;
   story: string[];
 }> {
   const partitioned = new Set<string>();
   const c: TestCluster = await createTestCluster({
     ...FAST,
     seed,
+    addresses: ['node-1', 'node-2', 'node-3', 'node-4'],
+    startAll: false,
     wrap: (name, t) => isolatable(t, () => partitioned.has(name)),
   });
+  for (const i of [0, 1, 2]) await c.start(i);
   const persistence = inMemoryPersistence({ clock: () => c.scheduler.now() });
   const chance = seededRandom(seed * 104_729);
   const pick = <T>(items: readonly T[]): T => items[Math.floor(chance() * items.length)] as T;
@@ -51,6 +58,7 @@ async function run(seed: number): Promise<{
     const type = node.cluster?.sharding.init<AccountCmd, unknown>({
       type: 'account',
       shardCount: 8,
+      passivation: { idleMs: 1_000 },
       entity: (id) => account(persistence, { id }),
     });
     if (type === undefined) throw new Error('no cluster');
@@ -64,11 +72,14 @@ async function run(seed: number): Promise<{
   // One disruption at a time: a node that's dead, partitioned from the others, or cut from the
   // store, and when it began.
   let trouble:
-    { kind: 'dead' | 'partition' | 'cut'; index: number; at: number; ms: number } | undefined;
+    | { kind: 'dead' | 'partition' | 'cut' | 'left'; index: number; at: number; ms: number }
+    | undefined;
   let amount = 0;
   let kills = 0;
   let partitions = 0;
   let cuts = 0;
+  let leaves = 0;
+  let joins = 0;
   const kill = (index: number): void => {
     c.kill(index);
     live.delete(index);
@@ -77,7 +88,13 @@ async function run(seed: number): Promise<{
   while (c.scheduler.now() < RUN_MS) {
     const roll = chance();
     const now = c.scheduler.now();
-    if (trouble === undefined && roll < 0.06) {
+    if (joins === 0 && now > 4_000 && chance() < 0.02) {
+      // A fourth node joins once, and takes the shards it tops by handoff.
+      await c.start(3);
+      init(3);
+      live.add(3);
+      joins++;
+    } else if (trouble === undefined && roll < 0.08) {
       const index = pick([...live]);
       const ms = 1_000 + Math.floor(chance() * 4_000);
       if (roll < 0.02) {
@@ -87,15 +104,26 @@ async function run(seed: number): Promise<{
         partitioned.add(c.node(index).name);
         trouble = { kind: 'partition', index, at: now, ms };
         partitions++;
-      } else {
+      } else if (roll < 0.06) {
         c.node(index).setReachesStore(false);
         trouble = { kind: 'cut', index, at: now, ms };
         cuts++;
+      } else {
+        void c.node(index).cluster?.leave();
+        live.delete(index);
+        trouble = { kind: 'left', index, at: now, ms };
+        leaves++;
       }
     } else if (trouble !== undefined && now - trouble.at > trouble.ms) {
       const { kind, index } = trouble;
       trouble = undefined;
       if (kind === 'dead') {
+        await c.restart(index);
+        init(index);
+        live.add(index);
+      } else if (kind === 'left') {
+        // What's left of a node that has left is only its system: end it, and start again.
+        c.kill(index);
         await c.restart(index);
         init(index);
         live.add(index);
@@ -132,10 +160,21 @@ async function run(seed: number): Promise<{
 
   const intervals = new Map<string, Interval[]>();
   const failures: SystemEvent[] = [];
+  let handoffs = 0;
+  let passivations = 0;
   for (const n of c.incarnations) {
     const open = new Map<string, Interval>();
+    // When this incarnation let shards go, or ended: entities that stop at other times passivated.
+    const releases = new Set(n.events.filter((e) => e.type === 'shardReleased').map((e) => e.at));
+    const last = n.events.at(-1)?.at;
     for (const e of n.events) {
       if (e.type === 'failed') failures.push(e);
+      if (e.type === 'shardReleased' && (e.reason === 'handoff' || e.reason === 'leaving')) {
+        handoffs++;
+      }
+      if (e.type === 'stopped' && ENTITY.test(e.path) && !releases.has(e.at) && e.at !== last) {
+        passivations++;
+      }
       if (e.type !== 'spawned' && e.type !== 'stopped') continue;
       const id = ENTITY.exec(e.path)?.[1];
       if (id === undefined) continue;
@@ -166,7 +205,20 @@ async function run(seed: number): Promise<{
     );
   }
   await c.shutdown();
-  return { intervals, acked, journal, failures, kills, partitions, cuts, story };
+  return {
+    intervals,
+    acked,
+    journal,
+    failures,
+    kills,
+    partitions,
+    cuts,
+    leaves,
+    joins,
+    handoffs,
+    passivations,
+    story,
+  };
 }
 
 /** Refs as their paths, so a story compares across runs. */
@@ -180,14 +232,18 @@ describe('the invariant, in process', () => {
   it('is deterministic: two runs of one seed tell the same story, event for event', async () => {
     const first = await run(7);
     const second = await run(7);
-    expect(first.kills + first.partitions + first.cuts).toBeGreaterThan(0);
+    expect(first.kills + first.partitions + first.cuts + first.leaves).toBeGreaterThan(0);
     expect(second.story).toEqual(first.story);
   });
 
-  it(`holds over ${String(SEEDS)} seeds of three nodes with kills, restarts and partitions`, async () => {
+  it(`holds over ${String(SEEDS)} seeds of three nodes and a fourth that joins, with kills, partitions, leaves and passivation`, async () => {
     let kills = 0;
     let partitions = 0;
     let cuts = 0;
+    let leaves = 0;
+    let joins = 0;
+    let handoffs = 0;
+    let passivations = 0;
     let incarnations = 0;
     let acks = 0;
     for (let seed = 1; seed <= SEEDS; seed++) {
@@ -195,6 +251,10 @@ describe('the invariant, in process', () => {
       kills += result.kills;
       partitions += result.partitions;
       cuts += result.cuts;
+      leaves += result.leaves;
+      joins += result.joins;
+      handoffs += result.handoffs;
+      passivations += result.passivations;
       for (const [id, list] of result.intervals) {
         incarnations += list.length;
         const sorted = [...list].sort((a, b) => a.from - b.from);
@@ -215,41 +275,16 @@ describe('the invariant, in process', () => {
       }
       expect(result.failures, `seed ${String(seed)}`).toEqual([]);
     }
-    // The runs did what they're for: nodes died or were cut off, entities moved, and sales were
+    // The runs did what they’re for: nodes died or were cut off, entities moved, and sales were
     // made.
     expect(kills).toBeGreaterThan(SEEDS / 4);
     expect(partitions).toBeGreaterThan(SEEDS / 4);
     expect(cuts).toBeGreaterThan(SEEDS / 4);
+    expect(leaves).toBeGreaterThan(SEEDS / 4);
+    expect(joins).toBeGreaterThan(SEEDS / 4);
+    expect(handoffs).toBeGreaterThan(SEEDS);
+    expect(passivations).toBeGreaterThan(SEEDS);
     expect(incarnations).toBeGreaterThan(SEEDS * ACCOUNTS.length);
     expect(acks).toBeGreaterThan(SEEDS * 20);
   }, 120_000);
 });
-
-/** Wraps a transport so that, while `isolated()`, no frame gets in or out. */
-function isolatable(inner: Transport, isolated: () => boolean): Transport {
-  const wrap = (c: Connection): Connection => ({
-    send: (frame) => {
-      if (!isolated()) c.send(frame);
-    },
-    onFrame: (listener) => {
-      c.onFrame((frame) => {
-        if (!isolated()) listener(frame);
-      });
-    },
-    onClose: (listener) => {
-      c.onClose(listener);
-    },
-    close: () => {
-      c.close();
-    },
-  });
-  return {
-    address: inner.address,
-    listen: (onConnection, onRefused) =>
-      inner.listen((c) => {
-        onConnection(wrap(c));
-      }, onRefused),
-    connect: (address) => wrap(inner.connect(address)),
-    close: () => inner.close(),
-  };
-}

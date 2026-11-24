@@ -63,7 +63,8 @@ src/
   timers.ts         keyed timers, checked by generation when their messages are dequeued
   internal.ts       hooks for the other entry points, never exported: the start hook, ctx internals,
                     the inspection hook, and the cluster's (/system and children under it, lookup
-                    by path, makeRef) (0025)
+                    by path, makeRef (0025), stopWhenIdle, and onTerminate, which runs the
+                    cluster's leave between /user stopping and /system stopping (0030))
   json.ts           what a JSON value is, once: the check events use (0014), with a ref hook for
                     the wire (0025)
   hash.ts           FNV-1a, the one string hash: Postgres lock keys (0016) and shard placement (0030)
@@ -83,7 +84,8 @@ src/
                     shard-store.ts (ShardStore and its checks), shard-memory.ts (the in-memory
                     store) and leases.ts, the holder's side of a lease (0029); placement.ts
                     (entity to shard, rendezvous owners), sharding.ts (init, entity refs),
-                    region.ts (routing, finding shards a home) and shard.ts (entities) (0030)
+                    region.ts (routing, finding shards a home, rebalancing and handoff) and shard.ts
+                    (entities, passivation, draining and remembering) (0030)
     postgres/       the /cluster/postgres entry point: postgresShardStore, any runtime, on the
                     journal's structurally typed pool (0029)
   persistence/      the /persistence entry point: the store interfaces,
@@ -98,10 +100,14 @@ test/               mirrors src/; helpers/ holds deferred() and test actors (tre
                     and failing calls, postgres.ts (the test database, fresh schemas, and a
                     pool that holds a COMMIT or any statement), and cluster.ts (N nodes on one ManualScheduler and
                     one network, in memory or TCP on loopback through tcp-network.ts, with settle,
-                    advance, start, kill and restart, membership when asked for, and with sharding
-                    one shard store every node shares, which a kill cuts the node off from).
-                    cluster/remoting-suite.ts is remoting's suite, run on both networks, and
-                    cluster/invariant.test.ts the in-process check of one live instance per entity
+                    advance, start, kill, restart, terminate (which advances while the node hands
+                    off) and hold (a promise settle should wait past), membership when asked for,
+                    and with sharding one shard store every node shares, which a kill cuts the node
+                    off from).
+                    cluster/remoting-suite.ts is remoting's suite, run on both networks,
+                    cluster/handoff.test.ts T7's passivation, rebalancing, handoff and remembering,
+                    and cluster/invariant.test.ts the in-process check of one live instance per
+                    entity
                     persistence/contract.ts is the journal contract every backend runs, and
                     cluster/shard-store-contract.ts the shard stores';
                     node/ tests the Node-only backends, lint.test.ts the lint config's boundaries

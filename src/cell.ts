@@ -42,6 +42,13 @@ class PipeEnvelope<M> {
   ) {}
 }
 
+/**
+ * The last item of a mailbox whose actor stops once it's dequeued: `stopWhenIdle`. A symbol no
+ * one else holds, so no user message can be it.
+ */
+const STOP_MARKER: unique symbol = Symbol('troupe.stopWhenIdle');
+type StopMarker = typeof STOP_MARKER;
+
 /** A mailbox item with the id of its `delivered`, wrapped only while message events are on. */
 class Tracked<M> {
   constructor(
@@ -51,7 +58,7 @@ class Tracked<M> {
 }
 
 /** A mailbox item without its message id. */
-type Untracked<M> = M | TimerEnvelope<M> | PipeEnvelope<M>;
+type Untracked<M> = M | TimerEnvelope<M> | PipeEnvelope<M> | StopMarker;
 
 /**
  * What the user queue holds. Only timer and pipe messages are wrapped, and only while message
@@ -81,6 +88,8 @@ export interface CellNode extends Watcher, WatchTarget {
   readonly failure: Failure;
   /** Asks the cell to stop after its current message, ahead of its queued messages. */
   requestStop(): void;
+  /** Asks the cell to stop once it has handled the messages already queued. */
+  stopWhenIdle(): void;
   /** Its children that haven't terminated, in spawn order. */
   readonly childCells: Map<string, CellNode>;
   /** What an inspector sees of it, read-only. */
@@ -124,8 +133,11 @@ export interface CellHost {
    * @returns False if it isn't, so the caller must wait on the promise itself.
    */
   onAskSettled(promise: unknown, listener: (result: Result<unknown>) => void): boolean;
-  /** True once `terminate()` has been called. */
-  terminating(): boolean;
+  /**
+   * True once `terminate()` has been called, for an actor at `path` under `/user`. Under
+   * `/system`, only once the system's termination tasks have settled.
+   */
+  terminating(path: string): boolean;
   /** Spawns an actor under `parent`, with every check `spawn` makes. */
   spawn<M, S>(
     parent: ParentNode,
@@ -306,6 +318,13 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
     this.#scheduleIfReady();
   }
 
+  stopWhenIdle(): void {
+    if (this.#stopping()) return;
+    // Past the capacity check: it's the system's, not a message, and nothing comes after it.
+    this.#mailbox.push(STOP_MARKER);
+    this.#scheduleIfReady();
+  }
+
   addWatcher(watcher: Watcher): void {
     this.#watchers.add(watcher);
   }
@@ -424,6 +443,10 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
       item = envelope as Untracked<M>;
     }
     let msg: M;
+    if (item === STOP_MARKER) {
+      this.requestStop();
+      return;
+    }
     if (item instanceof TimerEnvelope) {
       // A cancelled or replaced timer's message is dropped here, even if it was already queued.
       if (!this.#timers.accept(item)) {
@@ -509,7 +532,7 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
 
   /** Queues a message, or makes it a dead letter. Returns false for a dead letter. */
   #enqueue(item: Untracked<M>): boolean {
-    const reason = this.#host.terminating()
+    const reason = this.#host.terminating(this.path)
       ? 'terminated'
       : this.#stopping()
         ? 'stopped'
@@ -863,6 +886,7 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
       const tracked = this.#tracked > 0 && envelope instanceof Tracked;
       if (tracked) this.#tracked--;
       const item = tracked ? envelope.item : (envelope as Untracked<M>);
+      if (item === STOP_MARKER) continue;
       if (!(item instanceof TimerEnvelope)) {
         this.#deadLetter(item, 'stopped', tracked ? envelope.id : undefined);
       } else if (tracked) {

@@ -497,7 +497,7 @@ describe('ownership', () => {
     expect(answered).toMatchObject({ id, node: 'node-3', count: 0 });
   });
 
-  it('releases its shards as a node leaves, so others take them without waiting', async () => {
+  it('hands its shards off as a node leaves, so others take them without waiting', async () => {
     const c = await cluster();
     const types = initCounters(c);
     const all = c.nodes.map((n) => n.address);
@@ -510,7 +510,10 @@ describe('ownership', () => {
     await left;
     await c.advance(10);
     expect(released(c.node(2))).toEqual([`${String(shard)} leaving`]);
-    expect(await c.store.holders(`counter/${String(shard)}`)).toEqual([]);
+    // Handed off (T7): another node took the lease before this one left.
+    const holders = await c.store.holders(`counter/${String(shard)}`);
+    expect(holders).toHaveLength(1);
+    expect(holders[0]?.holder.startsWith('node-3#')).toBe(false);
     const at = c.scheduler.now();
     const reply = await ask(c, () =>
       (types[0] as EntityType<CounterMsg>)
@@ -554,9 +557,7 @@ describe('ownership', () => {
       ['/sharding/counter/hamlet', 'unreachable', { type: 'add', by: 4 }],
     ]);
     // Terminating stops the region, and what waited is a stopped dead letter.
-    const done = c.node(0).system.terminate();
-    await c.settle();
-    await done;
+    await c.terminate(0);
     expect(
       deadLetters(c.node(0))
         .slice(3)

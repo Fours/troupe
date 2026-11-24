@@ -42,6 +42,21 @@ export interface EntityTypeOptions<M, S> {
   schema?: StandardSchemaV1<unknown, M>;
   /** How many messages wait for each shard while its home is found. Default 1,000. */
   bufferSize?: number;
+  /**
+   * Stop an entity that has had no message for `idleMs`. Messages that arrive as it stops go to
+   * its next incarnation, in order. Default: entities never passivate. Not with `remember`.
+   */
+  passivation?: { idleMs: number };
+  /**
+   * Record each entity a shard starts in the shard store, and start every remembered entity as
+   * soon as its shard starts on a node, rather than on its next message. An entity that stops
+   * itself, or that its supervision stops, is forgotten. Default false.
+   */
+  remember?: boolean;
+  /** How often this node looks for shards it holds that belong elsewhere. Default 2,000. */
+  rebalanceMs?: number;
+  /** How many shards this node hands off at once while rebalancing. Default 2. */
+  maxHandoffs?: number;
 }
 
 /** An entity type, as {@link Sharding.init} registered it on this node. */
@@ -100,6 +115,10 @@ const OPTIONS = new Set([
   'host',
   'schema',
   'bufferSize',
+  'passivation',
+  'remember',
+  'rebalanceMs',
+  'maxHandoffs',
 ]);
 const LEASE_OPTIONS = new Set(['ttlMs', 'renewMs', 'marginMs']);
 const MAX_SHARDS = 65_536;
@@ -142,8 +161,17 @@ interface Registered {
   readonly shardCount: number;
 }
 
+/** Sharding for one node, as its cluster sees it. */
+export interface ShardingNode {
+  readonly api: Sharding;
+  /**
+   * Resolves once every region has stopped: after a leave, once each has handed its shards off.
+   */
+  whenStopped(): Promise<void>;
+}
+
 /** Sharding for one node. */
-export function startSharding(env: ShardingEnv): Sharding {
+export function startSharding(env: ShardingEnv): ShardingNode {
   const { hooks, remoting } = env;
   const { address, uid } = remoting.self;
   const holder = keyOf(address, uid);
@@ -151,6 +179,8 @@ export function startSharding(env: ShardingEnv): Sharding {
   const names = new WeakMap<object, EntityName>();
   // Regions that have stopped, which nothing more is sent to.
   const stopped = new Set<string>();
+  const waitingForStop: (() => void)[] = [];
+  const allStopped = (): boolean => [...types.keys()].every((type) => stopped.has(type));
   let guardian: AnyRef | undefined;
   let keeper: LeaseKeeper | undefined;
   let stopping: StopReason | undefined;
@@ -169,7 +199,8 @@ export function startSharding(env: ShardingEnv): Sharding {
       tellRegions(new Internal({ t: 'stop', reason: stopping }));
       return;
     }
-    if (stopping === undefined) tellRegions(new Internal({ t: 'members' }));
+    // A leaving node still follows the members, to hand its shards to the right ones.
+    if (stopping !== 'downed') tellRegions(new Internal({ t: 'members' }));
   });
   void env.system.whenTerminated.then(() => {
     unsubscribe();
@@ -234,7 +265,7 @@ export function startSharding(env: ShardingEnv): Sharding {
     ref: ({ type, id }) => entityRef(type, id),
   });
 
-  return Object.freeze({
+  const api: Sharding = Object.freeze({
     init<M, S>(opts: EntityTypeOptions<M, S>): EntityType<M> {
       const checked = checkInit(opts);
       const { type, shardCount } = checked;
@@ -260,12 +291,17 @@ export function startSharding(env: ShardingEnv): Sharding {
           shardCount,
           host: checked.host,
           bufferSize: checked.bufferSize,
+          idleMs: checked.idleMs,
+          remember: checked.remember,
+          rebalanceMs: checked.rebalanceMs,
+          maxHandoffs: checked.maxHandoffs,
           remoting,
           store,
           keeper: checked.host ? keeperFor(store) : undefined,
           members: env.members,
           onStopped: () => {
             stopped.add(type);
+            if (allStopped()) for (const resolve of waitingForStop.splice(0)) resolve();
           },
         }),
         type,
@@ -292,6 +328,15 @@ export function startSharding(env: ShardingEnv): Sharding {
       });
     },
   });
+  return {
+    api,
+    whenStopped: () =>
+      allStopped()
+        ? Promise.resolve()
+        : new Promise<void>((resolve) => {
+            waitingForStop.push(resolve);
+          }),
+  };
 }
 
 interface CheckedInit<M, S> {
@@ -302,7 +347,13 @@ interface CheckedInit<M, S> {
   readonly host: boolean;
   readonly schema: StandardSchemaV1<unknown, M> | undefined;
   readonly bufferSize: number;
+  readonly idleMs: number | undefined;
+  readonly remember: boolean;
+  readonly rebalanceMs: number;
+  readonly maxHandoffs: number;
 }
+
+const PASSIVATION_OPTIONS = new Set(['idleMs']);
 
 function checkInit<M, S>(opts: EntityTypeOptions<M, S>): CheckedInit<M, S> {
   checkKeys(opts, OPTIONS, 'sharding.init');
@@ -314,6 +365,10 @@ function checkInit<M, S>(opts: EntityTypeOptions<M, S>): CheckedInit<M, S> {
     host = true,
     schema,
     bufferSize = 1_000,
+    passivation,
+    remember = false,
+    rebalanceMs = 2_000,
+    maxHandoffs = 2,
   } = opts;
   if (!isValidName(type)) {
     throw new TypeError(
@@ -337,7 +392,35 @@ function checkInit<M, S>(opts: EntityTypeOptions<M, S>): CheckedInit<M, S> {
     throw new TypeError('sharding.init: schema must be a Standard Schema, with ~standard.validate');
   }
   checkInt(bufferSize, 'sharding.init: bufferSize');
-  return { type, entity, shardCount, supervision, host, schema, bufferSize };
+  let idleMs: number | undefined;
+  if (passivation !== undefined) {
+    checkKeys(passivation, PASSIVATION_OPTIONS, 'sharding.init: passivation');
+    idleMs = passivation.idleMs;
+    checkInt(idleMs, 'sharding.init: passivation.idleMs');
+  }
+  if (typeof remember !== 'boolean') {
+    throw new TypeError(`sharding.init: remember must be a boolean, got ${describe(remember)}`);
+  }
+  if (remember && idleMs !== undefined) {
+    throw new TypeError(
+      'sharding.init: a type with remember: true can’t passivate, since that would forget its entities',
+    );
+  }
+  checkInt(rebalanceMs, 'sharding.init: rebalanceMs');
+  checkInt(maxHandoffs, 'sharding.init: maxHandoffs');
+  return {
+    type,
+    entity,
+    shardCount,
+    supervision,
+    host,
+    schema,
+    bufferSize,
+    idleMs,
+    remember,
+    rebalanceMs,
+    maxHandoffs,
+  };
 }
 
 function isStandardSchema(value: unknown): value is StandardSchemaV1 {

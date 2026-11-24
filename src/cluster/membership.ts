@@ -17,6 +17,7 @@ import {
   checkLeases,
   isShardStore,
   startSharding,
+  type ShardingNode,
   type LeaseOptions,
   type Sharding,
 } from './sharding.js';
@@ -100,10 +101,12 @@ export interface Cluster {
   /** Entity types, and refs to their entities (decision 0030). */
   readonly sharding: Sharding;
   /**
-   * Tells the others this node is leaving, then that it has left, and closes its connections.
-   * Its shards stop, and their leases are released.
-   * Resolves once it has. `system.terminate()` does the same. Calling it again returns the same
-   * promise.
+   * Tells the others this node is leaving, hands each shard it holds off to its next owner,
+   * then tells them it has left and closes its connections. A shard's entities finish what they
+   * have first, a persist included, and messages that arrive meanwhile follow the shard. A shard
+   * no other node hosts is stopped, and its lease released. Resolves once the node has left.
+   * `system.terminate()` does the same, once everything under `/user` has stopped. Calling it
+   * again returns the same promise.
    */
   leave(): Promise<void>;
 }
@@ -278,6 +281,8 @@ class Membership {
   #resolveUp!: () => void;
   #rejectUp!: (error: Error) => void;
   #left: Promise<void> | undefined;
+  readonly #sharding: ShardingNode;
+  #closing: Promise<void> | undefined;
 
   constructor(
     system: ActorSystem,
@@ -312,10 +317,11 @@ class Membership {
         void this.#shutdown(error instanceof Error ? error : new Error(String(error)));
       },
     );
-    // The cluster closes remoting itself, after saying goodbye.
-    void system.whenTerminated.then(() => this.#leave());
+    // terminate() leaves gracefully once /user has stopped, handing shards off before /system
+    // stops. The cluster closes remoting itself, after saying goodbye.
+    hooks.onTerminate(() => this.#leave());
     const members = (): Member[] => this.#members();
-    const sharding = startSharding({
+    this.#sharding = startSharding({
       system,
       hooks,
       remoting,
@@ -328,7 +334,7 @@ class Membership {
       self: Object.freeze({ address, uid }),
       members,
       whenUp,
-      sharding,
+      sharding: this.#sharding.api,
       leave: () => this.#leave(),
     });
   }
@@ -399,12 +405,17 @@ class Membership {
     }
     const { address, uid } = this.#remoting.self;
     this.#phase = 'leaving';
+    // Publishing `leaving` tells the regions to hand their shards off, and the others to stop
+    // placing shards here. Once the regions have stopped, the others hear this node has gone.
     this.#apply(advance(this.#table, { address, uid, status: 'leaving' }));
     this.#gossipToAll();
-    // Shards are handed off here, from T7. Then the others hear this node has gone.
-    this.#apply(advance(this.#table, { address, uid, status: 'removed' }));
-    this.#gossipToAll();
-    this.#left = this.#shutdown(undefined);
+    this.#left = this.#sharding.whenStopped().then(() => {
+      if (this.#phase === 'leaving') {
+        this.#apply(advance(this.#table, { address, uid, status: 'removed' }));
+        this.#gossipToAll();
+      }
+      return this.#shutdown(undefined);
+    });
     return this.#left;
   }
 
@@ -420,6 +431,7 @@ class Membership {
   }
 
   #shutdown(error: Error | undefined): Promise<void> {
+    if (this.#phase === 'left' && this.#closing !== undefined) return this.#closing;
     this.#phase = 'left';
     this.#cancelTick?.();
     this.#cancelTick = undefined;
@@ -427,6 +439,7 @@ class Membership {
     this.#cancelSeedTimeout = undefined;
     this.#rejectUp(error ?? new Error('the node left the cluster before it was up'));
     const closing = this.#remoting.close();
+    this.#closing = closing;
     this.#left ??= closing;
     return closing;
   }

@@ -550,10 +550,11 @@ export function WriteUp({ data }: { data: WriteupData }) {
               on the time, and a node cut off from Postgres stops its shards before anyone else can
               start them <Record id="0029" />. Where a shard should go is worked out, not stored:
               every node scores each shard against each member and picks the highest, so they all
-              agree with no coordinator, and a new node takes only the shards it now tops{' '}
-              <Record id="0030" />. Sharding’s many writers will meet the Postgres lock first, and
-              the alternative is already named: no lock, and gap detection in the readers{' '}
-              <Record id="0016" />.
+              agree with no coordinator, and a new node takes only the shards it now tops. A shard
+              moves only when its owner hands it off, after its entities have finished what they
+              were doing, or when its lease runs out <Record id="0030" />. Sharding’s many writers
+              will meet the Postgres lock first, and the alternative is already named: no lock, and
+              gap detection in the readers <Record id="0016" />.
             </p>
             <p>
               <strong>Rehearsal</strong>, in milestone 5: deterministic simulation testing. Run a

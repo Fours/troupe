@@ -345,8 +345,8 @@ Do these in order. Each one ends with passing tests.
 | T3. The TCP transport | Done | dfceded |
 | T4. Membership | Done | bd3f20f |
 | T5. Shard leases | Done | d6e0db9 |
-| T6. Cluster sharding: routing and placement | Done | |
-| T7. Passivation, rebalancing, handoff and remembering | Not started | |
+| T6. Cluster sharding: routing and placement | Done | 5941f00 |
+| T7. Passivation, rebalancing, handoff and remembering | Done | |
 | T8. Real processes: the multi-process test and the benchmark | Not started | |
 | T9. Backstage for clusters, and festival night on the site | Not started | |
 | T10. Docker Compose, the write-up and 0.2.0 | Not started | |
@@ -499,13 +499,23 @@ Notes from T6 (plan review, 2026-11-23):
 
 **Done when** tests cover:
 
-- [ ] An idle entity passivates after `idleMs`, and a message during its stop reaches the next incarnation
-- [ ] A new node gets its shards one handoff at a time, at most `maxHandoffs` at once, and messages sent during a handoff are delivered once each
-- [ ] A handoff waits for an in-flight persist before releasing the lease
-- [ ] A graceful leave hands off every shard before the node exits, and no ask to its entities times out
-- [ ] A killed node's shards come back on the others once its leases expire, and remembered entities start without a message
-- [ ] A shard whose holder is unreachable isn't moved
-- [ ] The T6 invariant test runs again with joins, leaves and passivation in the mix
+- [x] An idle entity passivates after `idleMs`, and a message during its stop reaches the next incarnation
+- [x] A new node gets its shards one handoff at a time, at most `maxHandoffs` at once, and messages sent during a handoff are delivered once each
+- [x] A handoff waits for an in-flight persist before releasing the lease
+- [x] A graceful leave hands off every shard before the node exits, and no ask to its entities times out
+- [x] A killed node's shards come back on the others once its leases expire, and remembered entities start without a message
+- [x] A shard whose holder is unreachable isn't moved
+- [x] The T6 invariant test runs again with joins, leaves and passivation in the mix
+
+Notes from T7 (plan review, 2026-11-23):
+
+- Two core hooks, never exported. `stopWhenIdle(ref)` puts a stop at the back of an actor's mailbox, because a stop goes ahead of it and would make what's queued dead letters. `onTerminate(task)` runs the cluster's leave after `/user` has stopped and before `/system` stops, and `/system` actors keep spawning and taking messages until then.
+- A handoff reuses T6's `start` and `home`: drain the shard, release the lease, then ask the desired owner to start it and send what waited when it answers.
+- `passivation`, `remember`, `rebalanceMs` and `maxHandoffs` are per type, on `sharding.init`. `remember` with `passivation` throws.
+- A remembered entity's first message doesn't wait for the store's write. An entity that stops on its own, a failure its supervision stops it for included, is forgotten.
+- A remembered type takes every shard it's the desired owner of that nobody holds, at each rebalance, so after a kill its entities come back with no message. That needs no new `ShardStore` method.
+- A graceful leave hands every shard off at once, ignoring `maxHandoffs`, and its releases say `leaving`. A rebalance's say `handoff`.
+- Out of scope: a timeout for a handoff whose entity never finishes, such as a persist that never settles. It holds the leave until the lease's deadline. Store and journal timeouts are milestone 5's.
 
 ### T8. Real processes: the multi-process test and the benchmark
 

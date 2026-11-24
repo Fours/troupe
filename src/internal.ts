@@ -197,6 +197,20 @@ export interface SystemHooks {
    * (decision 0020). Only known while a subscriber wants message events.
    */
   sender(): string | undefined;
+  /**
+   * Stops a local actor once it has handled every message already in its mailbox, as if a stop
+   * were its last message. What's sent after this is a `stopped` dead letter, so the caller holds
+   * it: sharding's passivation and handoff (decision 0030).
+   * @throws TypeError if `ref` isn't a local actor of this system.
+   */
+  stopWhenIdle(ref: AnyRef): void;
+  /**
+   * Runs `task` once `terminate()` has stopped every actor under `/user`, and stops the actors
+   * under `/system` only after every such task has settled. Until then they still spawn and take
+   * messages, so the cluster can hand its shards off as the node terminates (decision 0030).
+   * @throws Error once termination has got that far.
+   */
+  onTerminate(task: () => Promise<void>): void;
   /** Tells `ref` with `from` as the sender, for a message from another node (decision 0026). */
   tellFrom(ref: AnyRef, message: unknown, from: string | undefined): void;
 }

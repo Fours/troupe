@@ -17,8 +17,15 @@ import type { LeaseKeeper } from './leases.js';
 import type { Member } from './membership.js';
 import { desiredOwner, shardOf } from './placement.js';
 import type { Remoting } from './remoting.js';
-import type { AcquireResult, LeaseHolder, ShardStore } from './shard-store.js';
-import { entityPath, shardDef, type ShardDeliver, type ShardEnv } from './shard.js';
+import type { AcquireResult, LeaseHolder } from './shard-store.js';
+import {
+  entityPath,
+  shardDef,
+  ShardInternal,
+  type ShardDeliver,
+  type ShardEnv,
+  type ShardMsg,
+} from './shard.js';
 import { keyOf } from './table.js';
 import { parseRefUri } from './wire.js';
 
@@ -27,8 +34,11 @@ export interface RegionEnv extends ShardEnv {
   readonly shardCount: number;
   readonly host: boolean;
   readonly bufferSize: number;
+  /** How often a hosting region looks for shards to hand off. */
+  readonly rebalanceMs: number;
+  /** How many handoffs a region runs at once while rebalancing. */
+  readonly maxHandoffs: number;
   readonly remoting: Remoting;
-  readonly store: ShardStore;
   /** This node's leases. Only a hosting node has one. */
   readonly keeper: LeaseKeeper | undefined;
   /** The members as this node sees them, itself included. */
@@ -84,6 +94,9 @@ type InternalMsg =
     }
   | { readonly t: 'acquired'; readonly shard: number; readonly result: Result<AcquireResult> }
   | { readonly t: 'lost'; readonly shard: number; readonly token: number }
+  | { readonly t: 'released'; readonly shard: number }
+  | { readonly t: 'rebalance' }
+  | { readonly t: 'claim'; readonly result: Result<readonly LeaseHolder[]> }
   | { readonly t: 'stop'; readonly reason: StopReason };
 
 /** A message only this node can send its region: none decodes from the wire as one. */
@@ -123,12 +136,19 @@ export function regionDef(env: RegionEnv): ActorDef<RegionMsg, null> {
   });
 }
 
+/** Why a shard this node ran was released. */
+type ReleaseReason = 'leaseLost' | 'handoff' | StopReason;
+
 /** A shard this node runs. */
 interface Local {
   readonly ref: AnyRef;
   readonly token: number;
   /** Set once the shard is stopping, with why. */
-  ending: 'leaseLost' | StopReason | undefined;
+  ending: ReleaseReason | undefined;
+  /** It's draining for a handoff: once it stops, the lease goes and its messages follow it. */
+  handingOff: boolean;
+  /** Its `shardReleased` is published, and its lease released or lost. */
+  released: boolean;
 }
 
 /** A shard whose messages wait here while the region finds it a home. */
@@ -137,8 +157,9 @@ interface Slot {
   /**
    * `idle`: nothing in flight. `checking`: reading the store's holders. `acquiring`: taking the
    * lease. `asking`: waiting for the desired owner's `home`. `waiting`: backing off.
+   * `handoff`: the shard is draining here, and then its lease is released.
    */
-  phase: 'idle' | 'checking' | 'acquiring' | 'asking' | 'waiting';
+  phase: 'idle' | 'checking' | 'acquiring' | 'asking' | 'waiting' | 'handoff';
   attempt: number;
   /** Regions that asked this one to start the shard, waiting for `home`. */
   waiters: AnyRef[];
@@ -165,8 +186,12 @@ class Region {
   readonly #peers = new Map<string, Peer>();
   readonly #greeted = new Set<string>();
   readonly #refs = new Map<string, AnyRef>();
+  // Shards being handed off, from the drain until their messages have gone to the new home.
+  readonly #handoffs = new Set<number>();
   #members = new Map<string, Member>();
   #stopReason: StopReason = 'leaving';
+  // The node is leaving: hand every shard off, then stop.
+  #leaving = false;
 
   constructor(env: RegionEnv, ctx: ActorContext<RegionMsg>) {
     this.#env = env;
@@ -174,6 +199,9 @@ class Region {
     const { address, uid } = env.remoting.self;
     this.#self = { address, key: keyOf(address, uid) };
     this.#prefix = `${env.type}/`;
+    if (env.host) {
+      ctx.timers.startPeriodic('rebalance', new Internal({ t: 'rebalance' }), env.rebalanceMs);
+    }
   }
 
   receive(msg: RegionMsg): void {
@@ -229,9 +257,17 @@ class Region {
       case 'lost':
         this.#onLost(msg.shard, msg.token);
         return;
+      case 'released':
+        this.#onReleased(msg.shard);
+        return;
+      case 'rebalance':
+        this.#onRebalance();
+        return;
+      case 'claim':
+        this.#onClaim(msg.result);
+        return;
       case 'stop':
-        this.#stopReason = msg.reason;
-        this.#ctx.stop();
+        this.#onStop(msg.reason);
         return;
     }
   }
@@ -298,7 +334,7 @@ class Region {
       envelope.from === undefined
         ? { t: 'deliver', id: envelope.id, m: envelope.m }
         : { t: 'deliver', id: envelope.id, m: envelope.m, from: envelope.from };
-    (local.ref as unknown as { tell(msg: ShardDeliver): void }).tell(msg);
+    asShard(local.ref).tell(msg);
     return true;
   }
 
@@ -324,7 +360,7 @@ class Region {
   /** Starts finding the shard a home: first, ask the store who holds it. */
   #begin(shard: number, slot: Slot): void {
     if (slot.buffer.length === 0 && slot.waiters.length === 0) {
-      this.#slots.delete(shard);
+      this.#dropSlot(shard);
       return;
     }
     if (this.#local.has(shard)) {
@@ -385,6 +421,13 @@ class Region {
       return;
     }
     const owner = desiredOwner(this.#lease(shard), this.#candidates());
+    if (owner === undefined && this.#leaving) {
+      // Nowhere to go: what waits becomes dead letters as the region stops.
+      this.#handoffs.delete(shard);
+      slot.phase = 'idle';
+      this.#checkLeft();
+      return;
+    }
     if (owner === undefined) {
       this.#backoff(shard, slot);
       return;
@@ -437,8 +480,17 @@ class Region {
       this.#holders.set(shard, holder);
     }
     for (const back of waiters) asRegion(back).tell({ t: 'home', shard, holder });
-    if (holder === null) this.#backoff(shard, slot);
-    else this.#flush(shard, slot);
+    if (holder === null) {
+      this.#backoff(shard, slot);
+    } else if (holder === slot.refusedBy) {
+      // The holder that sent these back still has the lease in the store, though it has let the
+      // shard go: wait a backoff for it to be released or expire, rather than bounce them
+      // straight back. Only once, in case it has taken the shard back since.
+      slot.refusedBy = undefined;
+      this.#backoff(shard, slot);
+    } else {
+      this.#flush(shard, slot);
+    }
   }
 
   #startShard(shard: number, token: number): void {
@@ -450,11 +502,11 @@ class Region {
       node: this.#self.key,
       token,
     });
-    const ref = this.#ctx.spawn(shardDef(env), String(shard), {
+    const ref = this.#ctx.spawn(shardDef(env, this.#lease(shard)), String(shard), {
       supervision: supervise.resume(),
     });
     this.#ctx.watch(ref);
-    this.#local.set(shard, { ref, token, ending: undefined });
+    this.#local.set(shard, { ref, token, ending: undefined, handingOff: false, released: false });
     this.#holders.set(shard, this.#self.key);
   }
 
@@ -466,10 +518,19 @@ class Region {
     for (const envelope of waiting) this.#route(shard, envelope, false);
     if (slot.buffer.length > 0) {
       this.#backoff(shard, slot);
-    } else if (slot.waiters.length === 0) {
-      this.#ctx.timers.cancel(retryKey(shard));
-      this.#slots.delete(shard);
+      return;
     }
+    // A handoff is over once what waited for it has gone on.
+    if (this.#handoffs.delete(shard)) this.#checkLeft();
+    if (slot.waiters.length === 0) {
+      this.#ctx.timers.cancel(retryKey(shard));
+      this.#dropSlot(shard);
+    }
+  }
+
+  #dropSlot(shard: number): void {
+    this.#slots.delete(shard);
+    if (this.#handoffs.delete(shard)) this.#checkLeft();
   }
 
   #backoff(shard: number, slot: Slot): void {
@@ -492,7 +553,7 @@ class Region {
       asRegion(back).tell({ t: 'home', shard, holder: holds ? this.#self.key : null });
       return;
     }
-    if (!this.#env.host || this.#env.keeper === undefined) {
+    if (!this.#env.host || this.#env.keeper === undefined || this.#leaving) {
       asRegion(back).tell({ t: 'home', shard, holder: null });
       return;
     }
@@ -538,7 +599,7 @@ class Region {
       this.#enqueue(shard, { ...item, bounces }, true);
     }
     if (slot.buffer.length === 0 && slot.phase === 'idle' && slot.waiters.length === 0) {
-      this.#slots.delete(shard);
+      this.#dropSlot(shard);
     }
   }
 
@@ -546,8 +607,10 @@ class Region {
 
   #onLost(shard: number, token: number): void {
     const local = this.#local.get(shard);
-    if (local?.token !== token || local.ending !== undefined) return;
-    local.ending = 'leaseLost';
+    if (local?.token !== token || local.released) return;
+    // At the deadline, whatever else is going on, a handoff included: the entities stop now.
+    local.ending ??= 'leaseLost';
+    local.released = true;
     this.#released(shard, token, 'leaseLost');
     this.#holders.delete(shard);
     this.#ctx.stop(local.ref);
@@ -563,6 +626,12 @@ class Region {
         this.#release(shard, local, this.#stopReason);
       }
       if (this.#holders.get(shard) === this.#self.key) this.#holders.delete(shard);
+      if (local.handingOff) {
+        // Its entities have all stopped: now the lease can go, and then the messages follow.
+        if (local.released) this.#onReleased(shard);
+        else this.#release(shard, local, local.ending ?? 'handoff', this.#ctx, true);
+        return;
+      }
       const slot = this.#slots.get(shard);
       if (slot?.phase === 'waiting') this.#begin(shard, slot);
       return;
@@ -572,21 +641,28 @@ class Region {
   /** The region has stopped, after its shards: their entities are gone, so their leases go. */
   stopped(ctx: ActorContext<RegionMsg>): void {
     for (const [shard, local] of this.#local) {
-      if (local.ending === undefined) this.#release(shard, local, this.#stopReason, ctx);
+      if (!local.released) this.#release(shard, local, local.ending ?? this.#stopReason, ctx);
     }
     this.#local.clear();
+    this.#handoffs.clear();
     for (const slot of this.#slots.values()) {
       for (const envelope of slot.buffer) this.#deadLetter(envelope, 'stopped');
     }
     this.#slots.clear();
   }
 
+  /**
+   * Publishes the shard's release and gives its lease up. With `then`, tells the region
+   * `released` once the store has answered, either way, so a handoff can go on.
+   */
   #release(
     shard: number,
     local: Local,
-    reason: StopReason,
+    reason: ReleaseReason,
     ctx: ActorContext<RegionMsg> = this.#ctx,
+    then = false,
   ): void {
+    local.released = true;
     this.#released(shard, local.token, reason);
     const keeper = this.#env.keeper;
     if (keeper === undefined) return;
@@ -595,10 +671,11 @@ class Region {
       // It expires in the store instead.
       this.#env.hooks.log.warn(`sharding: could not release ${lease}`, { error });
     });
-    internalsOf(ctx).track(releasing);
+    if (then) ctx.pipeToSelf(releasing, () => new Internal({ t: 'released', shard }));
+    else internalsOf(ctx).track(releasing);
   }
 
-  #released(shard: number, token: number, reason: 'leaseLost' | StopReason): void {
+  #released(shard: number, token: number, reason: ReleaseReason): void {
     this.#env.hooks.publish({
       type: 'shardReleased',
       entityType: this.#env.type,
@@ -607,6 +684,96 @@ class Region {
       token,
       reason,
     });
+  }
+
+  // ---- rebalancing and handoff ----
+
+  /**
+   * Hands off shards whose desired owner is now another node, a few at a time. With `remember`,
+   * also takes the shards nobody holds that this node should own, so their remembered entities
+   * start without waiting for a message.
+   */
+  #onRebalance(): void {
+    if (this.#leaving || this.#env.keeper === undefined) return;
+    if (this.#env.remember && !this.#silentPeers()) {
+      this.#ctx.pipeToSelf(
+        this.#env.store.holders(this.#prefix),
+        (result) => new Internal({ t: 'claim', result }),
+      );
+    }
+    const candidates = this.#candidates();
+    for (const [shard, local] of this.#local) {
+      if (this.#handoffs.size >= this.#env.maxHandoffs) return;
+      if (local.ending !== undefined) continue;
+      const owner = desiredOwner(this.#lease(shard), candidates);
+      if (owner !== undefined && owner !== this.#self.address) {
+        this.#handOff(shard, local, 'handoff');
+      }
+    }
+  }
+
+  #onClaim(result: Result<readonly LeaseHolder[]>): void {
+    if (!result.ok) {
+      this.#ctx.log.warn(`sharding: could not read the holders of ${this.#env.type}`, {
+        error: result.error,
+      });
+      return;
+    }
+    if (this.#leaving) return;
+    this.#learn(result.value);
+    const held = new Set(result.value.map(({ lease }) => lease));
+    const candidates = this.#candidates();
+    for (let shard = 0; shard < this.#env.shardCount; shard++) {
+      const lease = this.#lease(shard);
+      if (held.has(lease) || this.#local.has(shard) || this.#slots.has(shard)) continue;
+      if (desiredOwner(lease, candidates) !== this.#self.address) continue;
+      this.#acquire(shard, this.#slot(shard));
+    }
+  }
+
+  /**
+   * Starts moving a shard: its messages wait here from now on, and its entities stop once
+   * they've handled what they have, a persist included. The lease goes only after that.
+   */
+  #handOff(shard: number, local: Local, reason: 'handoff' | 'leaving'): void {
+    local.ending = reason;
+    local.handingOff = true;
+    this.#handoffs.add(shard);
+    const slot = this.#slot(shard);
+    this.#ctx.timers.cancel(retryKey(shard));
+    slot.phase = 'handoff';
+    asShard(local.ref).tell(new ShardInternal({ t: 'drain' }));
+  }
+
+  /** A handed-off shard's lease is gone: its desired owner takes it, and what waited follows. */
+  #onReleased(shard: number): void {
+    const slot = this.#slots.get(shard);
+    if (slot?.phase !== 'handoff') return;
+    slot.phase = 'idle';
+    slot.attempt = 0;
+    slot.refusedBy = undefined;
+    this.#place(shard, slot);
+  }
+
+  #onStop(reason: StopReason): void {
+    this.#stopReason = reason;
+    if (reason === 'downed') {
+      this.#ctx.stop();
+      return;
+    }
+    if (this.#leaving) return;
+    this.#leaving = true;
+    this.#members = new Map(this.#env.members().map((m) => [keyOf(m.address, m.uid), m]));
+    this.#ctx.timers.cancel('rebalance');
+    for (const [shard, local] of this.#local) {
+      if (local.ending === undefined) this.#handOff(shard, local, 'leaving');
+    }
+    this.#checkLeft();
+  }
+
+  /** A leaving region stops once every shard it held has gone, with its messages. */
+  #checkLeft(): void {
+    if (this.#leaving && this.#local.size === 0 && this.#handoffs.size === 0) this.#ctx.stop();
   }
 
   // ---- members and peers ----
@@ -679,7 +846,7 @@ class Region {
     for (const [key, member] of this.#members) {
       if (member.status !== 'up' || !member.reachable) continue;
       if (key === this.#self.key) {
-        if (this.#env.host) out.push(member.address);
+        if (this.#env.host && !this.#leaving) out.push(member.address);
         continue;
       }
       const peer = this.#peers.get(member.address);
@@ -744,6 +911,11 @@ class Region {
   #ignore(what: string): void {
     this.#ctx.log.warn(`sharding: ${this.#env.type} ignored ${what}`);
   }
+}
+
+/** A shard's ref, with its protocol. */
+function asShard(ref: AnyRef): ActorRef<ShardMsg> {
+  return ref as unknown as ActorRef<ShardMsg>;
 }
 
 /** A region's ref, with its protocol: refs from the wire arrive as refs of no protocol. */

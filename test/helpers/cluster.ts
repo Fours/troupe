@@ -18,7 +18,7 @@ import { inMemoryShardStore } from '../../src/cluster/shard-memory.js';
 import type { ShardStore } from '../../src/cluster/shard-store.js';
 import type { LeaseOptions } from '../../src/cluster/sharding.js';
 import { startRemoting, type Remoting, type RemotingOptions } from '../../src/cluster/remoting.js';
-import type { Transport } from '../../src/cluster/transport.js';
+import type { Connection, Transport } from '../../src/cluster/transport.js';
 import type { Logger } from '../../src/logger.js';
 import { createSystem, type SystemHandle } from '../../src/system.js';
 import type { LogEntry } from '../../src/testkit/kit.js';
@@ -86,8 +86,11 @@ export interface TestClusterOptions {
    * order.
    */
   membership?: Partial<Omit<ClusterOptions, 'name' | 'transport'>> & ClusterInternals;
-  /** Give every node the cluster's shared shard store, with these lease timings. */
-  sharding?: { leases?: LeaseOptions };
+  /**
+   * Give every node the cluster's shared shard store, with these lease timings. `wrapStore`
+   * wraps the store each node sees, to inject a fault.
+   */
+  sharding?: { leases?: LeaseOptions; wrapStore?: (store: ShardStore) => ShardStore };
   /** Start every node at once. Default true. Otherwise `start(i)` starts each. */
   startAll?: boolean;
   /** Wraps each node's transport, to inject a fault. */
@@ -108,6 +111,11 @@ export interface TestCluster {
   node(i: number): TestNode;
   /** Runs everything that needs no time to pass, on every node, until all are idle. */
   settle(): Promise<void>;
+  /**
+   * Lets one actor stay busy on a promise the test holds, such as a held journal append, without
+   * `settle` giving up on it. Call what it returns once the promise is let go.
+   */
+  hold(): () => void;
   /** Moves virtual time forward, firing timers in order and settling after each due time. */
   advance(ms: number): Promise<void>;
   /** Kills node `i` as `kill -9` would: the network drops it, and its system goes. */
@@ -116,6 +124,11 @@ export interface TestCluster {
   restart(i: number): Promise<TestNode>;
   /** Starts node `i`, which hasn't been started, once its transport is listening. */
   start(i: number): Promise<TestNode>;
+  /**
+   * Terminates node `i`, advancing virtual time until it has: a node that terminates leaves
+   * gracefully, handing its shards off over the network.
+   */
+  terminate(i: number): Promise<void>;
   /** Terminates every node, and closes the network. */
   shutdown(): Promise<void>;
 }
@@ -181,7 +194,7 @@ export async function createTestCluster(opts: TestClusterOptions = {}): Promise<
           ...(opts.sharding === undefined
             ? {}
             : {
-                shards: cutOff(store, () => reaches),
+                shards: cutOff(opts.sharding.wrapStore?.(store) ?? store, () => reaches),
                 ...(opts.sharding.leases === undefined ? {} : { leases: opts.sharding.leases }),
               }),
           ...membership,
@@ -211,11 +224,13 @@ export async function createTestCluster(opts: TestClusterOptions = {}): Promise<
   const nodes: TestNode[] = opts.startAll === false ? [] : addresses.map(start);
   await Promise.all(nodes.map((n) => n.remoting.whenListening));
 
+  let held = 0;
   const settle = async (): Promise<void> => {
     const deadline = performance.now() + MAX_REAL_MS;
     for (let ticks = 0; ; ticks++) {
       scheduler.runReady();
-      if (all.every((n) => n.handle.busy() === 0) && network.quiet()) return;
+      const busy = all.reduce((sum, n) => sum + n.handle.busy(), 0);
+      if (busy <= held && network.quiet()) return;
       if (!network.real && ticks >= MAX_TICKS) {
         throw new Error('settle: actors still busy after 1,000 ticks');
       }
@@ -230,6 +245,30 @@ export async function createTestCluster(opts: TestClusterOptions = {}): Promise<
     }
   };
 
+  /** Advances in steps until `promise` settles, for at most `maxMs`. */
+  const until = async (promise: Promise<unknown>, maxMs: number, what: string): Promise<void> => {
+    const state = { finished: false };
+    const watched = promise.then(() => {
+      state.finished = true;
+    });
+    for (let waited = 0; !state.finished && waited < maxMs; waited += 100) await advance(100);
+    await settle();
+    if (!state.finished) throw new Error(`${what} still hadn’t finished after ${String(maxMs)} ms`);
+    await watched;
+  };
+
+  async function advance(ms: number): Promise<void> {
+    const target = scheduler.now() + ms;
+    await settle();
+    for (;;) {
+      const next = scheduler.nextTimerAt();
+      if (next === undefined || next > target) break;
+      scheduler.advanceTo(next);
+      await settle();
+    }
+    scheduler.advanceTo(target);
+  }
+
   return {
     scheduler,
     network,
@@ -242,16 +281,19 @@ export async function createTestCluster(opts: TestClusterOptions = {}): Promise<
       return node;
     },
     settle,
-    async advance(ms) {
-      const target = scheduler.now() + ms;
-      await settle();
-      for (;;) {
-        const next = scheduler.nextTimerAt();
-        if (next === undefined || next > target) break;
-        scheduler.advanceTo(next);
-        await settle();
-      }
-      scheduler.advanceTo(target);
+    hold() {
+      held++;
+      let released = false;
+      return () => {
+        if (!released) held--;
+        released = true;
+      };
+    },
+    advance,
+    async terminate(i) {
+      const node = nodes[i];
+      if (node === undefined) throw new RangeError(`no node ${String(i)}`);
+      await until(node.system.terminate(), 60_000, `terminating ${node.name}`);
     },
     kill(i) {
       const node = nodes[i];
@@ -279,9 +321,9 @@ export async function createTestCluster(opts: TestClusterOptions = {}): Promise<
       return node;
     },
     async shutdown() {
-      const done = all.map((n) => n.system.terminate());
-      await settle();
-      await Promise.all(done);
+      // A node that terminates leaves gracefully, handing its shards off over the network, so
+      // virtual time has to pass for it to finish.
+      await until(Promise.all(all.map((n) => n.system.terminate())), 60_000, 'shutdown');
       await network.close();
     },
   };
@@ -334,3 +376,32 @@ export const FAST: Pick<TestClusterOptions, 'membership' | 'sharding'> = {
   },
   sharding: { leases: { ttlMs: 2_000, renewMs: 500, marginMs: 500 } },
 };
+
+/** Wraps a transport so that, while `isolated()`, no frame gets in or out. */
+export function isolatable(inner: Transport, isolated: () => boolean): Transport {
+  const wrap = (c: Connection): Connection => ({
+    send: (frame) => {
+      if (!isolated()) c.send(frame);
+    },
+    onFrame: (listener) => {
+      c.onFrame((frame) => {
+        if (!isolated()) listener(frame);
+      });
+    },
+    onClose: (listener) => {
+      c.onClose(listener);
+    },
+    close: () => {
+      c.close();
+    },
+  });
+  return {
+    address: inner.address,
+    listen: (onConnection, onRefused) =>
+      inner.listen((c) => {
+        onConnection(wrap(c));
+      }, onRefused),
+    connect: (address) => wrap(inner.connect(address)),
+    close: () => inner.close(),
+  };
+}
