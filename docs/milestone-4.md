@@ -349,7 +349,7 @@ Do these in order. Each one ends with passing tests.
 | T6. Cluster sharding: routing and placement | Done | 5941f00 |
 | T7. Passivation, rebalancing, handoff and remembering | Done | 666dd65 |
 | T8. Real processes: the multi-process test and the benchmark | Done | 146c490 |
-| T9. Backstage for clusters, and festival night on the site | Done, but for your check | |
+| T9. Backstage for clusters, and festival night on the site | Done | a01a605 |
 | T10. Docker Compose, the write-up and 0.2.0 | Not started | |
 
 ### T1. The wire format and the core's hooks
@@ -553,7 +553,8 @@ Notes from T8 (2026-11-24):
 - [x] Two runs with the same seed tell the same story, event for event, on every node
 - [x] Playwright covers each button, the node picker, the phone width and the frame budget (no frame over 50 ms in a kill at 4×)
 - [x] The site bar links the new page, and it has its own title, link preview and pageviews
-- [ ] Someone non-technical can say what happened when a node was killed (you check this)
+- [x] Someone non-technical can say what happened when a node was killed (you check this)
+  - You checked it on the live site, on 2026-11-24, and it passed.
 
 Notes from T9 (2026-11-24):
 
