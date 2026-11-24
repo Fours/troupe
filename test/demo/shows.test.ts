@@ -52,6 +52,7 @@ describe('a show', () => {
       ok: true,
       show: 'hamlet',
       seats: 3,
+      sold: 3,
     });
     expect(await status()).toEqual({ ok: true, capacity: 4, sold: 3, held: 0 });
   });

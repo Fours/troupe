@@ -43,7 +43,7 @@ export type HoldReply =
 
 /** The answer to a confirm. */
 export type ConfirmReply =
-  | { kind: 'confirm'; ok: true; show: string; seats: number }
+  | { kind: 'confirm'; ok: true; show: string; seats: number; sold: number }
   | { kind: 'confirm'; ok: false; show: string; reason: string };
 
 /** The answer to a return. `seats` can be fewer than asked, if fewer were sold. */
@@ -147,16 +147,21 @@ export function show(name: string, capacity: number, persistence: Persistence) {
               reason: NO_SUCH_HOLD,
             });
           }
-          return persist({ type: 'confirmed', holdId: msg.holdId, seats: hold.seats })
-            .thenRun(() => {
-              ctx.timers.cancel(msg.holdId);
-            })
-            .thenReply(msg.replyTo, (): ConfirmReply => ({
-              kind: 'confirm',
-              ok: true,
-              show: name,
-              seats: hold.seats,
-            }));
+          return (
+            persist({ type: 'confirmed', holdId: msg.holdId, seats: hold.seats })
+              .thenRun(() => {
+                ctx.timers.cancel(msg.holdId);
+              })
+              // `sold` is what the show had sold once this sale was in, so a caller can tell a later
+              // status that missed it.
+              .thenReply(msg.replyTo, (after): ConfirmReply => ({
+                kind: 'confirm',
+                ok: true,
+                show: name,
+                seats: hold.seats,
+                sold: after.sold,
+              }))
+          );
         }
         case 'return': {
           if (state.sold === 0) {

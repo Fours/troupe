@@ -33,7 +33,8 @@
       "@kylewillett/troupe/backstage/server": ["./src/node/backstage/index.ts"],
       "@kylewillett/troupe/cluster": ["./src/cluster/index.ts"],
       "@kylewillett/troupe/cluster/postgres": ["./src/cluster/postgres/index.ts"],
-      "@kylewillett/troupe/cluster/tcp": ["./src/node/cluster/index.ts"]
+      "@kylewillett/troupe/cluster/tcp": ["./src/node/cluster/index.ts"],
+      "@kylewillett/troupe/rehearsal": ["./src/rehearsal/index.ts"]
     }
   },
   "include": [

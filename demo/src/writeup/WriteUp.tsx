@@ -682,7 +682,13 @@ export function WriteUp({ data }: { data: WriteupData }) {
               should depend on the lease and the journal, never on the network <Record id="0035" />.
               A simulated database can hang, so every journal and shard store call now gives up
               after a timeout. A timed-out write gets no reply, since it may or may not have landed,
-              and the entity’s restart reads the journal to find out <Record id="0036" />.
+              and the entity’s restart reads the journal to find out <Record id="0036" />. A run is
+              now a seed and a list of faults: kills, pauses, partitions, slow and hanging disks,
+              clocks that drift. The list is plain data, so a failure can be printed, edited and
+              shrunk, and each part of a run draws its chance from a stream of its own, so taking
+              one fault out changes nothing that happened before it <Record id="0034" />. A minute
+              of festival night under faults takes 30 ms to simulate, and across a thousand of them
+              no show ran twice and no sale was lost, in either mode.
             </p>
             <p>
               Troupe is <a href={NPM_URL}>on npm</a>, published from CI with provenance, which ties

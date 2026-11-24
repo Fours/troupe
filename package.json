@@ -76,6 +76,10 @@
     "./cluster/tcp": {
       "types": "./dist/node/cluster/index.d.ts",
       "import": "./dist/node/cluster/index.js"
+    },
+    "./rehearsal": {
+      "types": "./dist/rehearsal/index.d.ts",
+      "import": "./dist/rehearsal/index.js"
     }
   },
   "sideEffects": false,

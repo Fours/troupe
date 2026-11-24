@@ -39,6 +39,10 @@ export default defineConfig({
         replacement: fileURLToPath(new URL('./src/node/cluster/index.ts', import.meta.url)),
       },
       {
+        find: /^@kylewillett\/troupe\/rehearsal$/,
+        replacement: fileURLToPath(new URL('./src/rehearsal/index.ts', import.meta.url)),
+      },
+      {
         find: /^@kylewillett\/troupe\/backstage\/server$/,
         replacement: fileURLToPath(new URL('./src/node/backstage/index.ts', import.meta.url)),
       },

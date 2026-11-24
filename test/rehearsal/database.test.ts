@@ -122,6 +122,83 @@ shardStoreContract('simulated database', {
 });
 
 describe('simulatedDatabase', () => {
+  it('tells its observer what became of each call', async () => {
+    const calls: unknown[] = [];
+    const { db, drive, loop } = setup({ observe: (call) => calls.push(call) });
+    const one = db.connect('node-1');
+    await drive(one.persistence.journal.append('a', 0, [ev(1), ev(2)]));
+    await drive(one.shards.acquire('show/1', 'node-1#1', 1_000));
+    const stopLosing = db.loseReplies({ node: 'node-1' });
+    watch(one.persistence.journal.append('a', 2, [ev(3)]));
+    await loop.advance(20);
+    stopLosing();
+    const heal = db.cutOff('node-1');
+    await drive(one.shards.renewAll('node-1#1', 1_000)).catch(() => {});
+    heal();
+    const pending = watch(one.persistence.journal.read('a', 1, 10));
+    one.close();
+    await loop.advance(20);
+    expect(pending.ok).toBe(false);
+    expect(calls).toEqual([
+      {
+        node: 'node-1',
+        op: 'journal.append',
+        target: 'a@0+2',
+        applied: true,
+        ok: true,
+        reply: 'delivered',
+      },
+      {
+        node: 'node-1',
+        op: 'shards.acquire',
+        target: 'show/1',
+        applied: true,
+        ok: true,
+        reply: 'delivered',
+      },
+      {
+        node: 'node-1',
+        op: 'journal.append',
+        target: 'a@2+1',
+        applied: true,
+        ok: true,
+        reply: 'lost',
+      },
+      {
+        node: 'node-1',
+        op: 'shards.renewAll',
+        target: 'node-1#1',
+        applied: false,
+        ok: false,
+        reply: 'delivered',
+      },
+      // In flight when its client closed, it still landed.
+      { node: 'node-1', op: 'journal.read', target: '', applied: true, ok: true, reply: 'closed' },
+    ]);
+    expect(() =>
+      simulatedDatabase({
+        scheduler: new ManualScheduler(),
+        random: Math.random,
+        observe: 1 as never,
+      }),
+    ).toThrow(/observe must be a function/);
+  });
+
+  it('tells its observer of a reply that met a cut on its way back', async () => {
+    const calls: { reply: string; applied: boolean }[] = [];
+    const { db, loop, sim } = setup({ observe: (call) => calls.push(call), latencyMs: [5, 5] });
+    const one = db.connect('node-1');
+    const call = watch(one.shards.holders('show/'));
+    // Applied at 5, and cut off before its reply lands at 10.
+    await loop.runUntil(7);
+    expect(sim.now()).toBe(7);
+    const heal = db.cutOff('node-1');
+    await loop.advance(10);
+    heal();
+    expect(call.ok).toBe(false);
+    expect(calls).toEqual([expect.objectContaining({ applied: true, reply: 'disconnected' })]);
+  });
+
   it('takes a drawn latency for each request and each reply', async () => {
     const { sim, db, loop } = setup({ latencyMs: [5, 5] });
     const { journal } = db.connect('node-1').persistence;

@@ -136,6 +136,58 @@ const CLUSTER_TYPES = [
 // The milestone 4 spec's Postgres shard store.
 const CLUSTER_POSTGRES_VALUES = ['postgresShardStore'];
 const CLUSTER_POSTGRES_TYPES = ['PostgresShardStore'];
+// The milestone 5 spec's Rehearsal, as of T5: scenarios, fault plans, histories and invariants.
+const REHEARSAL_VALUES = ['StallError', 'invariants', 'scenario'];
+const REHEARSAL_TYPES = [
+  'AcknowledgedWrite',
+  'AcknowledgedWritesOptions',
+  'Chance',
+  'CompleteEntry',
+  'CutFault',
+  'DatabaseEntry',
+  'DelayFault',
+  'DiskFault',
+  'DriftFault',
+  'DuplicateFault',
+  'EntityHandle',
+  'EventEntry',
+  'FailoverOptions',
+  'Fault',
+  'FaultEntry',
+  'FaultKind',
+  'FaultOptions',
+  'FaultPlan',
+  'History',
+  'HistoryEntry',
+  'Invariant',
+  'InvokeEntry',
+  'JoinFault',
+  'JournalEntry',
+  'JournalEvent',
+  'JumpFault',
+  'KillFault',
+  'LeaveFault',
+  'LoseFault',
+  'NetworkMode',
+  'NoStaleReadsOptions',
+  'PartitionFault',
+  'PauseFault',
+  'RecoversOptions',
+  'ReorderFault',
+  'ResetFault',
+  'Run',
+  'RunEntry',
+  'Scenario',
+  'ScenarioCluster',
+  'ScenarioOptions',
+  'SendEntry',
+  'SetupContext',
+  'SetupResult',
+  'StartEntry',
+  'StopEntry',
+  'Violation',
+  'WorkloadContext',
+];
 // The milestone 4 spec's TCP transport.
 const TCP_VALUES = ['tcpTransport'];
 const TCP_TYPES = ['TcpTransportOptions'];
@@ -192,6 +244,7 @@ describe('the built package', () => {
       const cluster = await import('@kylewillett/troupe/cluster');
       const tcp = await import('@kylewillett/troupe/cluster/tcp');
       const clusterPostgres = await import('@kylewillett/troupe/cluster/postgres');
+      const rehearsal = await import('@kylewillett/troupe/rehearsal');
       console.log(JSON.stringify({
         main: Object.keys(main),
         testkit: Object.keys(testkit),
@@ -203,6 +256,7 @@ describe('the built package', () => {
         cluster: Object.keys(cluster),
         tcp: Object.keys(tcp),
         clusterPostgres: Object.keys(clusterPostgres),
+        rehearsal: Object.keys(rehearsal),
       }));
     `;
     const out = execFileSync(process.execPath, ['--input-type=module', '-e', script], {
@@ -219,7 +273,8 @@ describe('the built package', () => {
       | 'server'
       | 'cluster'
       | 'tcp'
-      | 'clusterPostgres',
+      | 'clusterPostgres'
+      | 'rehearsal',
       string[]
     >;
     expect(sorted(loaded.main)).toEqual(sorted(MAIN_VALUES));
@@ -232,6 +287,7 @@ describe('the built package', () => {
     expect(sorted(loaded.cluster)).toEqual(sorted(CLUSTER_VALUES));
     expect(sorted(loaded.tcp)).toEqual(sorted(TCP_VALUES));
     expect(sorted(loaded.clusterPostgres)).toEqual(sorted(CLUSTER_POSTGRES_VALUES));
+    expect(sorted(loaded.rehearsal)).toEqual(sorted(REHEARSAL_VALUES));
   });
 
   it('declares exactly the spec’s names, types included', () => {
@@ -245,6 +301,7 @@ describe('the built package', () => {
     const cluster = `${root}dist/cluster/index.d.ts`;
     const tcp = `${root}dist/node/cluster/index.d.ts`;
     const clusterPostgres = `${root}dist/cluster/postgres/index.d.ts`;
+    const rehearsal = `${root}dist/rehearsal/index.d.ts`;
     const prog = program([
       main,
       testkit,
@@ -256,6 +313,7 @@ describe('the built package', () => {
       cluster,
       tcp,
       clusterPostgres,
+      rehearsal,
     ]);
     expect(sorted(exportsOf(prog, main).keys())).toEqual(sorted([...MAIN_VALUES, ...MAIN_TYPES]));
     expect(sorted(exportsOf(prog, testkit).keys())).toEqual(
@@ -283,6 +341,34 @@ describe('the built package', () => {
     expect(sorted(exportsOf(prog, clusterPostgres).keys())).toEqual(
       sorted([...CLUSTER_POSTGRES_VALUES, ...CLUSTER_POSTGRES_TYPES]),
     );
+    expect(sorted(exportsOf(prog, rehearsal).keys())).toEqual(
+      sorted([...REHEARSAL_VALUES, ...REHEARSAL_TYPES]),
+    );
+  });
+
+  it('loads /rehearsal from dist/ alone, never a Node built-in', () => {
+    const loaded = loadedBy('@kylewillett/troupe/rehearsal');
+    expect(loaded).toContain(`file://${root}dist/rehearsal/index.js`);
+    expect(loaded.filter((url) => !url.startsWith(`file://${root}dist/`))).toEqual([]);
+    expect(loaded.filter((url) => url.includes('/dist/node/'))).toEqual([]);
+  });
+
+  it('loads /rehearsal from no other entry point', () => {
+    for (const specifier of [
+      '@kylewillett/troupe',
+      '@kylewillett/troupe/testkit',
+      '@kylewillett/troupe/persistence',
+      '@kylewillett/troupe/backstage',
+      '@kylewillett/troupe/cluster',
+      '@kylewillett/troupe/cluster/postgres',
+    ]) {
+      const loaded = loadedBy(specifier);
+      expect(loaded.length, specifier).toBeGreaterThan(1);
+      expect(
+        loaded.filter((url) => url.includes('/dist/rehearsal/')),
+        specifier,
+      ).toEqual([]);
+    }
   });
 
   it('loads /cluster from dist/ alone, never a Node built-in', () => {

@@ -57,6 +57,34 @@ export interface SimulatedDatabaseOptions {
    * scheduler's `now`.
    */
   clock?: () => number;
+  /**
+   * Told of every call once its caller has its answer, or never will: for a run's history. It
+   * mustn't throw.
+   */
+  observe?: (call: DatabaseCall) => void;
+}
+
+/** What became of one call, as {@link SimulatedDatabaseOptions.observe} hears of it. */
+export interface DatabaseCall {
+  /** The node that made it. */
+  readonly node: string;
+  /** Such as `journal.append` or `shards.acquire`. */
+  readonly op: string;
+  /**
+   * What it was about: an append's stream, expected sequence number and count, as
+   * `show-hamlet@3+1`, a lease, a holder for `shards.renewAll`, or `""`.
+   */
+  readonly target: string;
+  /** Whether it reached the data. An applied call can still report failure. */
+  readonly applied: boolean;
+  /** Whether its answer was a success. */
+  readonly ok: boolean;
+  /**
+   * `delivered`: its caller has the answer. `lost`: the reply was lost, and its caller never
+   * hears. `disconnected`: its node was cut off on the way back, so its caller heard of a lost
+   * connection. `closed`: its client had closed, which had failed the call already.
+   */
+  readonly reply: 'delivered' | 'lost' | 'disconnected' | 'closed';
 }
 
 /** The database as one node incarnation reaches it. */
@@ -147,7 +175,7 @@ export interface SimulatedDatabase {
   counts(): DatabaseCounts;
 }
 
-const OPTIONS = new Set(['scheduler', 'random', 'latencyMs', 'clock']);
+const OPTIONS = new Set(['scheduler', 'random', 'latencyMs', 'clock', 'observe']);
 const SLOW_OPTIONS = new Set(['node', 'latencyMs']);
 const HANG_OPTIONS = new Set(['node']);
 const RATE_OPTIONS = new Set(['node', 'rate']);
@@ -169,7 +197,11 @@ export function simulatedDatabase(opts: SimulatedDatabaseOptions): SimulatedData
   }
   const latency = checkRange(latencyMs, 'simulatedDatabase: latencyMs');
   const read = wallClock(opts.clock ?? (() => scheduler.now()), 'simulatedDatabase');
-  const db = new Db(scheduler, random, latency, read);
+  const observe: unknown = opts.observe;
+  if (observe !== undefined && typeof observe !== 'function') {
+    throw new TypeError(`simulatedDatabase: observe must be a function, got ${describe(observe)}`);
+  }
+  const db = new Db(scheduler, random, latency, read, opts.observe);
 
   return {
     connect: (node, clock = scheduler) => db.connect(node, clock),
@@ -237,6 +269,10 @@ interface Client {
 interface Call {
   readonly client: Client;
   readonly op: string;
+  readonly target: string;
+  applied: boolean;
+  // Whether the observer has heard of it, which it does once.
+  observed: boolean;
   readonly apply: () => Promise<unknown>;
   readonly resolve: (value: unknown) => void;
   readonly reject: (error: unknown) => void;
@@ -272,6 +308,7 @@ class Db {
     readonly random: () => number,
     readonly latency: Range,
     readonly wall: () => number,
+    readonly observe: ((call: DatabaseCall) => void) | undefined,
   ) {
     const clock = (): number => this.now();
     this.data = inMemoryPersistence({ clock });
@@ -309,7 +346,8 @@ class Db {
         if (client.closed) return;
         client.closed = true;
         const error = new Error(`${node}'s database client has closed`);
-        for (const call of client.pending) this.#hand(call, { ok: false, error });
+        // Each is observed once its request lands, when it's known whether it was applied.
+        for (const call of client.pending) this.#hand(call, { ok: false, error }, 'closed', false);
       },
     };
   }
@@ -318,7 +356,7 @@ class Db {
    * Makes a call: `check` runs now, and rejects the call at once if its arguments are bad, as a
    * driver does before sending. `apply` runs once the request reaches the database.
    */
-  call<T>(client: Client, op: string, check: () => () => Promise<T>): Promise<T> {
+  call<T>(client: Client, op: string, target: string, check: () => () => Promise<T>): Promise<T> {
     if (client.closed) {
       return Promise.reject(new Error(`${client.node}'s database client has closed`));
     }
@@ -334,6 +372,9 @@ class Db {
       const call: Call = {
         client,
         op,
+        target,
+        applied: false,
+        observed: false,
         apply,
         resolve: resolve as (value: unknown) => void,
         reject,
@@ -364,6 +405,7 @@ class Db {
       return;
     }
     this.counters.applied++;
+    call.applied = true;
     call.apply().then(
       (value) => {
         this.#reply(call, { ok: true, value });
@@ -388,15 +430,17 @@ class Db {
     const { node } = call.client;
     if (this.#chance(this.losses, node)) {
       this.counters.lostReplies++;
+      this.#observe(call, outcome.ok, 'lost');
       return;
     }
     this.scheduler.setTimer(() => {
       if (this.cuts.includes(node)) {
         this.counters.disconnected++;
-        this.#hand(call, {
-          ok: false,
-          error: new Error(`${node}'s connection to the database was lost`),
-        });
+        this.#hand(
+          call,
+          { ok: false, error: new Error(`${node}'s connection to the database was lost`) },
+          'disconnected',
+        );
         return;
       }
       this.#hand(call, outcome);
@@ -404,16 +448,30 @@ class Db {
   }
 
   // Hands the outcome to the caller, through its node's clock, unless it has had one already.
-  #hand(call: Call, outcome: Outcome): void {
+  #hand(
+    call: Call,
+    outcome: Outcome,
+    reply: DatabaseCall['reply'] = 'delivered',
+    observe = true,
+  ): void {
     const { client } = call;
     if (!client.pending.delete(call)) {
       this.counters.dropped++;
+      this.#observe(call, outcome.ok, 'closed');
       return;
     }
+    if (observe) this.#observe(call, outcome.ok, reply);
     client.clock.runSoon(() => {
       if (outcome.ok) call.resolve(outcome.value);
       else call.reject(outcome.error);
     });
+  }
+
+  #observe(call: Call, ok: boolean, reply: DatabaseCall['reply']): void {
+    if (call.observed) return;
+    call.observed = true;
+    const { client, op, target, applied } = call;
+    this.observe?.({ node: client.node, op, target, applied, ok, reply });
   }
 
   #latency(node: string): number {
@@ -432,17 +490,21 @@ class Db {
 
   #persistence(client: Client): Required<Persistence> {
     const { journal, snapshots, offsets } = this.data;
-    const call = <T>(op: string, check: () => () => Promise<T>): Promise<T> =>
-      this.call(client, op, check);
+    const call = <T>(op: string, check: () => () => Promise<T>, target = ''): Promise<T> =>
+      this.call(client, op, target, check);
     const j: Journal = {
       append: (persistenceId, expectedSeq, events) =>
-        call('journal.append', () => {
-          // Copied now, as a driver serializes before sending, so the caller can't change them.
-          const batch: NewEvent[] = checkAppend(persistenceId, expectedSeq, events).map(
-            ({ version, tags, json }) => ({ event: JSON.parse(json) as unknown, version, tags }),
-          );
-          return () => journal.append(persistenceId, expectedSeq, batch);
-        }),
+        call(
+          'journal.append',
+          () => {
+            // Copied now, as a driver serializes before sending, so the caller can't change them.
+            const batch: NewEvent[] = checkAppend(persistenceId, expectedSeq, events).map(
+              ({ version, tags, json }) => ({ event: JSON.parse(json) as unknown, version, tags }),
+            );
+            return () => journal.append(persistenceId, expectedSeq, batch);
+          },
+          `${persistenceId}@${String(expectedSeq)}+${String(Array.isArray(events) ? events.length : 0)}`,
+        ),
       read: (persistenceId, fromSeq, limit) =>
         call('journal.read', () => {
           checkRead(persistenceId, fromSeq, limit);
@@ -484,24 +546,36 @@ class Db {
 
   #shards(client: Client): ShardStore {
     const store = this.leases;
-    const call = <T>(op: string, check: () => () => Promise<T>): Promise<T> =>
-      this.call(client, op, check);
+    const call = <T>(op: string, check: () => () => Promise<T>, target = ''): Promise<T> =>
+      this.call(client, op, target, check);
     return {
       acquire: (lease, holder, ttlMs) =>
-        call('shards.acquire', () => {
-          checkAcquire(lease, holder, ttlMs);
-          return () => store.acquire(lease, holder, ttlMs);
-        }),
+        call(
+          'shards.acquire',
+          () => {
+            checkAcquire(lease, holder, ttlMs);
+            return () => store.acquire(lease, holder, ttlMs);
+          },
+          lease,
+        ),
       renewAll: (holder, ttlMs) =>
-        call('shards.renewAll', () => {
-          checkRenewAll(holder, ttlMs);
-          return () => store.renewAll(holder, ttlMs);
-        }),
+        call(
+          'shards.renewAll',
+          () => {
+            checkRenewAll(holder, ttlMs);
+            return () => store.renewAll(holder, ttlMs);
+          },
+          holder,
+        ),
       release: (lease, holder, token) =>
-        call('shards.release', () => {
-          checkRelease(lease, holder, token);
-          return () => store.release(lease, holder, token);
-        }),
+        call(
+          'shards.release',
+          () => {
+            checkRelease(lease, holder, token);
+            return () => store.release(lease, holder, token);
+          },
+          lease,
+        ),
       holders: (prefix) =>
         call('shards.holders', () => {
           checkPrefix(prefix);

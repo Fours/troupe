@@ -226,6 +226,14 @@ A plan is a list of faults with their simulation times, and it's plain JSON:
 - **Joins and leaves** are faults too, so handoffs happen as often as failovers.
 - A plan given to `run` is checked like any option: unknown nodes or kinds throw when it's passed in.
 
+Settled in T5 ([0034](decisions/0034-a-run-is-a-seed-and-a-plan.md)):
+
+- **The kinds:** `kill` with `restartAfterMs`, `pause`, `leave` with `rejoinAfterMs`, `join` of a spare, `partition` (with `oneWay`), `reset`, `delay`, `reorder` (with `within`, chaos only), `lose` and `duplicate` (chaos only), `disk` (`slow`, `hang`, `error`, `lostReplies`, for every node or one), `cut`, `jump` of the database's clock, and `drift` of a node's clock, which `NodeClock.setDrift` carries out, moving its timers to the new rate.
+- **Drawing:** `faults: { nodes, clocks, network, disks }` turn on groups, `only` names kinds, and `perMinute` (6), `concurrent` (2) and `lastingMs` (1 to 8 s) shape the draw. Node faults never land on a node already under one, always leave a host free, and never touch a client. Drawn jumps stay within `marginMs`.
+- **The workload runs on simulation time,** each client's `workload` every draw of `everyMs` (50 to 250 ms) from its own stream, and operations record what they send and how they end. Nothing the cluster answers changes what the workload draws.
+- **A process manager restarts nodes.** A node that exits on its own, downed or never let in, starts again as a new incarnation after `restartAfterMs` (2,000). What's left of an ended process is paused for good and unwatched.
+- **Spares** are hosts that start only when a plan joins them: festival night has one, `node-4`, so joins hand shards off as leaves do.
+
 ### The history
 
 Every run records one history: a list of entries in simulation time, each a JSON value.
@@ -252,6 +260,8 @@ Built in, each a function of the history ([0035](#decision-records)):
 | `failoverWithin` | After a kill, the dead node's entities answer again elsewhere within a bound, by default `ttlMs` plus one renewal and one rebalance |
 
 - **Your own** are any `Invariant`: a name, and a check over the history.
+- **Settled in T5** (decision [0035](decisions/0035-safety-under-any-network-ordering-under-the-contract.md) has them in full): an instance is live until it stops, its process ends, or its node's lease runs out by its own clock, after which the journal fences what it finishes. `acknowledgedWritesKept` takes the scenario's `write`, `kept` and `acknowledged`, and `noStaleReads` a `position` read from both reads' and writes' replies. `orderPerPair` checks only pairs sent a TTL after the shard settled, with no fault under way, since the history can't show when a client heard of a move. `recovers` checks that the shards running nodes hold are on their desired owners, not that every shard is held, since a region takes an empty shard only when it needs it. `atMostOnce` and `orderPerPair` declare `modes: ['contract']`, and a chaos-mode scenario given them throws.
+- **The festival scenario** is `festival({ mode })` in `demo/src/rehearsal/domain/festival.ts`, so the tests, T6's script and T8's page share it: opening night's show at a capacity no run sells out, with `buy` a hold then its confirm, whose reply now carries `sold`, and `status` the read.
 - **Clock drift beyond the margin is a known limit, not a bug.** If a plan drifts a node's clock by more than `marginMs` over `ttlMs` (0029's assumption), `oneLiveInstance` can fail and the journal must still hold. A run like that reports the overlap as `expected` rather than as a violation, as long as `acknowledgedWritesKept` and `noStaleReads` pass. The report counts them separately, so the write-up can say how often it happens.
 
 ### Shrinking and replay
@@ -314,7 +324,7 @@ The fourth page, after opening night, the write-up and festival night. Words fir
 
 ### The write-up
 
-A section on Rehearsal, after the cluster's: why a single thread makes simulation possible (0003, 0004), closing virtual time (0033), a run as a seed and a plan (0034), safety under any network (0035), timeouts as unknown outcomes (0036), the planted-bug table, the bugs the hunt found, and what 1.0 promises (0037). "What's next" lists the roadmap's later ideas.
+A section on Rehearsal, after the cluster's: why a single thread makes simulation possible (0003, 0004), closing virtual time (0033), a run as a seed and a plan (0034), safety under any network (0035), timeouts as unknown outcomes (0036), the public JSON check (0037), the planted-bug table, the bugs the hunt found, and what 1.0 promises (0038). "What's next" lists the roadmap's later ideas.
 
 ### Layout and build
 
@@ -361,8 +371,8 @@ Do these in order. Each one ends with passing tests.
 | T1. Node clocks and the run loop | Done | 3fb3a2a |
 | T2. The simulated network | Done | 2f7e1ff |
 | T3. The simulated database | Done | 683985d |
-| T4. Timeouts | Done | |
-| T5. Fault plans, the history and the invariants | Not started | |
+| T4. Timeouts | Done | bea8541 |
+| T5. Fault plans, the history and the invariants | Done | |
 | T6. `rehearse()`, shrinking, replay and planted bugs | Not started | |
 | T7. The hunt | Not started | |
 | T8. The site's `/rehearsal/` page and the write-up | Not started | |
@@ -435,12 +445,12 @@ Write [0034](#decision-records).
 
 **Done when** tests cover:
 
-- [ ] A plan drawn from a seed is the same every time, every fault in it ends before the quiet tail, and an invalid plan throws where it's passed in
-- [ ] Removing a fault from a plan doesn't change the workload's operations or any node's draws before the fault's time
-- [ ] Each invariant passes on a run built to pass it and fails on one built to fail it, with a violation that says what, where and when
-- [ ] Drift past the margin is reported as `expected`, not as a violation, while the journal holds
-- [ ] The milestone 4 invariant scenario, on Rehearsal, passes over 1,000 seeds, and catches the store that grants held leases, as the old test did
-- [ ] A history is JSON, and two runs of one seed and plan give byte-identical histories
+- [x] A plan drawn from a seed is the same every time, every fault in it ends before the quiet tail, and an invalid plan throws where it's passed in
+- [x] Removing a fault from a plan doesn't change the workload's operations or any node's draws before the fault's time
+- [x] Each invariant passes on a run built to pass it and fails on one built to fail it, with a violation that says what, where and when
+- [x] Drift past the margin is reported as `expected`, not as a violation, while the journal holds
+- [x] The milestone 4 invariant scenario, on Rehearsal, passes over 1,000 seeds, and catches the store that grants held leases, as the old test did
+- [x] A history is JSON, and two runs of one seed and plan give byte-identical histories
 
 ### T6. `rehearse()`, shrinking, replay and planted bugs
 
@@ -461,6 +471,15 @@ Write [0034](#decision-records).
 - A fix, a record where a decision changes, and a regression plan for each bug found
 - Fencing, decided from what the hunt shows
 
+Leads from T5, where the checks found real behaviour on the way (see [0035](decisions/0035-safety-under-any-network-ordering-under-the-contract.md)'s Evidence). Over 1,000 festival seeds, `recovers` fails 63 in contract mode and 91 in chaos mode, and `orderPerPair` fails 1:
+
+- **Split brain after a partition.** When a partition cuts both ways, each side downs the other and then stops trusting it, so the halves never merge, and neither half's downed members ever hear they were downed. A one-way partition can let a client down every host. Milestone 4 left a split-brain strategy as a stretch goal: this is what it costs.
+- **A buffer flushed late.** After a database hang, a node got a shard back while a client still held messages for it, waiting on a lookup. Newer messages went straight to the owner and overtook the buffered ones. Seen while building the checks, on accounts under every fault at 20 a minute, and not yet on festival night.
+- **A leave that never ends.** A node that starts leaving during a database hang, and is downed while it leaves, stays `leaving` for good (festival contract seed 93).
+- **Asks that never answer** 20 s after the faults heal (festival chaos seeds 8 and 51).
+- **A message overtaken just after a partition heals** (festival contract seed 777).
+- **A deposed holder's write landing after the new owner recovered** (festival chaos seed 602): the sequence check caught it, as 0013 promises, so it's evidence for the fencing decision, not a bug.
+
 **Done when:**
 
 - [ ] The runs are recorded: seeds, modes, mixes, runs, violations found, and the machine, with the exact commands
@@ -479,12 +498,12 @@ Write [0034](#decision-records).
 - [ ] The recorded histories come from `docs/decisions/data/` at build time, and the build fails if one is missing
 - [ ] Playwright covers running seeds, the scrubber, each bug, the phone width, and the frame budget (no frame over 50 ms while seeds run)
 - [ ] The site bar links the page, and it has its own title, link preview and pageviews
-- [ ] "How Troupe works" has a Rehearsal section citing 0033 to 0037 and every record the hunt added, and the records test passes
+- [ ] "How Troupe works" has a Rehearsal section citing 0033 to 0038 and every record the hunt added, and the records test passes
 - [ ] Someone non-technical can say what the page shows and why it matters (you check this)
 
 ### T9. API review, README and 1.0.0
 
-Write [0037](#decision-records).
+Write [0038](#decision-records).
 
 - An API review: every export, its name, its TSDoc, and whether it's ready to promise
 - The README's Rehearsal section, AGENTS.md's layout and commands, the changelog
@@ -493,7 +512,7 @@ Write [0037](#decision-records).
 **Done when:**
 
 - [ ] Every public export has been reviewed, and anything not ready is removed or renamed before 1.0, with the changelog saying so
-- [ ] 0037 says what 1.0 promises: which exports, whether a new `SystemEvent` or dead-letter reason is a minor or a major change, and Backstage's protocol
+- [ ] 0038 says what 1.0 promises: which exports, whether a new `SystemEvent` or dead-letter reason is a minor or a major change, and Backstage's protocol
 - [ ] The README covers rehearsing your own entity types, writing an invariant, replaying a failure, and what Rehearsal doesn't simulate
 - [ ] The export-list test, `publint`, `attw` and `check-pack.ts` cover `/rehearsal`
 - [ ] After your approval in chat, `v1.0.0` is tagged and published with provenance, and the smoke script's quick start works from npm on Node 22, 24 and 26
@@ -528,7 +547,8 @@ The tasks add these records, as Proposed, and accept them once their tests pass.
 | 0034 | A run is a seed and a fault plan, the plan is data, and the plan is what shrinks. Each concern draws from its own stream | T5, T6 |
 | 0035 | Safety is checked under any network fault, and ordering only under faults the `Transport` contract allows | T2, T5 |
 | 0036 | Journal and shard store calls time out on the scheduler, and a timeout is an unknown outcome, settled by recovery. Answers milestone 2's open question 2 | T4 |
-| 0037 | What 1.0 promises | T9 |
+| 0037 | The JSON check is public (written between T4 and T5, for 0.3.0) | — |
+| 0038 | What 1.0 promises | T9 |
 
 T7 adds a record for each bug fix that changes a decision, and one for fencing, numbered as they come.
 

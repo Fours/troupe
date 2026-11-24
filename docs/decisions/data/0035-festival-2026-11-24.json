@@ -1,0 +1,39 @@
+{
+  "what": "Festival night, rehearsed (demo/src/rehearsal/domain/festival.ts): the lineup's twelve shows on three nodes, a spare that can join, and a crowd, for 60 s of simulation time with the last 20 s quiet, with every group of faults drawn from each seed (nodes, clocks, network, disks), 6 a minute and up to 2 at once. Seeds 1 to 1,000 in each network mode. A seed counts as failing an invariant if that invariant found at least one violation in its run",
+  "command": "FESTIVAL_SEEDS=1000 npx vitest run test/demo/rehearsal.test.ts (the safety invariants), and the same runs counted per invariant for the table",
+  "machine": "Apple M5 Pro, darwin 25.4.0",
+  "node": "v26.12.1",
+  "date": "2026-11-24",
+  "contract": {
+    "seeds": 1000,
+    "msPerRun": 30,
+    "faults": 3573,
+    "operations": 399539,
+    "answeredOk": 374615,
+    "expected": 0,
+    "seedsFailing": {
+      "oneLiveInstance": 0,
+      "acknowledgedWritesKept": 0,
+      "noStaleReads": 0,
+      "failoverWithin": 0,
+      "atMostOnce": 0,
+      "orderPerPair": 1,
+      "recovers": 63
+    }
+  },
+  "chaos": {
+    "seeds": 1000,
+    "msPerRun": 29,
+    "faults": 3620,
+    "operations": 399539,
+    "answeredOk": 370279,
+    "expected": 0,
+    "seedsFailing": {
+      "oneLiveInstance": 0,
+      "acknowledgedWritesKept": 0,
+      "noStaleReads": 0,
+      "failoverWithin": 0,
+      "recovers": 91
+    }
+  }
+}

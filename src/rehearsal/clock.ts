@@ -31,6 +31,12 @@ interface Item {
   cancelled: boolean;
 }
 
+/** A timer: the node time it's due at, and how to take it off the simulation's heap. */
+interface Timer extends Item {
+  readonly due: number;
+  cancelSim: () => void;
+}
+
 /**
  * One node's scheduler in a simulation: a view onto the simulation's {@link ManualScheduler} at its
  * own rate. Its `now()` is whole milliseconds and never goes backwards, and its timers fire when
@@ -42,9 +48,11 @@ interface Item {
  */
 export class NodeClock implements Scheduler {
   readonly #sim: ManualScheduler;
-  readonly #simStart: number;
-  readonly #nodeStart: number;
-  readonly #rate: number;
+  #simStart: number;
+  #nodeStart: number;
+  #rate: number;
+  // Timers not yet fired, so a change of rate can put each back at its node time.
+  readonly #timers = new Set<Timer>();
   #paused = false;
   // What fell due while paused, and, until it has all run, what fell due after.
   readonly #backlog: Item[] = [];
@@ -57,17 +65,30 @@ export class NodeClock implements Scheduler {
   constructor(sim: ManualScheduler, opts: NodeClockOptions = {}) {
     checkKeys(opts, OPTIONS, 'NodeClock');
     const { driftPpm = 0, startAt = sim.now() } = opts;
-    checkInt(driftPpm, 'NodeClock: driftPpm', { min: -MAX_DRIFT_PPM });
-    if (driftPpm > MAX_DRIFT_PPM) {
-      throw new TypeError(
-        `NodeClock: driftPpm must be at most ${String(MAX_DRIFT_PPM)}, got ${String(driftPpm)}`,
-      );
-    }
+    checkDrift(driftPpm, 'NodeClock: driftPpm');
     checkInt(startAt, 'NodeClock: startAt', { min: 0 });
     this.#sim = sim;
     this.#simStart = sim.now();
     this.#nodeStart = startAt;
     this.#rate = 1 + driftPpm / 1_000_000;
+  }
+
+  /**
+   * Changes the clock's rate from now on, as a fault plan's drift does. `now()` carries on from
+   * where it is, so it never goes backwards, and every timer still to fire is put back at the
+   * simulation time when the clock, at its new rate, reaches it.
+   * @throws TypeError unless `driftPpm` is an integer from -100,000 to 100,000.
+   */
+  setDrift(driftPpm: number): void {
+    checkDrift(driftPpm, 'NodeClock.setDrift: driftPpm');
+    const now = this.now();
+    this.#simStart = this.#sim.now();
+    this.#nodeStart = now;
+    this.#rate = 1 + driftPpm / 1_000_000;
+    for (const timer of this.#timers) {
+      timer.cancelSim();
+      this.#schedule(timer);
+    }
   }
 
   /** The node's own time, in whole ms. */
@@ -94,16 +115,13 @@ export class NodeClock implements Scheduler {
    */
   setTimer(task: () => void, delayMs: number): () => void {
     const delay = Number.isNaN(delayMs) ? 0 : Math.max(0, delayMs);
-    const item: Item = { task, cancelled: false };
-    const cancel = this.#sim.setTimer(
-      () => {
-        this.#fire(item);
-      },
-      this.#simDelay(this.now() + delay),
-    );
+    const timer: Timer = { task, cancelled: false, due: this.now() + delay, cancelSim: () => {} };
+    this.#timers.add(timer);
+    this.#schedule(timer);
     return () => {
-      item.cancelled = true;
-      cancel();
+      timer.cancelled = true;
+      this.#timers.delete(timer);
+      timer.cancelSim();
     };
   }
 
@@ -120,6 +138,13 @@ export class NodeClock implements Scheduler {
     if (!this.#paused) return;
     this.#paused = false;
     this.#queueFlush();
+  }
+
+  #schedule(timer: Timer): void {
+    timer.cancelSim = this.#sim.setTimer(() => {
+      this.#timers.delete(timer);
+      this.#fire(timer);
+    }, this.#simDelay(timer.due));
   }
 
   // Runs an item now, unless the node is paused or still has a backlog to run first.
@@ -170,6 +195,15 @@ export class NodeClock implements Scheduler {
     while (this.#at(now + delay) < target) delay++;
     while (delay > 0 && this.#at(now + delay - 1) >= target) delay--;
     return delay;
+  }
+}
+
+function checkDrift(driftPpm: number, what: string): void {
+  checkInt(driftPpm, what, { min: -MAX_DRIFT_PPM });
+  if (driftPpm > MAX_DRIFT_PPM) {
+    throw new TypeError(
+      `${what} must be at most ${String(MAX_DRIFT_PPM)}, got ${String(driftPpm)}`,
+    );
   }
 }
 

@@ -108,8 +108,15 @@ src/
     postgres/       the /persistence/postgres entry point: any runtime, on a structurally typed
                     pg pool it never imports (0016, 0017); pool.ts holds what it shares with
                     /cluster/postgres
-  rehearsal/        Rehearsal, milestone 5 (any runtime, not exported until T5): clock.ts, a
-                    NodeClock per node on one simulation clock, with drift and pauses, and
+  rehearsal/        the /rehearsal entry point, milestone 5 (any runtime): scenario.ts, scenario()
+                    and a run's world: nodes on their clocks, the plan carried out, the workload
+                    on simulation time, a process manager that restarts nodes that exit, and the
+                    history recorded; plan.ts, faults as JSON, their checks, and drawing from the
+                    plan stream; streams.ts, a stream per concern from one seed (0034);
+                    history.ts, the history's entries and refs as JSON; invariants.ts, the seven
+                    built-in invariants and what's expected past the lease's margin (0035);
+                    clock.ts, a NodeClock per node on one simulation clock, with drift (setDrift)
+                    and pauses, and
                     throughClock, which hands a node its frames through its clock; loop.ts, the
                     run loop that closes virtual time, and StallError; yield.ts, the one macrotask
                     it yields, on a MessageChannel (0033); network.ts, simulatedNetwork, a
@@ -117,8 +124,9 @@ src/
                     and in chaos mode lost, reordered and repeated frames (0035); database.ts,
                     simulatedDatabase, a Persistence and a ShardStore on one endpoint, the
                     in-memory backends behind request and reply latencies, with slow spells,
-                    hangs, errors, lost replies, cut-off nodes and clock jumps; ranges.ts, the
-                    range and rate checks the network and the database share
+                    hangs, errors, lost replies, cut-off nodes and clock jumps, and an observer
+                    for the history; ranges.ts, the range and rate checks the network and the
+                    database share
 test/               mirrors src/; helpers/ holds deferred() and test actors (tree, watcher, idle),
                     the persistent account, faultyJournal() and faultySnapshots() for holding
                     and failing calls, postgres.ts (the test database, fresh schemas, and a
@@ -133,19 +141,24 @@ test/               mirrors src/; helpers/ holds deferred() and test actors (tre
                     share a simulated database instead, each incarnation a client of it on its
                     own clock, which a kill closes; shutdown waits only for nodes not killed).
                     cluster/remoting-suite.ts is remoting's suite, run on all three networks,
-                    cluster/handoff.test.ts T7's passivation, rebalancing, handoff and remembering,
-                    and cluster/invariant.test.ts the in-process check of one live instance per
-                    entity, on one clock, on a clock per node, and on the simulated database
+                    and cluster/handoff.test.ts T7's passivation, rebalancing, handoff and
+                    remembering
                     rehearsal/ tests Rehearsal's clocks, run loop and stalls, the simulated
                     network: on its own, as a property over random faults, and under clusters
-                    (chaos.test.ts), and the simulated database, its faults and both contract
-                    suites on it (database.test.ts)
+                    (chaos.test.ts), the simulated database, its faults and both contract
+                    suites on it (database.test.ts), plans and streams (plan.test.ts), the
+                    history (history.test.ts), each invariant passing and failing
+                    (invariants.test.ts), and milestone 4's in-process invariant scenario on
+                    Rehearsal over 1,000 seeds, with the store that grants held leases it catches
+                    (invariant.test.ts)
                     persistence/contract.ts is the journal contract every backend runs, and
                     cluster/shard-store-contract.ts the shard stores';
                     node/ tests the Node-only backends, lint.test.ts the lint config's boundaries
                     integration/ needs Postgres: its own Vitest project, run by test:integration
                     demo/ tests the demo's domain on the testkit and its driven clock, festival
-                    night's on its in-memory cluster, and the write-up's data and record links
+                    night's on its in-memory cluster, festival night rehearsed (rehearsal.test.ts,
+                    FESTIVAL_SEEDS seeds a mode, 100 by default), and the write-up's data and
+                    record links
                     multiprocess/ runs examples/cluster/ as real processes on TCP and Postgres,
                     against dist/: its own Vitest project, run by test:cluster. harness.ts starts,
                     kills and restarts them and reads their JSON lines, and journal.ts checks the
@@ -168,6 +181,8 @@ demo/               the demo site (Vite, React, plain CSS), with its own tsconfi
                     node, one ManualScheduler, journal and shard store (festival-night.ts), with
                     the log's narration, the cluster map (stage.ts) and the Backstage client for
                     the picked node. It loads none of opening night's page
+  src/rehearsal/    domain/festival.ts, festival night as a Rehearsal scenario, festival({ mode }),
+                    with no React: the tests, npm run rehearse and the /rehearsal/ page share it
   src/writeup/      the write-up, "How Troupe works", the site's second page (how-it-works/):
                     the prose in TSX, citing records with <Record id>, and the SVG charts
   src/site/         what every page shares: the base styles, the site bar, the links, and

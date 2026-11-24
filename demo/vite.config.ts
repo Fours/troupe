@@ -37,6 +37,7 @@ export default defineConfig({
       entry('@kylewillett/troupe/persistence', 'persistence/index.ts'),
       entry('@kylewillett/troupe/backstage', 'backstage/index.ts'),
       entry('@kylewillett/troupe/cluster', 'cluster/index.ts'),
+      entry('@kylewillett/troupe/rehearsal', 'rehearsal/index.ts'),
       entry('@kylewillett/troupe', 'index.ts'),
     ],
   },

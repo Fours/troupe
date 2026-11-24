@@ -53,6 +53,7 @@ When you change a decision, update its record in the same commit as the code.
 | [0031](0031-failover-waits-for-the-lease-not-for-downing.md) | Failover waits for the lease, not for downing: a region routes only to a holder it can reach | Accepted | 4 |
 | [0032](0032-1-0-comes-after-rehearsal.md) | 1.0 comes after milestone 5, not milestone 4 | Accepted | 4 |
 | [0033](0033-one-simulation-clock-and-a-clock-per-node.md) | A run has one simulation clock, each node a clock of its own on it, and every I/O call resolves on it | Accepted | 5 |
-| [0035](0035-safety-under-any-network-ordering-under-the-contract.md) | Safety is checked under any network fault, and ordering only under faults the `Transport` contract allows | Proposed | 5 |
+| [0034](0034-a-run-is-a-seed-and-a-plan.md) | A run is a seed and a fault plan, the plan is data, and each concern draws from its own stream | Proposed | 5 |
+| [0035](0035-safety-under-any-network-ordering-under-the-contract.md) | Safety is checked under any network fault, and ordering only under faults the `Transport` contract allows | Accepted | 5 |
 | [0036](0036-timeouts-are-unknown-outcomes-settled-by-recovery.md) | Journal and shard store calls time out on the scheduler, and a timeout is an unknown outcome, settled by recovery | Accepted | 5 |
 | [0037](0037-the-json-check-is-public.md) | The JSON check is public: `JsonValue`, `isJsonValue` and `jsonProblem` from the main entry | Accepted | 5 |

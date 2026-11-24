@@ -2,6 +2,10 @@
 
 This project follows [Semantic Versioning](https://semver.org/). Under 0.x, a minor version can break the API. 1.0 comes after milestone 5 ([0032](https://github.com/Fours/troupe/blob/main/docs/decisions/0032-1-0-comes-after-rehearsal.md)). Each design choice behind these entries has a record in [docs/decisions](https://github.com/Fours/troupe/tree/main/docs/decisions).
 
+## Unreleased
+
+- `@kylewillett/troupe/rehearsal`, for any runtime: deterministic simulation testing of a whole cluster in one process. `scenario({ nodes, spares, clients, durationMs, setup, workload, faults, invariants })` describes one, and `scenario.run({ seed, plan })` runs it: every node on a clock of its own, on a simulated network and database, with the faults in `plan`, plain JSON, or drawn from the seed. A run gives its `history`, JSON, the same byte for byte from the same seed and plan, its `violations`, and the overlaps `expected` past a lease's margin. `invariants` has `oneLiveInstance`, `acknowledgedWritesKept`, `noStaleReads`, `atMostOnce`, `orderPerPair`, `recovers` and `failoverWithin`, and any `{ name, check }` is an invariant too ([0034](https://github.com/Fours/troupe/blob/main/docs/decisions/0034-a-run-is-a-seed-and-a-plan.md), [0035](https://github.com/Fours/troupe/blob/main/docs/decisions/0035-safety-under-any-network-ordering-under-the-contract.md)).
+
 ## 0.3.0 (2026-11-24)
 
 Part of milestone 5, Rehearsal, released early for Steadfast: timeouts on every store call, and the JSON check as public API. Rehearsal itself isn't exported yet, and goes out with 1.0.0. The timeouts can break code, and are marked **Breaking**.

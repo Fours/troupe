@@ -105,6 +105,51 @@ describe('a node clock', () => {
     expect(fired).toEqual(['negative', 'nan']);
   });
 
+  it('changes rate when a plan drifts it, carrying on from where it is and moving its timers', () => {
+    const sim = new ManualScheduler();
+    const clock = new NodeClock(sim);
+    const fired: string[] = [];
+    clock.setTimer(() => fired.push(`a ${String(sim.now())} ${String(clock.now())}`), 2_000);
+    sim.advanceTo(1_000);
+    expect(clock.now()).toBe(1_000);
+    // Half as fast from now on: the timer still fires when this clock reads 2,000.
+    clock.setDrift(-500_000 / 5);
+    expect(clock.now()).toBe(1_000);
+    clock.setTimer(() => fired.push(`b ${String(sim.now())} ${String(clock.now())}`), 900);
+    sim.advanceTo(3_000);
+    // 0.9 ms a ms from 1,000: 1,900 at 2,000, and 2,000 at 2,112 (2,111 reads 1,999).
+    expect(fired).toEqual(['b 2000 1900', 'a 2112 2000']);
+    clock.setDrift(0);
+    const at = clock.now();
+    sim.advanceTo(4_000);
+    expect(clock.now()).toBe(at + 1_000);
+  });
+
+  it('never goes back or fires a timer early as its rate changes: a property test', () => {
+    const chance = seededRandom(34);
+    const int = (from: number, to: number): number => from + Math.floor(chance() * (to - from));
+    for (let round = 0; round < 100; round++) {
+      const sim = new ManualScheduler();
+      const clock = new NodeClock(sim, { driftPpm: int(-20_000, 20_000) });
+      let last = clock.now();
+      let early = 0;
+      for (let step = 0; step < 20; step++) {
+        const due = clock.now() + int(0, 2_000);
+        const cancel = clock.setTimer(() => {
+          if (clock.now() < due) early++;
+        }, due - clock.now());
+        if (chance() < 0.1) cancel();
+        sim.advanceTo(sim.now() + int(0, 500));
+        if (chance() < 0.5) clock.setDrift(int(-100_000, 100_000));
+        expect(clock.now()).toBeGreaterThanOrEqual(last);
+        last = clock.now();
+      }
+      sim.advanceTo(sim.now() + 100_000);
+      expect(early).toBe(0);
+      expect(sim.pendingTimers()).toBe(0);
+    }
+  });
+
   it('throws for options that cannot be used, when it is made', () => {
     const sim = new ManualScheduler();
     expect(() => new NodeClock(sim, { driftPpm: 1.5 })).toThrow(TypeError);
@@ -113,6 +158,18 @@ describe('a node clock', () => {
     expect(() => new NodeClock(sim, { startAt: -1 })).toThrow(TypeError);
     expect(() => new NodeClock(sim, { rate: 2 } as never)).toThrow(/unknown option "rate"/);
     expect(new NodeClock(sim, { driftPpm: -100_000 }).now()).toBe(0);
+  });
+});
+
+describe('a node clock’s drift', () => {
+  it('throws for a drift it can’t run at', () => {
+    const clock = new NodeClock(new ManualScheduler());
+    expect(() => {
+      clock.setDrift(100_001);
+    }).toThrow(/NodeClock.setDrift: driftPpm must be at most 100000/);
+    expect(() => {
+      clock.setDrift(0.5);
+    }).toThrow(TypeError);
   });
 });
 

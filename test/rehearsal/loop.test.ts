@@ -164,6 +164,35 @@ describe('the run loop', () => {
     expect((error as StallError).message).toMatch(/at 30000 ms.*busy on one message for 10000/);
   });
 
+  it('stops watching a system it is told to, such as a killed node’s', async () => {
+    const sim = new ManualScheduler();
+    const loop = new RunLoop(sim);
+    const clock = new NodeClock(sim);
+    const handle = createSystem({
+      scheduler: clock,
+      random: seededRandom(1),
+      logger: silentLogger,
+    });
+    loop.watch(handle, clock, 'node-1');
+    handle.system
+      .spawn(
+        actor<'go', null>({
+          initial: null,
+          receive: async (s) => {
+            await new Promise(() => {});
+            return s;
+          },
+        }),
+        'stuck',
+      )
+      .tell('go');
+    await expect(loop.settle()).rejects.toThrow(StallError);
+    // Its process is gone, so what's left of it is never going to finish.
+    loop.unwatch(handle);
+    loop.unwatch(handle);
+    await loop.settle();
+  });
+
   it('closes its channel when it is done, so Node can exit, and opens one again for the next call', async () => {
     const sim = new ManualScheduler();
     const loop = new RunLoop(sim);

@@ -78,6 +78,15 @@ export class RunLoop {
   }
 
   /**
+   * Stops watching a system, such as a killed node's: what's left of it in this process never
+   * runs again, so its busy actors are never going to finish.
+   */
+  unwatch(handle: SystemHandle): void {
+    const i = this.#watched.findIndex((w) => w.handle === handle);
+    if (i !== -1) this.#watched.splice(i, 1);
+  }
+
+  /**
    * Runs everything that needs no simulation time to pass, and the promise continuations it
    * starts, until nothing more is ready.
    * @throws StallError if an actor is busy and nothing could ever finish it, or has been busy on

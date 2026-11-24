@@ -27,7 +27,8 @@
       "@kylewillett/troupe/testkit": ["../src/testkit/index.ts"],
       "@kylewillett/troupe/persistence": ["../src/persistence/index.ts"],
       "@kylewillett/troupe/backstage": ["../src/backstage/index.ts"],
-      "@kylewillett/troupe/cluster": ["../src/cluster/index.ts"]
+      "@kylewillett/troupe/cluster": ["../src/cluster/index.ts"],
+      "@kylewillett/troupe/rehearsal": ["../src/rehearsal/index.ts"]
     }
   },
   "include": ["src"]
