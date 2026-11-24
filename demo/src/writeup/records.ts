@@ -41,6 +41,7 @@ export const RECORDS = {
   '0035': '0035-safety-under-any-network-ordering-under-the-contract',
   '0036': '0036-timeouts-are-unknown-outcomes-settled-by-recovery',
   '0037': '0037-the-json-check-is-public',
+  '0038': '0038-a-pipe-with-a-signal-ends-on-the-scheduler',
 } as const;
 
 export type RecordId = keyof typeof RECORDS;

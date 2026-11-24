@@ -11,6 +11,8 @@ import type {
   ActorSystem,
   AnyRef,
   DeadLetterReason,
+  PipeOptions,
+  PipeSignal,
   Result,
   Signal,
   SpawnOptions,
@@ -99,6 +101,20 @@ describe('timers and pipeToSelf', () => {
       });
       // @ts-expect-error the mapper must return a message of the protocol
       ctx.pipeToSelf(Promise.resolve(1), () => ({ type: 'b' }));
+    };
+    expectTypeOf(pipe).returns.toBeVoid();
+  });
+
+  it("take any runtime's AbortSignal as a signal, and nothing else", () => {
+    expectTypeOf<AbortSignal>().toExtend<PipeSignal>();
+    expectTypeOf<PipeOptions['signal']>().toEqualTypeOf<PipeSignal | undefined>();
+    const ctx = {} as ActorContext<A>;
+    const pipe = () => {
+      ctx.pipeToSelf(Promise.resolve(1), () => ({ type: 'a' }), {
+        signal: new AbortController().signal,
+      });
+      // @ts-expect-error a signal needs aborted, reason and the listener methods
+      ctx.pipeToSelf(Promise.resolve(1), () => ({ type: 'a' }), { signal: { aborted: false } });
     };
     expectTypeOf(pipe).returns.toBeVoid();
   });

@@ -248,3 +248,227 @@ describe('pipeToSelf of an ask', () => {
     ]);
   });
 });
+
+describe('pipeToSelf with a signal', () => {
+  type Work = { type: 'result'; result: Result<string> } | { type: 'timeout' };
+
+  /**
+   * Steadfast's tool call: `initial` pipes `run(signal)` and starts a timeout that aborts the
+   * signal. With `abortOnStop`, `postStop` aborts it too. Reports each result to `out`.
+   */
+  function worker(
+    out: ActorRef<string>,
+    run: (signal: AbortSignal) => PromiseLike<string>,
+    opts: { timeoutMs?: number; abortOnStop?: boolean } = {},
+  ) {
+    const controller = new AbortController();
+    return actor<Work, null>({
+      initial: (ctx) => {
+        ctx.pipeToSelf(run(controller.signal), (result) => ({ type: 'result', result }), {
+          signal: controller.signal,
+        });
+        if (opts.timeoutMs !== undefined) {
+          ctx.timers.startSingle('timeout', { type: 'timeout' }, opts.timeoutMs);
+        }
+        return null;
+      },
+      receive: (state, msg, ctx) => {
+        if (msg.type === 'timeout') {
+          controller.abort(new Error('timed out'));
+          return state;
+        }
+        const { result } = msg;
+        out.tell(result.ok ? `ok ${result.value}` : `error ${String(result.error)}`);
+        ctx.stop();
+        return state;
+      },
+      onSignal: (state, signal) => {
+        if (signal.type === 'postStop' && opts.abortOnStop) controller.abort(new Error('stopped'));
+        return state;
+      },
+    });
+  }
+
+  it("doesn't count as busy, so advance lets the actor's own timeout end it", async () => {
+    const kit = createTestKit();
+    const out = kit.probe<string>('out');
+    // A tool that finishes only when its signal aborts it.
+    const run = (signal: AbortSignal) =>
+      new Promise<string>((_, reject) => {
+        signal.addEventListener('abort', () => {
+          reject(new Error('aborted by the tool'));
+        });
+      });
+    kit.system.spawn(worker(out.ref, run, { timeoutMs: 50 }), 'tool');
+    await kit.settle();
+    await kit.advance(49);
+    out.expectNoMessage();
+    await kit.advance(1);
+    // The pipe's own delivery wins: the signal's reason, not the tool's rejection.
+    expect(out.messages()).toEqual(['error Error: timed out']);
+    expect(kit.scheduler.now()).toBe(50);
+  });
+
+  it('ends when its signal aborts, even if the promise ignores the signal and never settles', async () => {
+    const kit = createTestKit();
+    const out = kit.probe<string>('out');
+    kit.system.spawn(
+      worker(out.ref, () => new Promise<string>(() => {}), { timeoutMs: 20 }),
+      'tool',
+    );
+    await kit.advance(20);
+    expect(out.messages()).toEqual(['error Error: timed out']);
+  });
+
+  it('still delivers a promise that has already settled, or settles in microtasks, under settle', async () => {
+    const kit = createTestKit();
+    const out = kit.probe<string>('out');
+    kit.system.spawn(
+      worker(out.ref, () => Promise.resolve('now')),
+      'now',
+    );
+    const chained = async () => {
+      for (let i = 0; i < 1000; i++) await Promise.resolve();
+      return 'chained';
+    };
+    kit.system.spawn(worker(out.ref, chained), 'chained');
+    await kit.settle();
+    expect(out.messages().sort()).toEqual(['ok chained', 'ok now']);
+    expect(kit.scheduler.now()).toBe(0);
+  });
+
+  it('delivers the promise when it settles first, and ignores the abort after it', async () => {
+    const kit = createTestKit();
+    const out = kit.probe<string>('out');
+    const tool = deferred<string>();
+    const controller = new AbortController();
+    const removed: string[] = [];
+    const signal = controller.signal;
+    const original = signal.removeEventListener.bind(signal);
+    signal.removeEventListener = (type: string, listener: () => void) => {
+      removed.push(type);
+      original(type, listener);
+    };
+    const ref = kit.system.spawn(
+      actor<Result<string>, null>({
+        initial: (ctx) => {
+          ctx.pipeToSelf(tool.promise, (result) => result, { signal });
+          return null;
+        },
+        receive: (state, result) => {
+          out.ref.tell(result.ok ? `ok ${result.value}` : `error ${String(result.error)}`);
+          return state;
+        },
+      }),
+      'first',
+    );
+    await kit.settle();
+    tool.resolve('done');
+    await kit.settle();
+    controller.abort(new Error('too late'));
+    await kit.settle();
+    expect(out.messages()).toEqual(['ok done']);
+    expect(removed).toEqual(['abort']);
+    expect(ref.path).toBe('/user/first');
+  });
+
+  it('ignores the promise after the abort, and its later rejection is handled', async () => {
+    const kit = createTestKit();
+    const out = kit.probe<string>('out');
+    const tool = deferred<string>();
+    kit.system.spawn(
+      worker(out.ref, () => tool.promise, { timeoutMs: 10 }),
+      'tool',
+    );
+    await kit.advance(10);
+    tool.reject(new Error('late failure'));
+    await kit.settle();
+    // An unhandled rejection would fail the run.
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(out.messages()).toEqual(['error Error: timed out']);
+    // Nor is the late outcome delivered: it would be a dead letter, since the actor has stopped.
+    expect(kit.events.filter((e) => e.type === 'deadLetter')).toEqual([]);
+  });
+
+  it('delivers the reason at once when the signal has already aborted', async () => {
+    const kit = createTestKit();
+    const out = kit.probe<string>('out');
+    const controller = new AbortController();
+    controller.abort(new Error('already'));
+    kit.system.spawn(
+      actor<Result<string>, null>({
+        initial: (ctx) => {
+          ctx.pipeToSelf(new Promise<string>(() => {}), (result) => result, {
+            signal: controller.signal,
+          });
+          return null;
+        },
+        receive: (state, result) => {
+          out.ref.tell(result.ok ? 'ok' : `error ${String(result.error)}`);
+          return state;
+        },
+      }),
+      'aborted',
+    );
+    await kit.settle();
+    expect(out.messages()).toEqual(['error Error: already']);
+  });
+
+  it('lets the system shut down with the pipe pending, and postStop can abort it', async () => {
+    const kit = createTestKit();
+    const out = kit.probe<string>('out');
+    kit.system.spawn(
+      worker(out.ref, () => new Promise<string>(() => {})),
+      'held',
+    );
+    kit.system.spawn(
+      worker(out.ref, () => new Promise<string>(() => {}), { abortOnStop: true }),
+      'aborted',
+    );
+    await kit.settle();
+    await kit.shutdown();
+    out.expectNoMessage();
+    // The abort in postStop comes after the actor has stopped, so its rejection is a dead letter.
+    expect(kit.events.filter((e) => e.type === 'deadLetter')).toMatchObject([
+      { recipient: '/user/aborted', message: { ok: false, error: { message: 'stopped' } } },
+    ]);
+  });
+
+  it('ends a piped ask at the abort, ahead of its timeout', async () => {
+    const kit = createTestKit();
+    const out = kit.probe<string>('out');
+    const target = kit.probe<{ replyTo: ActorRef<string> }>('target');
+    // An ask can't take a signal, so only the pipe's own abort ends it early.
+    const ask = () => target.ref.ask<string>((replyTo) => ({ replyTo }), { timeoutMs: 1000 });
+    kit.system.spawn(worker(out.ref, ask, { timeoutMs: 30 }), 'asker');
+    await kit.advance(30);
+    expect(out.messages()).toEqual(['error Error: timed out']);
+    const answered = kit.probe<string>('answered');
+    kit.system.spawn(worker(answered.ref, ask, { timeoutMs: 30 }), 'answered');
+    await kit.settle();
+    target.expectMessage();
+    target.expectMessage().replyTo.tell('reply');
+    await kit.settle();
+    expect(answered.messages()).toEqual(['ok reply']);
+  });
+
+  it('checks its options where they are passed in', async () => {
+    const { kit, ctxs } = setup();
+    await kit.settle();
+    const ctx = ctxs[0];
+    const map = (): Msg => ({ type: 'report' });
+    expect(() => ctx?.pipeToSelf(Promise.resolve(1), map, { nope: 1 } as never)).toThrow(
+      'pipeToSelf: unknown option "nope"',
+    );
+    expect(() => ctx?.pipeToSelf(Promise.resolve(1), map, 'x' as never)).toThrow(
+      'pipeToSelf: options must be an object',
+    );
+    for (const signal of [null, {}, { aborted: false, addEventListener: () => {} }]) {
+      expect(() => ctx?.pipeToSelf(Promise.resolve(1), map, { signal } as never)).toThrow(
+        'pipeToSelf: signal must be an AbortSignal',
+      );
+    }
+    expect(() => ctx?.pipeToSelf(Promise.resolve(1), map, { signal: undefined })).not.toThrow();
+    expect(() => ctx?.pipeToSelf(Promise.resolve(1), map, {})).not.toThrow();
+  });
+});

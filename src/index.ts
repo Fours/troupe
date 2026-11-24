@@ -21,6 +21,8 @@ export type {
   AnyRef,
   AskOptions,
   EventStream,
+  PipeOptions,
+  PipeSignal,
   Result,
   Signal,
   SpawnOptions,

@@ -134,6 +134,32 @@ describe('the run loop', () => {
     );
   });
 
+  it("doesn't count a pipe with a signal as busy, since the signal ends it (0038)", async () => {
+    const sim = new ManualScheduler();
+    const loop = new RunLoop(sim, { stallAfterMs: 1000 });
+    const { system } = node(loop, sim, 'node-1');
+    const ended: string[] = [];
+    const controller = new AbortController();
+    system.spawn(
+      actor<'aborted' | 'abort', null>({
+        initial: (ctx) => {
+          ctx.pipeToSelf(new Promise(() => {}), () => 'aborted', { signal: controller.signal });
+          ctx.timers.startSingle('abort', 'abort', 5000);
+          return null;
+        },
+        receive: (s, msg) => {
+          if (msg === 'abort') controller.abort();
+          else ended.push(`${msg} at ${String(sim.now())}`);
+          return s;
+        },
+      }),
+      'tool',
+    );
+    // Nothing is ready, and it has been pending far past stallAfterMs, but it isn't a stall.
+    await loop.advance(5000);
+    expect(ended).toEqual(['aborted at 5000']);
+  });
+
   it('stalls when an actor stays busy on one message past stallAfterMs, though timers keep firing', async () => {
     const sim = new ManualScheduler();
     const loop = new RunLoop(sim, { stallAfterMs: 10_000 });

@@ -1,5 +1,6 @@
 import type { Dispatcher, Runnable } from './dispatcher.js';
 import type { EventBus } from './events.js';
+import { checkKeys } from './checks.js';
 import { ActorStoppedError, NotAChildError } from './errors.js';
 import {
   INTERNALS,
@@ -26,6 +27,8 @@ import type {
   ActorDef,
   ActorRef,
   AnyRef,
+  PipeOptions,
+  PipeSignal,
   Result,
   Signal,
   SpawnOptions,
@@ -127,6 +130,11 @@ export interface CellHost {
    * the count to reach 0, and Rehearsal's run loop names the actors that stay busy.
    */
   trackBusy(path: string, delta: 1 | -1): void;
+  /**
+   * Called with +1 when a cell pipes a promise with a signal, and -1 when the pipe ends. These
+   * aren't busy work: the testkit's `settle` only gives them one event-loop turn (decision 0038).
+   */
+  trackBounded(delta: 1 | -1): void;
   /** Makes a ref with the system's `ask`. */
   makeRef<M>(path: string, tell: (msg: M) => void): ActorRef<M>;
   /**
@@ -421,11 +429,15 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
       child: (childName: string) => this.childCells.get(childName)?.ref,
       children: () => [...this.childCells.values()].map((c) => c.ref),
       timers: timersFor(this.#timers, () => current() && this.#phase === 'running'),
-      pipeToSelf: <T>(promise: PromiseLike<T>, map: (result: Result<T>) => M) => {
+      pipeToSelf: <T>(
+        promise: PromiseLike<T>,
+        map: (result: Result<T>) => M,
+        opts?: PipeOptions,
+      ) => {
         if (typeof map !== 'function') {
           throw new TypeError('pipeToSelf: map must be a function');
         }
-        this.#pipe(promise, map);
+        this.#pipe(promise, map, pipeSignal(opts));
       },
     };
     // Not enumerable, so spreading or logging a ctx doesn't show it.
@@ -500,13 +512,21 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
    * An ask's result is queued the moment the ask settles, with no promise hop, so piping an ask
    * runs entirely on the scheduler and isn't busy work for `settle` (decision 0010).
    */
-  #pipe<T>(promise: PromiseLike<T>, map: (result: Result<T>) => M): void {
+  #pipe<T>(
+    promise: PromiseLike<T>,
+    map: (result: Result<T>) => M,
+    signal: PipeSignal | undefined,
+  ): void {
     const host = this.#host;
     // The envelope only ever passes this result to this mapper, so widening T is safe.
     const widened = map as (result: Result<unknown>) => M;
     const enqueue = (result: Result<unknown>): void => {
       this.#enqueue(new PipeEnvelope(result, widened));
     };
+    if (signal !== undefined) {
+      this.#pipeBounded(promise, enqueue, signal);
+      return;
+    }
     if (host.onAskSettled(promise, enqueue)) {
       // The result arrives through the listener. Handle the rejection here too, or a timed-out
       // ask would be an unhandled rejection.
@@ -524,6 +544,48 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
       },
       (error: unknown) => {
         deliver({ ok: false, error });
+      },
+    );
+  }
+
+  /**
+   * A pipe that its signal ends, whichever comes first, so the actor's own timer or stop bounds
+   * it. It isn't busy work for `settle` (decision 0038).
+   */
+  #pipeBounded(
+    promise: PromiseLike<unknown>,
+    enqueue: (result: Result<unknown>) => void,
+    signal: PipeSignal,
+  ): void {
+    const host = this.#host;
+    // Whatever comes second is dropped, and a rejection after the abort is handled here.
+    const settled = Promise.resolve(promise);
+    settled.then(undefined, () => {});
+    if (signal.aborted) {
+      enqueue({ ok: false, error: signal.reason });
+      return;
+    }
+    host.trackBounded(1);
+    let done = false;
+    const finish = (result: Result<unknown>): void => {
+      if (done) return;
+      done = true;
+      signal.removeEventListener('abort', onAbort);
+      host.trackBounded(-1);
+      enqueue(result);
+    };
+    // Abort listeners run synchronously in abort(), so the rejection is queued before it returns.
+    const onAbort = (): void => {
+      finish({ ok: false, error: signal.reason });
+    };
+    signal.addEventListener('abort', onAbort);
+    if (host.onAskSettled(promise, finish)) return;
+    settled.then(
+      (value) => {
+        finish({ ok: true, value });
+      },
+      (error: unknown) => {
+        finish({ ok: false, error });
       },
     );
   }
@@ -974,4 +1036,25 @@ function isThenable<T>(value: T | Promise<T>): value is Promise<T> {
     value !== null &&
     typeof (value as { then?: unknown }).then === 'function'
   );
+}
+
+const PIPE_OPTIONS = new Set(['signal']);
+
+/** Checks `pipeToSelf`'s options where they're passed in, and returns the signal, if any. */
+function pipeSignal(opts: PipeOptions | undefined): PipeSignal | undefined {
+  if (opts === undefined) return undefined;
+  checkKeys(opts, PIPE_OPTIONS, 'pipeToSelf');
+  const { signal } = opts;
+  if (signal === undefined) return undefined;
+  const candidate = signal as Partial<Record<keyof PipeSignal, unknown>> | null;
+  if (
+    typeof candidate !== 'object' ||
+    candidate === null ||
+    typeof candidate.aborted !== 'boolean' ||
+    typeof candidate.addEventListener !== 'function' ||
+    typeof candidate.removeEventListener !== 'function'
+  ) {
+    throw new TypeError('pipeToSelf: signal must be an AbortSignal');
+  }
+  return signal;
 }
