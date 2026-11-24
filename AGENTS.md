@@ -76,6 +76,7 @@ src/
   json.ts           what a JSON value is, once: the check events use (0014), with a ref hook for
                     the wire (0025)
   hash.ts           FNV-1a, the one string hash: Postgres lock keys (0016) and shard placement (0030)
+  timeout.ts        withTimeout, the one timeout on a store call, on the caller's scheduler (0036)
   actor.ts, names.ts, events.ts, logger.ts, errors.ts, queue.ts
   scheduler.ts      Scheduler and realScheduler (0003)
   globals.d.ts      the runtime globals src/ may use (0004); in the build config only
@@ -96,7 +97,8 @@ src/
                     store) and leases.ts, the holder's side of a lease (0029); placement.ts
                     (entity to shard, rendezvous owners), sharding.ts (init, entity refs),
                     region.ts (routing, finding shards a home, rebalancing and handoff) and shard.ts
-                    (entities, passivation, draining and remembering) (0030)
+                    (entities, passivation, draining and remembering) (0030); timed-store.ts, every
+                    shard store call timed out after storeTimeoutMs (0036)
     postgres/       the /cluster/postgres entry point: postgresShardStore, any runtime, on the
                     journal's structurally typed pool (0029)
   persistence/      the /persistence entry point: the store interfaces,

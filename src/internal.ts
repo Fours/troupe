@@ -51,6 +51,11 @@ export interface CellInternals {
    * `await` on the actor's behalf: a persistent actor's effect steps (decision 0020).
    */
   asSender<T>(fn: () => T): T;
+  /**
+   * The system scheduler's `setTimer`, for a timeout an actor awaits inside `receive`, where its
+   * keyed timers can't help: their messages wait in the mailbox it holds (decision 0036).
+   */
+  readonly setTimer: (task: () => void, delayMs: number) => () => void;
 }
 
 /** The internals of a `ctx` the system made. */

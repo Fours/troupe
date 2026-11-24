@@ -39,6 +39,7 @@ export const RECORDS = {
   '0032': '0032-1-0-comes-after-rehearsal',
   '0033': '0033-one-simulation-clock-and-a-clock-per-node',
   '0035': '0035-safety-under-any-network-ordering-under-the-contract',
+  '0036': '0036-timeouts-are-unknown-outcomes-settled-by-recovery',
 } as const;
 
 export type RecordId = keyof typeof RECORDS;

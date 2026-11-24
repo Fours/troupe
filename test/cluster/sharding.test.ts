@@ -755,6 +755,14 @@ describe('options', () => {
         { ...base, shards: c.store, leases: { ttlMs: 1_000, renewMs: 900 } },
         /renewMs must be less than/,
       ],
+      [
+        { ...base, shards: c.store, leases: { storeTimeoutMs: 0 } },
+        /joinCluster: leases.storeTimeoutMs must be a positive integer, got 0/,
+      ],
+      [
+        { ...base, shards: c.store, leases: { storeTimeoutMs: 1.5 } },
+        /storeTimeoutMs must be a positive integer/,
+      ],
     ];
     for (const [opts, message] of bad) {
       expect(() =>

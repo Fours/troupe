@@ -12,6 +12,7 @@ import type { StandardSchemaV1 } from '../persistence/standard-schema.js';
 import { checkStrategy, supervise, type SupervisorStrategy } from '../supervision.js';
 import type { ActorDef, ActorRef, ActorSystem, AnyRef } from '../types.js';
 import { leaseKeeper, type LeaseKeeper } from './leases.js';
+import { timedStore } from './timed-store.js';
 import type { Member } from './membership.js';
 import { Internal, regionDef, type RegionMsg, type StopReason } from './region.js';
 import { utf8Bytes, type Remoting } from './remoting.js';
@@ -94,6 +95,13 @@ export interface LeaseOptions {
   renewMs?: number;
   /** How long before the store's expiry this node gives a lease up. Default 2,000. */
   marginMs?: number;
+  /**
+   * How long each shard store call may take before this node gives up on it: an acquire, a
+   * renewal, a release, or a read of holders or remembered entities. Default `renewMs`. A
+   * renewal that times out counts as failed, and an acquire may still have been granted, so the
+   * next acquire finds the lease this node's own (decision 0036).
+   */
+  storeTimeoutMs?: number;
 }
 
 /** What sharding needs from its node. */
@@ -122,7 +130,7 @@ const OPTIONS = new Set([
   'rebalanceMs',
   'maxHandoffs',
 ]);
-const LEASE_OPTIONS = new Set(['ttlMs', 'renewMs', 'marginMs']);
+const LEASE_OPTIONS = new Set(['ttlMs', 'renewMs', 'marginMs', 'storeTimeoutMs']);
 const MAX_SHARDS = 65_536;
 const MEMBER_EVENTS = new Set([
   'memberUp',
@@ -134,19 +142,23 @@ const MEMBER_EVENTS = new Set([
 
 /** Checks `joinCluster`'s `leases` option, and fills in the defaults. */
 export function checkLeases(leases: unknown): Required<LeaseOptions> {
-  if (leases === undefined) return { ttlMs: 10_000, renewMs: 3_000, marginMs: 2_000 };
+  if (leases === undefined) {
+    return { ttlMs: 10_000, renewMs: 3_000, marginMs: 2_000, storeTimeoutMs: 3_000 };
+  }
   checkKeys(leases, LEASE_OPTIONS, 'joinCluster: leases');
   const { ttlMs = 10_000, renewMs = 3_000, marginMs = 2_000 } = leases as LeaseOptions;
+  const { storeTimeoutMs = renewMs } = leases as LeaseOptions;
   checkInt(ttlMs, 'joinCluster: leases.ttlMs');
   checkInt(renewMs, 'joinCluster: leases.renewMs');
   checkInt(marginMs, 'joinCluster: leases.marginMs', { min: 0 });
+  checkInt(storeTimeoutMs, 'joinCluster: leases.storeTimeoutMs');
   if (renewMs >= ttlMs - marginMs) {
     throw new TypeError(
       `joinCluster: leases.renewMs must be less than ttlMs - marginMs, so a renewal lands ` +
         `before the deadline, got ${String(renewMs)} with ttlMs ${String(ttlMs)} and marginMs ${String(marginMs)}`,
     );
   }
-  return { ttlMs, renewMs, marginMs };
+  return { ttlMs, renewMs, marginMs, storeTimeoutMs };
 }
 
 /** Whether `value` has a shard store's shape. */
@@ -214,12 +226,19 @@ export function startSharding(env: ShardingEnv): ShardingNode {
     keeper?.close();
   });
 
+  const { storeTimeoutMs, ...timing } = env.leases;
+  // One wrapper for every caller: the keeper, the regions and their shards.
+  const store =
+    env.store === undefined
+      ? undefined
+      : timedStore(env.store, storeTimeoutMs, (task, ms) => hooks.scheduler.setTimer(task, ms));
+
   const keeperFor = (store: ShardStore): LeaseKeeper => {
     keeper ??= leaseKeeper({
       store,
       holder,
       scheduler: hooks.scheduler,
-      ...env.leases,
+      ...timing,
       onLost: (lease, token) => {
         const slash = lease.indexOf('/');
         const registered = types.get(lease.slice(0, slash));
@@ -276,7 +295,6 @@ export function startSharding(env: ShardingEnv): ShardingNode {
     init<M, S>(opts: EntityTypeOptions<M, S>): EntityType<M> {
       const checked = checkInit(opts);
       const { type, shardCount } = checked;
-      const store = env.store;
       if (store === undefined) {
         throw new TypeError(
           'sharding.init: the cluster has no shard store: pass joinCluster a `shards` option',

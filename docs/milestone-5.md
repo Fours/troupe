@@ -204,7 +204,7 @@ Settled in T3:
 A call that never answers leaves its caller stuck: a persistent actor awaiting an append holds its mailbox for good ([0011](decisions/0011-persisting-holds-the-mailbox.md)), and a handoff waiting on that actor holds its leave until the lease's deadline (0030). Milestone 2 deferred the fix to here, where the problem first bites ([0036](#decision-records)).
 
 - **Every journal and snapshot call a persistent actor makes times out** after `timeoutMs` (default 10,000), on the actor's scheduler. A timeout fails the actor with `PersistenceTimeoutError`, which its supervision handles. An append that timed out may still have committed, so a restart recovers from the journal and finds out, as 0013 already does for a failed append. A reply is never sent for a write whose outcome is unknown.
-- **Every shard store call the cluster makes times out** after `storeTimeoutMs` (default `renewMs`). A renewal that times out counts as failed. The holder's deadline already stops its shards whether or not the store answers (0029), so this only frees the caller to try again sooner. An acquire that times out may have succeeded: the lease runs out unrenewed, or the next acquire by the same holder finds it held by itself and keeps it.
+- **Every shard store call the cluster makes times out** after `storeTimeoutMs` (default `renewMs`). A renewal that times out counts as failed. The holder's deadline already stops its shards whether or not the store answers (0029), so this only frees the caller to try again sooner. An acquire that times out may have succeeded. The holder doesn't know it has the lease, but `renewAll` still extends it, so it doesn't run out on its own: the region's next acquire finds it held by itself and keeps it. Settled in T4 ([0036](decisions/0036-timeouts-are-unknown-outcomes-settled-by-recovery.md)), which leaves an untracked lease that stays renewed to T7's hunt.
 - **Projections** time out the same way, and retry after their backoff.
 - With timeouts, a handoff is bounded by `timeoutMs`, which answers T7's note.
 
@@ -360,8 +360,8 @@ Do these in order. Each one ends with passing tests.
 | --- | --- | --- |
 | T1. Node clocks and the run loop | Done | 3fb3a2a |
 | T2. The simulated network | Done | 2f7e1ff |
-| T3. The simulated database | Done | |
-| T4. Timeouts | Not started | |
+| T3. The simulated database | Done | 683985d |
+| T4. Timeouts | Done | |
 | T5. Fault plans, the history and the invariants | Not started | |
 | T6. `rehearse()`, shrinking, replay and planted bugs | Not started | |
 | T7. The hunt | Not started | |
@@ -418,12 +418,12 @@ Write [0036](#decision-records).
 
 **Done when** tests cover:
 
-- [ ] A hung append fails the actor with `PersistenceTimeoutError` after `timeoutMs`, on the testkit's clock, and sends no reply
-- [ ] After a timed-out append that did commit, the restarted actor recovers with its events. After one that didn't, it recovers without them. Either way the next command sees the right state
-- [ ] A hung renewal, acquire or release times out after `storeTimeoutMs`, and the holder still stops its shards at its deadline
-- [ ] A handoff whose entity's append hangs finishes within `timeoutMs`, rather than at the lease's deadline
-- [ ] A projection whose read or offset save hangs retries after its backoff
-- [ ] Invalid timeouts throw where they're passed in, and the changelog lists the breaking change
+- [x] A hung append fails the actor with `PersistenceTimeoutError` after `timeoutMs`, on the testkit's clock, and sends no reply
+- [x] After a timed-out append that did commit, the restarted actor recovers with its events. After one that didn't, it recovers without them. Either way the next command sees the right state
+- [x] A hung renewal, acquire or release times out after `storeTimeoutMs`, and the holder still stops its shards at its deadline
+- [x] A handoff whose entity's append hangs finishes within `timeoutMs`, rather than at the lease's deadline
+- [x] A projection whose read or offset save hangs retries after its backoff
+- [x] Invalid timeouts throw where they're passed in, and the changelog lists the breaking change
 
 ### T5. Fault plans, the history and the invariants
 

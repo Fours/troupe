@@ -99,3 +99,31 @@ export class EventVersionError extends Error {
     this.version = version;
   }
 }
+
+/** The store call a {@link PersistenceTimeoutError} gave up on. */
+export type PersistenceOperation =
+  'append' | 'read' | 'loadSnapshot' | 'saveSnapshot' | 'readByTag' | 'loadOffset' | 'saveOffset';
+
+/**
+ * The reason a persistent actor or a projection fails when a journal, snapshot or offset call
+ * hasn't answered within its `timeoutMs` (decision 0036). Its outcome is unknown: an append that
+ * timed out may still have been written. A restart recovers from the journal, which settles it.
+ */
+export class PersistenceTimeoutError extends Error {
+  /** Always `"PersistenceTimeoutError"`, so the error can be recognized without `instanceof`. */
+  override readonly name = 'PersistenceTimeoutError';
+  /** The persistent actor's persistence id, or the projection's name. */
+  readonly id: string;
+  /** The call that didn't answer. */
+  readonly operation: PersistenceOperation;
+  /** How long it waited, in ms. */
+  readonly timeoutMs: number;
+
+  /** Creates the error for `operation` by `id`, which waited `timeoutMs`. */
+  constructor(id: string, operation: PersistenceOperation, timeoutMs: number) {
+    super(`${operation} for "${id}" did not answer within ${String(timeoutMs)} ms`);
+    this.id = id;
+    this.operation = operation;
+    this.timeoutMs = timeoutMs;
+  }
+}

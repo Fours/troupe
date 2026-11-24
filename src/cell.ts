@@ -274,6 +274,7 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
         Promise.resolve(promise).then(done, done);
       },
       asSender: (fn) => this.#asSender(fn),
+      setTimer: (task, delayMs) => host.setTimer(task, delayMs),
     };
     this.ref = host.makeRef(path, (msg: M) => {
       this.#enqueue(msg);

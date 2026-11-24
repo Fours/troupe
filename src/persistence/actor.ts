@@ -8,8 +8,15 @@ import {
 } from '../internal.js';
 import { isValidName } from '../names.js';
 import type { ActorContext, ActorDef, ActorRef, Signal } from '../types.js';
-import { EventValidationError, EventVersionError, JournalSequenceError } from './errors.js';
+import {
+  EventValidationError,
+  EventVersionError,
+  JournalSequenceError,
+  PersistenceTimeoutError,
+  type PersistenceOperation,
+} from './errors.js';
 import { jsonProblem } from '../json.js';
+import { withTimeout } from '../timeout.js';
 import type { StandardSchemaV1 } from './standard-schema.js';
 import type { Journal, NewEvent, Persistence, SnapshotStore, StoredEvent } from './types.js';
 
@@ -147,6 +154,15 @@ export interface PersistentActorDef<C, E, S> {
      */
     version?: number;
   };
+  /**
+   * How long each journal and snapshot call may take, in ms: a positive integer. Default 10,000.
+   * An append or a recovery read that takes longer fails the actor with
+   * `PersistenceTimeoutError`, for its supervision to handle, and no reply is sent. The append
+   * may still have been written, so a restart recovers from the journal to find out (decision
+   * 0036). A snapshot load that takes longer is skipped, and recovery replays every event. A
+   * snapshot save that takes longer is logged.
+   */
+  timeoutMs?: number;
 }
 
 const OPTIONS = new Set([
@@ -159,12 +175,14 @@ const OPTIONS = new Set([
   'tags',
   'events',
   'snapshots',
+  'timeoutMs',
 ]);
 const SNAPSHOT_OPTIONS = new Set(['every', 'version']);
 const EVENT_OPTIONS = new Set(['schema', 'version', 'upcasters']);
 const MAX_ID_LENGTH = 255;
 /** Events per read during recovery and `stateAt`. */
 const PAGE_SIZE = 256;
+const DEFAULT_TIMEOUT_MS = 10_000;
 
 type Step<S> = (state: S, ctx: ActorContext<never>) => void;
 
@@ -243,6 +261,20 @@ export function persistentActor<C, E, S>(
   const journal: Journal = def.persistence.journal;
   const snapshotting = snapshotPlan(def);
   const { schema, version, upcasters } = eventPlan(def.events);
+  const timeoutMs = def.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+
+  /** `call`, timed on the actor's scheduler (decision 0036). */
+  const timed = <T>(
+    ctx: ActorContext<C>,
+    operation: PersistenceOperation,
+    call: PromiseLike<T>,
+  ): Promise<T> =>
+    withTimeout(
+      call,
+      timeoutMs,
+      internalsOf(ctx).setTimer,
+      () => new PersistenceTimeoutError(id, operation, timeoutMs),
+    );
 
   /** The schema's output for `event`. */
   const check = async (
@@ -297,7 +329,6 @@ export function persistentActor<C, E, S>(
     for (const step of effect.steps) step(state, ctx);
   };
 
-  /** Appends, then applies and runs the steps. The cell holds the mailbox until it settles. */
   /** An event's tags, checked so a bad one fails the command instead of the append. */
   const tagsFor = (event: E, i: number): readonly string[] => {
     if (def.tags === undefined) return [];
@@ -321,6 +352,7 @@ export function persistentActor<C, E, S>(
     return [...seen];
   };
 
+  /** Appends, then applies and runs the steps. The cell holds the mailbox until it settles. */
   const persistThen = async (
     current: PersistentState<S>,
     effect: EffectImpl<E, S>,
@@ -344,7 +376,8 @@ export function persistentActor<C, E, S>(
       version,
       tags: tagsFor(applied[i] as E, i),
     }));
-    await journal.append(id, current.seq, batch);
+    // A timeout rejects here too: the outcome is unknown, so nothing is applied and no step runs.
+    await timed(ctx, 'append', journal.append(id, current.seq, batch));
     let state = current.state;
     // The schema's output, as recovery will see it, so a write and its replay fold the same value.
     for (const event of applied) state = def.onEvent(state, event);
@@ -383,7 +416,11 @@ export function persistentActor<C, E, S>(
       });
       return;
     }
-    const saving = plan.store.save(id, { seq, version: plan.version, state }).then(
+    const saving = timed(
+      ctx,
+      'saveSnapshot',
+      plan.store.save(id, { seq, version: plan.version, state }),
+    ).then(
       () => {},
       (error: unknown) => {
         ctx.log.warn(`${id}: saving the snapshot at ${String(seq)} failed`, {
@@ -404,7 +441,7 @@ export function persistentActor<C, E, S>(
     if (snapshotting === undefined) return start;
     let snapshot;
     try {
-      snapshot = await snapshotting.store.load(id);
+      snapshot = await timed(ctx, 'loadSnapshot', snapshotting.store.load(id));
     } catch (error) {
       ctx.log.warn(`${id}: loading the snapshot failed, so recovery replays every event`, {
         persistenceId: id,
@@ -425,16 +462,23 @@ export function persistentActor<C, E, S>(
     return { seq: snapshot.seq, state: snapshot.state as S };
   };
 
+  type Read = (fromSeq: number, limit: number) => Promise<readonly StoredEvent[]>;
+  const untimedRead: Read = (fromSeq, limit) => journal.read(id, fromSeq, limit);
+
   /**
    * Folds the journal's events after `start.seq`, up to `until` or the end, whichever comes first:
    * upcast, checked and applied, as recovery and `stateAt` both need.
    */
-  const fold = async (start: PersistentState<S>, until: number): Promise<PersistentState<S>> => {
+  const fold = async (
+    start: PersistentState<S>,
+    until: number,
+    read: Read,
+  ): Promise<PersistentState<S>> => {
     let { seq, state } = start;
     for (;;) {
       const want = Math.min(PAGE_SIZE, until - seq);
       if (want <= 0) break;
-      const page = await journal.read(id, seq + 1, want);
+      const page = await read(seq + 1, want);
       for (const stored of page) {
         if (stored.seq !== seq + 1) throw new JournalSequenceError(id, seq + 1, stored.seq);
         const event = upcast(stored);
@@ -455,7 +499,9 @@ export function persistentActor<C, E, S>(
     ctx: ActorContext<C>,
   ): Promise<PersistentState<S>> => {
     const start = await startFrom(initial, ctx);
-    const { seq, state } = await fold(start, Infinity);
+    const { seq, state } = await fold(start, Infinity, (fromSeq, limit) =>
+      timed(ctx, 'read', journal.read(id, fromSeq, limit)),
+    );
     internalsOf(ctx).publish({
       type: 'recovered',
       path: ctx.self.path,
@@ -477,7 +523,8 @@ export function persistentActor<C, E, S>(
     if (!Number.isSafeInteger(seq) || seq < 0) {
       throw new TypeError(`${id}: stateAt needs a non-negative integer, got ${describe(seq)}`);
     }
-    const reached = await fold({ seq: 0, state: def.initial }, seq);
+    // An inspector's call, with no actor and so no scheduler of its own to time it on.
+    const reached = await fold({ seq: 0, state: def.initial }, seq, untimedRead);
     if (reached.seq < seq) {
       throw new RangeError(
         `${id}: the journal ends at event ${String(reached.seq)}, before ${String(seq)}`,
@@ -555,6 +602,7 @@ function checkDef(def: unknown): void {
   }
   if (d.events !== undefined) checkEvents(d.events);
   if (d.snapshots !== undefined) checkSnapshots(d.snapshots, persistence);
+  if (d.timeoutMs !== undefined) checkInt(d.timeoutMs, 'persistentActor: timeoutMs');
 }
 
 function checkEvents(events: unknown): void {

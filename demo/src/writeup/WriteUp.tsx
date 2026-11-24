@@ -679,6 +679,9 @@ export function WriteUp({ data }: { data: WriteupData }) {
               reorders. In one mode it keeps TCP’s promises, and in the other it breaks them on
               purpose, losing and repeating frames, since whether an entity ever has two copies
               should depend on the lease and the journal, never on the network <Record id="0035" />.
+              A simulated database can hang, so every journal and shard store call now gives up
+              after a timeout. A timed-out write gets no reply, since it may or may not have landed,
+              and the entity’s restart reads the journal to find out <Record id="0036" />.
             </p>
             <p>
               Troupe is <a href={NPM_URL}>on npm</a>, published from CI with provenance, which ties

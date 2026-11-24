@@ -1,7 +1,9 @@
 import { checkInt, checkKeys, describe } from '../checks.js';
 import { internalsOf, START, type WithStart } from '../internal.js';
 import { isValidName } from '../names.js';
+import { withTimeout } from '../timeout.js';
 import type { ActorContext, ActorDef } from '../types.js';
+import { PersistenceTimeoutError, type PersistenceOperation } from './errors.js';
 import type { Journal, OffsetStore, Persistence, StoredEvent } from './types.js';
 
 /** Options for a projection: what it follows, where it keeps its place, and what it does. */
@@ -26,6 +28,12 @@ export interface ProjectionOptions {
   pollMs?: number;
   /** The most events per read. A positive integer. Default 100. */
   batchSize?: number;
+  /**
+   * How long each read and each offset load or save may take, in ms: a positive integer. Default
+   * 10,000. One that takes longer fails the projection with `PersistenceTimeoutError`, and its
+   * supervision decides when it tries again (decision 0036).
+   */
+  timeoutMs?: number;
 }
 
 /** What a projection's cell holds: the offset of the last event it handled, 0 before any. */
@@ -34,10 +42,19 @@ export interface ProjectionState {
   readonly offset: number;
 }
 
-const OPTIONS = new Set(['name', 'persistence', 'tag', 'handle', 'pollMs', 'batchSize']);
+const OPTIONS = new Set([
+  'name',
+  'persistence',
+  'tag',
+  'handle',
+  'pollMs',
+  'batchSize',
+  'timeoutMs',
+]);
 const MAX_NAME_LENGTH = 255;
 const DEFAULT_POLL_MS = 1_000;
 const DEFAULT_BATCH_SIZE = 100;
+const DEFAULT_TIMEOUT_MS = 10_000;
 const POLL_TIMER = 'poll';
 
 /** The projection's only message. Private, so nothing outside can tell it anything. */
@@ -69,11 +86,29 @@ export function projection(opts: ProjectionOptions): ActorDef<never, ProjectionS
   const offsets = opts.persistence.offsets as OffsetStore;
   const pollMs = opts.pollMs ?? DEFAULT_POLL_MS;
   const batchSize = opts.batchSize ?? DEFAULT_BATCH_SIZE;
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+
+  /** `call`, timed on the projection's scheduler (decision 0036). */
+  const timed = <T>(
+    ctx: ActorContext<Poll>,
+    operation: PersistenceOperation,
+    call: PromiseLike<T>,
+  ): Promise<T> =>
+    withTimeout(
+      call,
+      timeoutMs,
+      internalsOf(ctx).setTimer,
+      () => new PersistenceTimeoutError(name, operation, timeoutMs),
+    );
 
   const def: ActorDef<Poll, ProjectionState> & WithStart<Poll, ProjectionState> = {
     initial: { offset: 0 },
     async receive(current, _poll, ctx) {
-      const batch = await journal.readByTag(tag, current.offset, batchSize);
+      const batch = await timed(
+        ctx,
+        'readByTag',
+        journal.readByTag(tag, current.offset, batchSize),
+      );
       // After the read's await, so outside the cell's turn: what handle tells names the projection
       // as its sender only through the hook (decision 0020). Called on opts, so a handle that uses
       // `this` sees the object it was defined on.
@@ -82,7 +117,7 @@ export function projection(opts: ProjectionOptions): ActorDef<never, ProjectionS
       const last = batch.at(-1);
       let next = current;
       if (last !== undefined) {
-        await offsets.save(name, last.offset);
+        await timed(ctx, 'saveOffset', offsets.save(name, last.offset));
         next = { offset: last.offset };
       }
       // Exactly one poll is ever pending, in the mailbox or on the timer. A failure above consumes
@@ -92,7 +127,7 @@ export function projection(opts: ProjectionOptions): ActorDef<never, ProjectionS
       return next;
     },
     async [START](_state, ctx: ActorContext<Poll>) {
-      const offset = await offsets.load(name);
+      const offset = await timed(ctx, 'loadOffset', offsets.load(name));
       ctx.self.tell(POLL);
       return { offset };
     },
@@ -103,7 +138,10 @@ export function projection(opts: ProjectionOptions): ActorDef<never, ProjectionS
 
 function checkOptions(opts: unknown): void {
   checkKeys(opts, OPTIONS, 'projection');
-  const { name, persistence, tag, handle, pollMs, batchSize } = opts as Record<string, unknown>;
+  const { name, persistence, tag, handle, pollMs, batchSize, timeoutMs } = opts as Record<
+    string,
+    unknown
+  >;
   if (typeof name !== 'string' || name === '' || name.length > MAX_NAME_LENGTH) {
     throw new TypeError(
       `projection: name must be a string of 1 to ${String(MAX_NAME_LENGTH)} characters, ` +
@@ -126,6 +164,7 @@ function checkOptions(opts: unknown): void {
   }
   if (pollMs !== undefined) checkInt(pollMs, 'projection: pollMs');
   if (batchSize !== undefined) checkInt(batchSize, 'projection: batchSize');
+  if (timeoutMs !== undefined) checkInt(timeoutMs, 'projection: timeoutMs');
 }
 
 function hasStores(value: unknown): boolean {

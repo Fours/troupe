@@ -13,6 +13,8 @@ export {
   EventVersionError,
   JournalConflictError,
   JournalSequenceError,
+  PersistenceTimeoutError,
+  type PersistenceOperation,
 } from './errors.js';
 export { inMemoryPersistence, type InMemoryPersistence } from './memory.js';
 export { projection, type ProjectionOptions, type ProjectionState } from './projection.js';

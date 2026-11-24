@@ -49,12 +49,13 @@ const TESTKIT_TYPES = [
   'TestProbe',
 ];
 // The milestone 2 spec's T1 and T2 names, plus NewSnapshot: the backend stamps a snapshot's
-// timestamp.
+// timestamp, and milestone 5's T4 timeout error.
 const PERSISTENCE_VALUES = [
   'EventValidationError',
   'EventVersionError',
   'JournalConflictError',
   'JournalSequenceError',
+  'PersistenceTimeoutError',
   'inMemoryPersistence',
   'persistentActor',
   'projection',
@@ -68,6 +69,7 @@ const PERSISTENCE_TYPES = [
   'NewSnapshot',
   'OffsetStore',
   'Persistence',
+  'PersistenceOperation',
   'PersistentActorDef',
   'PersistentContext',
   'PersistentSignal',

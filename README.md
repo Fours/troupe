@@ -328,6 +328,10 @@ An entity's events must form one stream. If two actors with the same `id` both w
 
 That's where supervision comes in. A restart replays the journal, so the loser catches up on the winner's events and carries on after them. Use **`restartWithBackoff`** for persistent actors. A conflict, or a database that's down, won't clear up in the next microtask, and every restart reads the whole stream again. Backoff spaces out those reads, with jitter so a fleet of entities doesn't retry in step, instead of hammering a journal that's already in trouble.
 
+### Timeouts
+
+Every journal, snapshot and offset call a persistent actor or a projection makes gives up after **`timeoutMs`**, 10,000 by default, on the actor's scheduler, so a database that stops answering can't hold an entity's mailbox for good. An append or a read that takes longer fails the actor with **`PersistenceTimeoutError`**, which says the call (`operation`), the actor's `id` and the `timeoutMs`, and supervision takes it from there. No reply goes out for a write that timed out: it may still have been written, so the outcome is unknown, and the restart recovers from the journal to find out ([0036](docs/decisions/0036-timeouts-are-unknown-outcomes-settled-by-recovery.md)). A snapshot load that times out is skipped, and recovery replays every event. A save that times out is logged.
+
 ## Clusters
 
 `@kylewillett/troupe/cluster` spreads entities, such as accounts or shows, across several Node processes. You address an entity by its type and ID from any node, and `tell` or `ask` it as if it were local. Its ref works wherever the entity lives, and keeps working when it moves. If a node dies, its entities start again on the others, recovered from the journal.
@@ -407,7 +411,7 @@ await alice.ask<Receipt>((replyTo) => ({ type: 'deposit', amount: 10, replyTo })
 
 With the default leases (`ttlMs` 10,000, renewed every 3,000, given up 2,000 early), a node killed with `kill -9` has its entities back on the others once its leases expire. Over 60 kills of three nodes on TCP and Postgres, 20 on each of Node 22, 24 and 26, an entity on the killed node answered from another node after 10.4 to 11.0 s at the median, and 11.7 s at worst ([0031](docs/decisions/0031-failover-waits-for-the-lease-not-for-downing.md)). A graceful leave is much quicker: the handoff takes milliseconds, and no ask is lost.
 
-Shorter leases fail over faster, at a price: a node that stalls, in a long GC pause or a slow Postgres, for longer than `ttlMs` minus `marginMs` loses every lease it holds. Pass `leases: { ttlMs, renewMs, marginMs }` to `joinCluster`, the same on every node, and keep `unreachableAfterMs` shorter than `ttlMs` minus `renewMs`.
+Shorter leases fail over faster, at a price: a node that stalls, in a long GC pause or a slow Postgres, for longer than `ttlMs` minus `marginMs` loses every lease it holds. Pass `leases: { ttlMs, renewMs, marginMs }` to `joinCluster`, the same on every node, and keep `unreachableAfterMs` shorter than `ttlMs` minus `renewMs`. Every shard store call gives up after `leases.storeTimeoutMs`, `renewMs` by default. A renewal that times out counts as failed, and the holder still gives its shards up at its own deadline, whether the store answers or not.
 
 Backstage works on a cluster node too. It adds a Cluster panel, with the members as this node sees them and a grid of who holds each shard, and shows the sharding tree above `/user`.
 
