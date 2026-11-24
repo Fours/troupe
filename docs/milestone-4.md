@@ -246,7 +246,7 @@ export interface ShardStore {
 
 Each entity type has a **region** on every node, an actor at `/system/sharding/<type>`. Regions route messages, and on hosting nodes they own **shard** actors, which own the entities. Regions talk to each other with ordinary remote messages, so Backstage shows the routing as it shows everything else.
 
-- **Entity to shard:** a 32-bit FNV-1a hash of the entity ID, modulo `shardCount`, the hash 0016 already uses. `shardCount` defaults to 64, can't change on a running cluster, and is in the handshake's type list, so a node whose count differs is refused.
+- **Entity to shard:** a 32-bit FNV-1a hash of the entity ID, modulo `shardCount`, the hash 0016 already uses. `shardCount` defaults to 64, can't change on a running cluster, and is in each region's hello, so a node whose count differs is refused for that type (T6).
 - **Entity IDs are actor names:** 1 to 64 letters, digits, `.`, `_`, `~` or `-` ([names.ts](../src/names.ts)), so entity paths are URL-safe on the wire. `ref(id)` throws `ActorNameError` for any other id, where it's passed in.
 - **Routing.** The region finds the shard's owner in its cache of the store's holders. If it's this node, the message goes to the local shard. If it's another node, the message goes to that node's region. If nobody holds it, the region asks the shard's **desired owner** to start it. A region that gets a message for a shard it no longer holds answers `notOwner`, and the sender refreshes its cache and sends again. While a shard's owner is being found, its messages wait in the region, in order, up to `bufferSize` (default 1,000) per shard. Past that they're `unreachable` dead letters.
 - **Placement by rendezvous hashing** ([0030](#decision-records)). A shard's desired owner is the member, among those that are up, reachable from this node and host the type, with the highest hash of the shard name and the member's address. When a node joins, only the shards it now tops move to it, about one in N. When it goes, only its own shards move. No coordinator keeps a table, and every node computes the same answer from the same membership.
@@ -344,8 +344,8 @@ Do these in order. Each one ends with passing tests.
 | T2. Remoting on the in-memory network | Done | 11322d6 |
 | T3. The TCP transport | Done | dfceded |
 | T4. Membership | Done | bd3f20f |
-| T5. Shard leases | Done | |
-| T6. Cluster sharding: routing and placement | Not started | |
+| T5. Shard leases | Done | d6e0db9 |
+| T6. Cluster sharding: routing and placement | Done | |
 | T7. Passivation, rebalancing, handoff and remembering | Not started | |
 | T8. Real processes: the multi-process test and the benchmark | Not started | |
 | T9. Backstage for clusters, and festival night on the site | Not started | |
@@ -474,15 +474,26 @@ Write [0030](#decision-records).
 
 **Done when** tests cover:
 
-- [ ] A message to an entity ref from any node reaches the one entity with that id, and `ask` works through it
-- [ ] Every node computes the same desired owner from the same members, and adding a fourth node moves only the shards it now tops
-- [ ] A message to an entity on the same node is encoded and decoded: a message with a `Map` is a dead letter even there
-- [ ] Watching an entity ref throws a `TypeError` (moved from T2, which had no entity refs)
-- [ ] A message that fails the type's schema is an `invalid` dead letter, with its issues logged
-- [ ] An entity ref travels in a message and still reaches its entity after the shard moves
-- [ ] A node with `host: false` routes but never holds a shard
-- [ ] A node whose `shardCount` differs is refused
-- [ ] **The invariant, in process:** over 200 seeds of three nodes with kills and restarts, no two live intervals for one entity overlap, and every acknowledged hold is in the journal
+- [x] A message to an entity ref from any node reaches the one entity with that id, and `ask` works through it
+- [x] Every node computes the same desired owner from the same members, and adding a fourth node moves only the shards it now tops
+- [x] A message to an entity on the same node is encoded and decoded: a message with a `Map` is a dead letter even there
+- [x] Watching an entity ref throws a `TypeError` (moved from T2, which had no entity refs)
+- [x] A message that fails the type's schema is an `invalid` dead letter, with its issues logged
+- [x] An entity ref travels in a message and still reaches its entity after the shard moves
+- [x] A node with `host: false` routes but never holds a shard
+- [x] A node whose `shardCount` differs is refused
+- [x] **The invariant, in process:** over 200 seeds of three nodes with kills and restarts, no two live intervals for one entity overlap, and every acknowledged hold is in the journal
+
+Notes from T6 (plan review, 2026-11-23):
+
+- Lease timing is per node, on `joinCluster`'s `leases: { ttlMs, renewMs, marginMs }`, not per type on `sharding.init`, since `renewAll` renews every lease a holder has. The defaults are T5's.
+- `shards` is optional on `joinCluster`, so a cluster without sharding needs no store. `sharding.init` throws without one.
+- The `shardCount` check isn't in the remoting handshake, since `init` can run after connections are up. Regions exchange a hello with their `shardCount` and whether they host, as ordinary messages, and a mismatch is refused for that type on both sides, with an error logged. The same hello tells placement which members host the type.
+- A region waits up to about a second for a hello from every up member before it places a shard, so nodes that start together agree on placement.
+- Messages that race an entity's own stop (`ctx.stop()`, `thenStop()`, a failure) are `stopped` dead letters. Buffering through a stop comes with T7's passivation, where the shard knows the stop is coming.
+- A leaving, downed or terminating node stops its shards and releases their leases, with no handoff. T7 adds the handoff, and the core hook that makes `terminate()` wait for it.
+- The test cluster's `kill` cuts the node off from the shard store first, so its leases expire as after a real `kill -9`, rather than being released.
+- The invariant test's entities are the test helper's persistent accounts, so its acknowledged holds are acknowledged deposits. It adds network partitions and store cuts to kills and restarts. Kills alone never make two owners, since a killed node's entities stop at once, so without them a store that granted held leases went unnoticed.
 
 ### T7. Passivation, rebalancing, handoff and remembering
 

@@ -331,7 +331,14 @@ describe('what decode refuses', () => {
     const cases: [string, RegExp | string][] = [
       ['{"a":', /^\$ is not JSON: /],
       ['', /^\$ is not JSON: /],
-      ['{"a":{"$entity":{"type":"show","id":"hamlet"}}}', '$.a has an unknown marker "$entity"'],
+      [
+        '{"a":{"$entity":{"type":"show","id":"hamlet"}}}',
+        '$.a is an entity ref, and this node has no sharding',
+      ],
+      ['{"a":{"$entity":{"type":"show"}}}', "$.a is not an entity's type and id"],
+      ['{"a":{"$entity":{"type":"show","id":"a b"}}}', "$.a is not an entity's type and id"],
+      ['{"a":{"$entity":["show","hamlet"]}}', "$.a is not an entity's type and id"],
+      ['{"a":{"$entity":{"type":"show","id":"x"},"b":1}}', '$.a has an unknown marker "$entity"'],
       [`{"a":[{"$ref":"${PREFIX}/user/x","b":1}]}`, '$.a[0] has an unknown marker "$ref"'],
       ['{"a":{"$ref":1}}', '$.a has an unknown marker "$ref"'],
       ['{"$x":1}', '$ has an unknown marker "$x"'],

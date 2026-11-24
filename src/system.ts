@@ -221,8 +221,18 @@ export function createSystem(opts: ActorSystemOptions = {}): SystemHandle {
     scheduler,
     random,
     log,
-    spawnSystem<M, S>(def: ActorDef<M, S>, childName?: string, spawnOpts?: SpawnOptions) {
-      return host.spawn(systemGuardian, def, childName, spawnOpts);
+    spawnSystem<M, S>(
+      def: ActorDef<M, S>,
+      childName?: string,
+      spawnOpts?: SpawnOptions,
+      parent?: AnyRef,
+    ) {
+      if (parent === undefined) return host.spawn(systemGuardian, def, childName, spawnOpts);
+      const cell = cellOf(parent);
+      if (cell === undefined || cell.terminated || !cell.ref.path.startsWith(`${SYSTEM_PATH}/`)) {
+        throw new TypeError('spawnSystem: parent must be a live actor under /system');
+      }
+      return host.spawn(cell as unknown as ParentNode, def, childName, spawnOpts);
     },
     lookup(path: string): AnyRef | undefined {
       if (path.startsWith(`${TEMP_PATH}/`)) return asker.temp(path);

@@ -156,10 +156,18 @@ export interface SystemHooks {
   /** The system's logger, wrapped so it never throws. */
   readonly log: Logger;
   /**
-   * Spawns a top-level actor under `/system`, with every check `spawn` makes. `terminate()` stops
-   * these after everything under `/user`, so user actors can still reach the cluster as they stop.
+   * Spawns an actor under `/system`, with every check `spawn` makes: a top-level one, or with
+   * `parent`, a child of an actor already under `/system`, as sharding's regions are (decision
+   * 0030). `terminate()` stops these after everything under `/user`, so user actors can still
+   * reach the cluster as they stop.
+   * @throws TypeError if `parent` isn't a live actor under `/system`.
    */
-  spawnSystem<M, S>(def: ActorDef<M, S>, name?: string, opts?: SpawnOptions): ActorRef<M>;
+  spawnSystem<M, S>(
+    def: ActorDef<M, S>,
+    name?: string,
+    opts?: SpawnOptions,
+    parent?: AnyRef,
+  ): ActorRef<M>;
   /**
    * The ref at a local path: a live actor under `/user` or `/system`, or the temporary ref of an
    * ask that's still waiting, under `/temp`. `undefined` for anything else.

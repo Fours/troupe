@@ -2,6 +2,7 @@
 // transaction runner, the advisory lock's keys and the integer reader. The journal
 // (/persistence/postgres) and the shard store (/cluster/postgres) run on the same pool (0017).
 import { describe } from '../../checks.js';
+import { fnv1a } from '../../hash.js';
 
 /**
  * Something that runs a parameterized query, as `pg`'s pool and clients do. Only `rows` is read.
@@ -79,12 +80,7 @@ export async function transaction<T>(
  * A collision only makes two journals share a lock.
  */
 export function schemaHash(text: string): number {
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < text.length; i++) {
-    hash ^= text.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return hash | 0;
+  return fnv1a(text) | 0;
 }
 
 /**

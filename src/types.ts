@@ -332,6 +332,32 @@ export type SystemEvent = Timestamped<
       readonly uid: number;
       readonly reachable: boolean;
     }
+  /**
+   * In a cluster, this node acquired the lease on a shard of an entity type and started it
+   * (decision 0030). `node` is this node's holder name, `<address>#<uid>`. `token` goes up by one
+   * every time the lease changes hands, so a history can tell one ownership from the next.
+   */
+  | {
+      readonly type: 'shardAcquired';
+      readonly entityType: string;
+      readonly shard: number;
+      readonly node: string;
+      readonly token: number;
+    }
+  /**
+   * In a cluster, this node stopped owning a shard. `leaseLost`: its lease ran out by this node's
+   * clock, before it could be renewed, and its entities are stopping. Otherwise its entities have
+   * stopped and the lease is being given up: `leaving`, as the node leaves or terminates,
+   * `downed`, as it leaves because it was downed, or `handoff`, to move the shard to another node.
+   */
+  | {
+      readonly type: 'shardReleased';
+      readonly entityType: string;
+      readonly shard: number;
+      readonly node: string;
+      readonly token: number;
+      readonly reason: 'handoff' | 'leaving' | 'leaseLost' | 'downed';
+    }
   | {
       readonly type: 'deadLetter';
       readonly recipient: string;

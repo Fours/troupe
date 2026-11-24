@@ -67,5 +67,9 @@ function describe(event: SystemEvent): string {
       return event.reachable
         ? `${event.address} is reachable again`
         : `${event.address} is unreachable`;
+    case 'shardAcquired':
+      return `${event.node} took shard ${String(event.shard)} of ${event.entityType}`;
+    case 'shardReleased':
+      return `${event.node} let go of shard ${String(event.shard)} of ${event.entityType} (${event.reason})`;
   }
 }

@@ -548,8 +548,11 @@ export function WriteUp({ data }: { data: WriteupData }) {
               which judges its expiry on its own clock. The node that holds it lets go a margin
               earlier, by its own clock, timed from before it asked, so the two never have to agree
               on the time, and a node cut off from Postgres stops its shards before anyone else can
-              start them <Record id="0029" />. Sharding’s many writers will meet the Postgres lock
-              first, and the alternative is already named: no lock, and gap detection in the readers{' '}
+              start them <Record id="0029" />. Where a shard should go is worked out, not stored:
+              every node scores each shard against each member and picks the highest, so they all
+              agree with no coordinator, and a new node takes only the shards it now tops{' '}
+              <Record id="0030" />. Sharding’s many writers will meet the Postgres lock first, and
+              the alternative is already named: no lock, and gap detection in the readers{' '}
               <Record id="0016" />.
             </p>
             <p>

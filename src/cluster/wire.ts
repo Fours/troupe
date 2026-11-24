@@ -7,6 +7,7 @@
 import { checkInt, describe } from '../checks.js';
 import { defineKey, jsonCopy, keyPath, type JsonValue } from '../json.js';
 import type { SystemHooks } from '../internal.js';
+import { isValidName } from '../names.js';
 import type { AnyRef } from '../types.js';
 
 /** One incarnation of one node: where other nodes reach it, and its uid, new on every start. */
@@ -35,6 +36,25 @@ export interface CodecOptions {
    * `uri` is the ref's full path.
    */
   readonly remote: (uri: string, address: RefAddress) => AnyRef;
+  /**
+   * Sharding's entity refs, once a cluster has sharding (decision 0030). Read on every use, since
+   * sharding starts after the codec.
+   */
+  readonly entities?: () => EntityRefs | undefined;
+}
+
+/** An entity's name: its type and its id. Both are actor names. */
+export interface EntityName {
+  readonly type: string;
+  readonly id: string;
+}
+
+/** What the codec needs from sharding, to put entity refs on the wire and take them off. */
+export interface EntityRefs {
+  /** The entity an entity ref names, or `undefined` for any other value. */
+  identify(ref: object): EntityName | undefined;
+  /** The entity ref for an entity named on the wire. */
+  ref(name: EntityName): AnyRef;
 }
 
 /** What encoding a message gives. */
@@ -48,8 +68,9 @@ export type Decoded =
 /** Encodes and decodes messages for one node. */
 export interface Codec {
   /**
-   * The message as JSON text, with every ref as a `{ "$ref": uri }` and every key that starts
-   * with `$` given one more, so data can't forge a marker. A problem names the first part that
+   * The message as JSON text, with every ref as a `{ "$ref": uri }`, every entity ref as a
+   * `{ "$entity": { "type", "id" } }`, and every key that starts with `$` given one more, so data
+   * can't forge a marker. A problem names the first part that
    * isn't JSON plus refs this system made.
    */
   encode(message: unknown): Encoded;
@@ -77,13 +98,15 @@ const REF_URI =
  * @throws TypeError if `self` has a bad cluster name, address or uid.
  */
 export function createCodec(opts: CodecOptions): Codec {
-  const { self, hooks, remote } = opts;
+  const { self, hooks, remote, entities = () => undefined } = opts;
   checkNodeId(self);
   const prefix = `${SCHEME}${self.cluster}@${self.address}#${String(self.uid)}`;
   const uri = (path: string): string => (path.startsWith(SCHEME) ? path : `${prefix}${path}`);
 
   const refHook = (value: object, at: string) => {
     if (!isRefShaped(value)) return undefined;
+    const entity = entities()?.identify(value);
+    if (entity !== undefined) return { value: { $entity: { type: entity.type, id: entity.id } } };
     if (!hooks.owns(value)) return { problem: `${at} is a ref from another actor system` };
     return { value: { $ref: uri(value.path) } };
   };
@@ -106,9 +129,29 @@ export function createCodec(opts: CodecOptions): Codec {
     return hooks.lookup(address.path) ?? deadRef(address.path);
   };
 
+  const resolveEntity = (name: unknown, at: string): AnyRef | string => {
+    const { type, id } = (typeof name === 'object' && name !== null ? name : {}) as {
+      type?: unknown;
+      id?: unknown;
+    };
+    if (
+      typeof name !== 'object' ||
+      name === null ||
+      Array.isArray(name) ||
+      Object.keys(name).length !== 2 ||
+      !isValidName(type) ||
+      !isValidName(id)
+    ) {
+      return `${at} is not an entity's type and id`;
+    }
+    const refs = entities();
+    if (refs === undefined) return `${at} is an entity ref, and this node has no sharding`;
+    return refs.ref({ type, id });
+  };
+
   const decodeValue = (parsed: unknown): Decoded => {
     try {
-      return { ok: true, value: unescape(parsed as JsonValue, '$', resolve) };
+      return { ok: true, value: unescape(parsed as JsonValue, '$', resolve, resolveEntity) };
     } catch (error) {
       if (error instanceof DecodeProblem) return { ok: false, problem: error.text };
       return { ok: false, problem: `$ can't be decoded: ${errorText(error)}` };
@@ -187,35 +230,44 @@ class DecodeProblem extends Error {
 }
 
 /**
- * The decoded message: `$$` keys lose their first `$`, and `{ "$ref": uri }` becomes a ref. Any
- * other key starting with a single `$` is a marker this version doesn't know.
+ * The decoded message: `$$` keys lose their first `$`, `{ "$ref": uri }` becomes a ref, and
+ * `{ "$entity": { type, id } }` an entity ref. Any other key starting with a single `$` is a
+ * marker this version doesn't know.
  */
 function unescape(
   value: JsonValue,
   at: string,
   resolve: (uri: string, at: string) => AnyRef | string,
+  resolveEntity: (name: unknown, at: string) => AnyRef | string,
 ): unknown {
   if (typeof value !== 'object' || value === null) return value;
   if (Array.isArray(value)) {
     const items = value as readonly JsonValue[];
-    return items.map((item, i) => unescape(item, `${at}[${String(i)}]`, resolve));
+    return items.map((item, i) => unescape(item, `${at}[${String(i)}]`, resolve, resolveEntity));
   }
   const record = value as Readonly<Record<string, JsonValue>>;
   const keys = Object.keys(record);
   const marker = keys.find((key) => key.startsWith('$') && !key.startsWith('$$'));
   if (marker !== undefined) {
-    const target = record.$ref;
-    if (marker !== '$ref' || keys.length !== 1 || typeof target !== 'string') {
+    let ref: AnyRef | string;
+    if (marker === '$ref' && keys.length === 1 && typeof record.$ref === 'string') {
+      ref = resolve(record.$ref, at);
+    } else if (marker === '$entity' && keys.length === 1) {
+      ref = resolveEntity(record.$entity, at);
+    } else {
       throw new DecodeProblem(`${at} has an unknown marker "${marker}"`);
     }
-    const ref = resolve(target, at);
     if (typeof ref === 'string') throw new DecodeProblem(ref);
     return ref;
   }
   const out: Record<string, unknown> = {};
   for (const key of keys) {
     const name = key.startsWith('$') ? key.slice(1) : key;
-    defineKey(out, name, unescape(record[key] as JsonValue, `${at}${keyPath(name)}`, resolve));
+    defineKey(
+      out,
+      name,
+      unescape(record[key] as JsonValue, `${at}${keyPath(name)}`, resolve, resolveEntity),
+    );
   }
   return out;
 }

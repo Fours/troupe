@@ -62,9 +62,11 @@ src/
   ask.ts            refs, ask and its temporary refs under /temp (0009)
   timers.ts         keyed timers, checked by generation when their messages are dequeued
   internal.ts       hooks for the other entry points, never exported: the start hook, ctx internals,
-                    the inspection hook, and the cluster's (/system, lookup by path, makeRef) (0025)
+                    the inspection hook, and the cluster's (/system and children under it, lookup
+                    by path, makeRef) (0025)
   json.ts           what a JSON value is, once: the check events use (0014), with a ref hook for
                     the wire (0025)
+  hash.ts           FNV-1a, the one string hash: Postgres lock keys (0016) and shard placement (0030)
   actor.ts, names.ts, events.ts, logger.ts, errors.ts, queue.ts
   scheduler.ts      Scheduler and realScheduler (0003)
   globals.d.ts      the runtime globals src/ may use (0004); in the build config only
@@ -79,7 +81,9 @@ src/
                     transport.ts, memory.ts (the in-memory network) and remoting.ts (0026);
                     table.ts, the member table, and membership.ts, joinCluster (0028);
                     shard-store.ts (ShardStore and its checks), shard-memory.ts (the in-memory
-                    store) and leases.ts, the holder's side of a lease (0029)
+                    store) and leases.ts, the holder's side of a lease (0029); placement.ts
+                    (entity to shard, rendezvous owners), sharding.ts (init, entity refs),
+                    region.ts (routing, finding shards a home) and shard.ts (entities) (0030)
     postgres/       the /cluster/postgres entry point: postgresShardStore, any runtime, on the
                     journal's structurally typed pool (0029)
   persistence/      the /persistence entry point: the store interfaces,
@@ -94,8 +98,10 @@ test/               mirrors src/; helpers/ holds deferred() and test actors (tre
                     and failing calls, postgres.ts (the test database, fresh schemas, and a
                     pool that holds a COMMIT or any statement), and cluster.ts (N nodes on one ManualScheduler and
                     one network, in memory or TCP on loopback through tcp-network.ts, with settle,
-                    advance, start, kill and restart, and membership when asked for). cluster/remoting-suite.ts is remoting's suite, run
-                    on both networks
+                    advance, start, kill and restart, membership when asked for, and with sharding
+                    one shard store every node shares, which a kill cuts the node off from).
+                    cluster/remoting-suite.ts is remoting's suite, run on both networks, and
+                    cluster/invariant.test.ts the in-process check of one live instance per entity
                     persistence/contract.ts is the journal contract every backend runs, and
                     cluster/shard-store-contract.ts the shard stores';
                     node/ tests the Node-only backends, lint.test.ts the lint config's boundaries

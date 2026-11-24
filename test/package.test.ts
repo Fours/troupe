@@ -104,18 +104,23 @@ const BACKSTAGE_TYPES = [
 // The milestone 3 spec's server.
 const SERVER_VALUES = ['serveBackstage'];
 const SERVER_TYPES = ['BackstageServer', 'BackstageServerOptions'];
-// The milestone 4 spec's cluster, as of T5: joining, the in-memory network and shard store.
+// The milestone 4 spec's cluster, as of T6: joining, the in-memory network and shard store, and
+// sharding.
 const CLUSTER_VALUES = ['inMemoryNetwork', 'inMemoryShardStore', 'joinCluster'];
 const CLUSTER_TYPES = [
   'AcquireResult',
   'Cluster',
   'ClusterOptions',
   'Connection',
+  'EntityType',
+  'EntityTypeOptions',
   'InMemoryNetwork',
   'InMemoryNetworkOptions',
   'LeaseHolder',
+  'LeaseOptions',
   'Member',
   'ShardStore',
+  'Sharding',
   'Transport',
 ];
 // The milestone 4 spec's Postgres shard store.

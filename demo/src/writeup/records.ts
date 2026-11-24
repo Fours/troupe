@@ -34,6 +34,7 @@ export const RECORDS = {
   '0027': '0027-nodes-talk-tcp-with-a-shared-secret',
   '0028': '0028-membership-is-gossiped-with-automatic-downing',
   '0029': '0029-a-shard-is-owned-by-whoever-holds-its-lease',
+  '0030': '0030-shards-are-placed-by-rendezvous-hashing',
 } as const;
 
 export type RecordId = keyof typeof RECORDS;

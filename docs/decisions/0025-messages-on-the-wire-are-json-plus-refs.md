@@ -1,6 +1,6 @@
 # 0025. Messages on the wire are JSON plus refs, refs travel as an address and a path, and messages to entities are always encoded
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-23
 - **Milestone:** 4
 
@@ -13,7 +13,7 @@ Milestone 4 sends messages between nodes. A message has to become text on one no
 - **Messages that cross a node are JSON values plus refs.** It's 0014's rule for events, with one addition: a ref may appear anywhere a value can. There's one definition of "JSON value" in the package. 0014's check moved from `src/persistence/json.ts` to `src/json.ts`, and it now has a ref hook. The persistence check passes no hook, so its behaviour is unchanged. The wire's encoder passes one, and builds its copy in the same walk.
 - **A ref on the wire is `{ "$ref": "troupe://<cluster>@<address>#<uid><path>" }`:** the cluster's name, the node's address, its uid (new on every start) and the actor's path. Actor names are URL-safe ([`names.ts`](../../src/names.ts)), so URIs need no escaping. A path is a `/`-separated list of actor names and generated names such as `$3`.
 - **Only refs this system made can be sent.** A ref is recognised by its shape, as in Backstage's encoding ([0021](0021-backstage-only-watches.md)). It must also be one the system's asker made: a cell's, an ask's, a probe's, or a remote ref made through the system's hooks. A ref from another system in the same process, or an object shaped like a ref, is refused at its path. Without this check, its local path would be encoded as if it belonged to this node.
-- **Keys starting with `$` get one more `$`,** as in 0021. A marker is an object with a single `$`-key, and data can never produce one. Decoding refuses any marker it doesn't know, so a newer peer's message fails loudly rather than decoding as data. `$entity` comes with sharding (T6).
+- **Keys starting with `$` get one more `$`,** as in 0021. A marker is an object with a single `$`-key, and data can never produce one. Decoding refuses any marker it doesn't know, so a newer peer's message fails loudly rather than decoding as data. Sharding added `$entity` (T6): an entity ref is `{ "$entity": { "type", "id" } }`, naming the entity rather than where it lives ([0030](0030-shards-are-placed-by-rendezvous-hashing.md)).
 - **Decoding a ref:**
   - A ref to this node with this uid is looked up by path: a live actor under `/user` or `/system`, or the temporary ref of an ask that is still waiting. If nothing is found, the result is a ref whose `tell`s are `stopped` dead letters, as for a stopped local actor.
   - A ref to an old incarnation of this node (another uid) decodes the same way, even when its path is live again. That is a different actor.
@@ -60,7 +60,7 @@ Milestone 4 sends messages between nodes. A message has to become text on one no
 
 **T2 (2026-11-23):** remoting sends what this encodes between nodes on the in-memory network ([0026](0026-remoting-is-at-most-once-behind-a-transport.md)). Refs in replies, refs passed on to a third node, and temporary ask refs all reach the right actor, and an unserializable message is a dead letter, never a throw (`test/cluster/remoting.test.ts`). The codec gained `decodeValue`, for a message inside a frame that has already been parsed.
 
-Still to prove: T6 encodes every message to an entity, local ones included. The record is accepted then.
+**T6 (2026-11-23):** every message to an entity is encoded by the entity ref where it's sent and decoded by the shard where the entity runs ([0030](0030-shards-are-placed-by-rendezvous-hashing.md)). In `test/cluster/sharding.test.ts`, a message with a `Map` sent to an entity whose shard is on the sending node is an `unserializable` dead letter, with the path of the `Map` logged, and so is one over `maxFrameBytes`. What the entity gets is a copy, never the object that was sent. Skipping the encoding on the sending node fails 10 tests, the invariant test among them. Entity refs round-trip as `$entity` markers and decode into the receiving node's own entity ref, and malformed `$entity` markers are problems with their path (`test/cluster/wire.test.ts`).
 
 ## Consequences
 

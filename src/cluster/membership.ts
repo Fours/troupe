@@ -12,6 +12,14 @@ import { checkInt, checkKeys, describe } from '../checks.js';
 import { hooksOf, type SystemHooks } from '../internal.js';
 import type { ActorSystem } from '../types.js';
 import { isTransport, startRemoting, type PeerId, type Remoting } from './remoting.js';
+import type { ShardStore } from './shard-store.js';
+import {
+  checkLeases,
+  isShardStore,
+  startSharding,
+  type LeaseOptions,
+  type Sharding,
+} from './sharding.js';
 import {
   advance,
   decodeTable,
@@ -53,6 +61,13 @@ export interface ClusterOptions {
   bufferSize?: number;
   /** The largest frame this node sends, in UTF-8 bytes. Default 1 MiB. */
   maxFrameBytes?: number;
+  /**
+   * Where shard leases live (decision 0029), shared by every node: `postgresShardStore` from
+   * `/cluster/postgres`, or `inMemoryShardStore` for nodes in one process. Needed for sharding.
+   */
+  shards?: ShardStore;
+  /** How this node times its shard leases. Every node should use the same. */
+  leases?: LeaseOptions;
 }
 
 /** One incarnation of a node, as this node sees it. */
@@ -82,8 +97,11 @@ export interface Cluster {
    * cluster as the first seed. Rejects if the node leaves, is downed or terminates first.
    */
   readonly whenUp: Promise<void>;
+  /** Entity types, and refs to their entities (decision 0030). */
+  readonly sharding: Sharding;
   /**
    * Tells the others this node is leaving, then that it has left, and closes its connections.
+   * Its shards stop, and their leases are released.
    * Resolves once it has. `system.terminate()` does the same. Calling it again returns the same
    * promise.
    */
@@ -112,6 +130,8 @@ const OPTIONS = new Set([
   'seedTimeoutMs',
   'bufferSize',
   'maxFrameBytes',
+  'shards',
+  'leases',
 ]);
 const DAY_MS = 86_400_000;
 const joined = new WeakSet<ActorSystem>();
@@ -150,7 +170,10 @@ export function startCluster(
   return { cluster: membership.api, remoting };
 }
 
-type Checked = Required<ClusterOptions>;
+type Checked = Required<Omit<ClusterOptions, 'shards'>> & {
+  readonly shards: ShardStore | undefined;
+  readonly leases: Required<LeaseOptions>;
+};
 
 function checkOptions(opts: ClusterOptions): Checked {
   checkKeys(opts, OPTIONS, 'joinCluster');
@@ -164,6 +187,8 @@ function checkOptions(opts: ClusterOptions): Checked {
     seedTimeoutMs = 5_000,
     bufferSize = 10_000,
     maxFrameBytes = 1_048_576,
+    shards,
+    leases,
   } = opts;
   if (typeof name !== 'string' || !CLUSTER_NAME.test(name)) {
     throw new TypeError(
@@ -195,6 +220,9 @@ function checkOptions(opts: ClusterOptions): Checked {
   checkInt(seedTimeoutMs, 'joinCluster: seedTimeoutMs', { min: 0 });
   checkInt(bufferSize, 'joinCluster: bufferSize', { min: 0 });
   checkInt(maxFrameBytes, 'joinCluster: maxFrameBytes');
+  if (shards !== undefined && !isShardStore(shards)) {
+    throw new TypeError('joinCluster: shards must be a ShardStore');
+  }
   return {
     name,
     transport,
@@ -205,6 +233,8 @@ function checkOptions(opts: ClusterOptions): Checked {
     seedTimeoutMs,
     bufferSize,
     maxFrameBytes,
+    shards,
+    leases: checkLeases(leases),
   };
 }
 
@@ -284,10 +314,21 @@ class Membership {
     );
     // The cluster closes remoting itself, after saying goodbye.
     void system.whenTerminated.then(() => this.#leave());
+    const members = (): Member[] => this.#members();
+    const sharding = startSharding({
+      system,
+      hooks,
+      remoting,
+      store: opts.shards,
+      leases: opts.leases,
+      maxFrameBytes: opts.maxFrameBytes,
+      members,
+    });
     this.api = Object.freeze({
       self: Object.freeze({ address, uid }),
-      members: () => this.#members(),
+      members,
       whenUp,
+      sharding,
       leave: () => this.#leave(),
     });
   }

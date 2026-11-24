@@ -63,6 +63,27 @@ describe('the /system guardian', () => {
     expect(() => hooks.spawnSystem(idle, 'x', { nope: 1 } as never)).toThrow(TypeError);
   });
 
+  it('spawns a child of a live /system actor, and only of one (T6)', async () => {
+    const kit = createTestKit();
+    const hooks = hooksOf(kit.system);
+    const sharding = hooks.spawnSystem(idle, 'sharding');
+    const region = hooks.spawnSystem(idle, 'show', undefined, sharding);
+    expect(region.path).toBe('/system/sharding/show');
+    expect(hooks.lookup('/system/sharding/show')).toBe(region);
+    expect(() => hooks.spawnSystem(idle, 'show', undefined, sharding)).toThrow(
+      'already taken under /system/sharding',
+    );
+    const user = kit.system.spawn(idle, 'user');
+    expect(() => hooks.spawnSystem(idle, 'x', undefined, user)).toThrow(
+      'spawnSystem: parent must be a live actor under /system',
+    );
+    expect(() => hooks.spawnSystem(idle, 'x', undefined, {} as never)).toThrow(TypeError);
+    const done = kit.system.terminate();
+    await kit.settle();
+    await done;
+    expect(() => hooks.spawnSystem(idle, 'x', undefined, region)).toThrow(TypeError);
+  });
+
   it('stops after everything under /user when the system terminates', async () => {
     const kit = createTestKit();
     const log: string[] = [];

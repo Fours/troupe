@@ -2,7 +2,10 @@
 // advance across all of them, as the testkit has for one system. Each node records its events and
 // logs, and is seeded from the cluster's seed, so a run on the in-memory network repeats exactly.
 // The same nodes can run on TCP over loopback instead (T3), so one suite tests both transports.
-// With `membership`, each node joins the cluster (T4) rather than starting remoting alone.
+// With `membership`, each node joins the cluster (T4) rather than starting remoting alone, and
+// with `sharding` too, every node shares one in-memory shard store (T6). Killing a node cuts it
+// off from the store first, as a dead process can't reach Postgres, so its leases expire rather
+// than being released.
 
 import {
   startCluster,
@@ -11,6 +14,9 @@ import {
   type ClusterOptions,
 } from '../../src/cluster/membership.js';
 import { inMemoryNetwork } from '../../src/cluster/memory.js';
+import { inMemoryShardStore } from '../../src/cluster/shard-memory.js';
+import type { ShardStore } from '../../src/cluster/shard-store.js';
+import type { LeaseOptions } from '../../src/cluster/sharding.js';
 import { startRemoting, type Remoting, type RemotingOptions } from '../../src/cluster/remoting.js';
 import type { Transport } from '../../src/cluster/transport.js';
 import type { Logger } from '../../src/logger.js';
@@ -49,6 +55,10 @@ export interface TestNode {
   readonly remoting: Remoting;
   /** Its place in the cluster, with `membership`. */
   readonly cluster: Cluster | undefined;
+  /** Whether the node can reach the shard store: false once it's killed. */
+  readonly reachesStore: () => boolean;
+  /** Cuts the node off from the shard store, or reconnects it, as a partition from Postgres. */
+  setReachesStore(reaches: boolean): void;
   readonly transport: Transport;
   /** Every event this node's system published, in order, messages included when asked for. */
   readonly events: SystemEvent[];
@@ -76,6 +86,8 @@ export interface TestClusterOptions {
    * order.
    */
   membership?: Partial<Omit<ClusterOptions, 'name' | 'transport'>> & ClusterInternals;
+  /** Give every node the cluster's shared shard store, with these lease timings. */
+  sharding?: { leases?: LeaseOptions };
   /** Start every node at once. Default true. Otherwise `start(i)` starts each. */
   startAll?: boolean;
   /** Wraps each node's transport, to inject a fault. */
@@ -87,6 +99,8 @@ export interface TestClusterOptions {
 export interface TestCluster {
   readonly scheduler: ManualScheduler;
   readonly network: TestNetwork;
+  /** The shard store every node shares, with `sharding`, on the scheduler's clock. */
+  readonly store: ShardStore;
   /** The live node at each index. `restart` replaces one. Unstarted ones are missing. */
   readonly nodes: TestNode[];
   /** Every incarnation of every node, in the order they started, killed ones included. */
@@ -121,6 +135,7 @@ export async function createTestCluster(opts: TestClusterOptions = {}): Promise<
       : memoryTestNetwork(inMemoryNetwork({ scheduler, latencyMs: opts.latencyMs ?? 1 }));
   const all: TestNode[] = [];
   let incarnations = 0;
+  const store = inMemoryShardStore({ clock: () => scheduler.now() });
 
   const start = (name: string): TestNode => {
     const logs: LogEntry[] = [];
@@ -148,6 +163,7 @@ export async function createTestCluster(opts: TestClusterOptions = {}): Promise<
     const address = transport.address;
     let remoting: Remoting;
     let cluster: Cluster | undefined;
+    let reaches = true;
     if (opts.membership === undefined) {
       remoting = startRemoting(handle.system, {
         cluster: opts.cluster ?? 'test',
@@ -162,6 +178,12 @@ export async function createTestCluster(opts: TestClusterOptions = {}): Promise<
           name: opts.cluster ?? 'test',
           transport,
           seeds: addresses.map((a) => network.address(a)),
+          ...(opts.sharding === undefined
+            ? {}
+            : {
+                shards: cutOff(store, () => reaches),
+                ...(opts.sharding.leases === undefined ? {} : { leases: opts.sharding.leases }),
+              }),
           ...membership,
         },
         pruneAfterMs === undefined ? {} : { pruneAfterMs },
@@ -173,6 +195,10 @@ export async function createTestCluster(opts: TestClusterOptions = {}): Promise<
       system: handle.system,
       remoting,
       cluster,
+      reachesStore: () => reaches,
+      setReachesStore: (value: boolean) => {
+        reaches = value;
+      },
       transport,
       events,
       logs,
@@ -196,9 +222,10 @@ export async function createTestCluster(opts: TestClusterOptions = {}): Promise<
       if (network.real && performance.now() > deadline) {
         throw new Error('settle: actors or the network still busy after 10 s');
       }
+      // A macrotask, so promises settle. setImmediate, not setTimeout, which Node holds for at
+      // least a millisecond: the in-process invariant test ran 40 times slower on it.
       await new Promise<void>((resolve) => {
-        if (network.real) setImmediate(resolve);
-        else setTimeout(resolve, 0);
+        setImmediate(resolve);
       });
     }
   };
@@ -206,6 +233,7 @@ export async function createTestCluster(opts: TestClusterOptions = {}): Promise<
   return {
     scheduler,
     network,
+    store,
     nodes,
     incarnations: all,
     node: (i) => {
@@ -228,6 +256,7 @@ export async function createTestCluster(opts: TestClusterOptions = {}): Promise<
     kill(i) {
       const node = nodes[i];
       if (node === undefined) throw new RangeError(`no node ${String(i)}`);
+      node.setReachesStore(false);
       network.kill(node.name);
       void node.remoting.close();
       void node.system.terminate();
@@ -277,3 +306,31 @@ function memoryTestNetwork(network: ReturnType<typeof inMemoryNetwork>): TestNet
     },
   };
 }
+
+/** `store`, as one node reaches it: every call fails once `reaches` says it can't. */
+function cutOff(store: ShardStore, reaches: () => boolean): ShardStore {
+  const gate =
+    <A extends unknown[], R>(call: (...args: A) => Promise<R>) =>
+    (...args: A): Promise<R> =>
+      reaches() ? call(...args) : Promise.reject(new Error('the node cannot reach the store'));
+  return {
+    acquire: gate(store.acquire.bind(store)),
+    renewAll: gate(store.renewAll.bind(store)),
+    release: gate(store.release.bind(store)),
+    holders: gate(store.holders.bind(store)),
+    remember: gate(store.remember.bind(store)),
+    forget: gate(store.forget.bind(store)),
+    remembered: gate(store.remembered.bind(store)),
+  };
+}
+
+/** Timings scaled down, so failover takes a few virtual seconds. */
+export const FAST: Pick<TestClusterOptions, 'membership' | 'sharding'> = {
+  membership: {
+    heartbeatMs: 200,
+    unreachableAfterMs: 1_000,
+    downAfterMs: 1_000,
+    seedTimeoutMs: 500,
+  },
+  sharding: { leases: { ttlMs: 2_000, renewMs: 500, marginMs: 500 } },
+};

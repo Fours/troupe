@@ -18,6 +18,7 @@ import {
   createCodec,
   parseRefUri,
   type Codec,
+  type EntityRefs,
   type NodeId,
   type RefAddress,
 } from './wire.js';
@@ -83,6 +84,8 @@ export interface Remoting {
   onControl(handler: ControlHandler): void;
   /** Called with each peer incarnation once a connection to it is established. One handler. */
   onPeer(handler: (peer: PeerId) => void): void;
+  /** Gives the codec sharding's entity refs (decision 0030). Once. */
+  setEntities(refs: EntityRefs): void;
   /**
    * Closes the transport. Everything sent afterwards is a `terminated` dead letter. Runs by
    * itself once the system has terminated.
@@ -196,6 +199,7 @@ class Node {
   #closing: Promise<void> | undefined;
   #onControl: ControlHandler | undefined;
   #onPeer: ((peer: PeerId) => void) | undefined;
+  #entities: EntityRefs | undefined;
 
   constructor(
     system: ActorSystem,
@@ -215,6 +219,7 @@ class Node {
       self,
       hooks,
       remote: (uri, address) => this.#remoteRef(uri, address),
+      entities: () => this.#entities,
     });
     this.#helloFrame = JSON.stringify({
       t: 'hello',
@@ -256,6 +261,10 @@ class Node {
       onPeer: (handler: (peer: PeerId) => void) => {
         if (this.#onPeer !== undefined) throw new Error('remoting: onPeer is already set');
         this.#onPeer = handler;
+      },
+      setEntities: (refs: EntityRefs) => {
+        if (this.#entities !== undefined) throw new Error('remoting: entities are already set');
+        this.#entities = refs;
       },
       close: () => this.#close(),
     });
