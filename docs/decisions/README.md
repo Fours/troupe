@@ -55,3 +55,4 @@ When you change a decision, update its record in the same commit as the code.
 | [0033](0033-one-simulation-clock-and-a-clock-per-node.md) | A run has one simulation clock, each node a clock of its own on it, and every I/O call resolves on it | Accepted | 5 |
 | [0035](0035-safety-under-any-network-ordering-under-the-contract.md) | Safety is checked under any network fault, and ordering only under faults the `Transport` contract allows | Proposed | 5 |
 | [0036](0036-timeouts-are-unknown-outcomes-settled-by-recovery.md) | Journal and shard store calls time out on the scheduler, and a timeout is an unknown outcome, settled by recovery | Accepted | 5 |
+| [0037](0037-the-json-check-is-public.md) | The JSON check is public: `JsonValue`, `isJsonValue` and `jsonProblem` from the main entry | Accepted | 5 |

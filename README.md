@@ -236,7 +236,7 @@ const alice = system.spawn(account('alice'), 'alice');
 await alice.ask<Receipt>((replyTo) => ({ type: 'deposit', amount: 10, replyTo })); // balance 10
 ```
 
-`persistentActor` returns an ordinary actor definition: spawn, name, watch and supervise it like any other. `id` names its event stream in the journal. Events and states must be JSON values, and are checked before they're written.
+`persistentActor` returns an ordinary actor definition: spawn, name, watch and supervise it like any other. `id` names its event stream in the journal. Events and states must be JSON values, and are checked before they're written. To check a value yourself first, `jsonProblem(value)` from `@kylewillett/troupe` names where it stops being JSON, such as `$.items[2] is a hole`, and `isJsonValue(value)` says whether it is one.
 
 ### Effects
 

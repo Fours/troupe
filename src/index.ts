@@ -7,6 +7,7 @@ export {
   AskTimeoutError,
   NotAChildError,
 } from './errors.js';
+export { isJsonValue, jsonProblem, type JsonValue } from './json.js';
 export { consoleLogger, silentLogger, type Logger, type LogLevel } from './logger.js';
 export { realScheduler, type Scheduler } from './scheduler.js';
 export { supervise, type SupervisorStrategy } from './supervision.js';

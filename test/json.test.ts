@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
-import { isJsonValue, jsonProblem } from '../src/json.js';
+import { describe, expect, expectTypeOf, it } from 'vitest';
+import * as main from '../src/index.js';
+import { isJsonValue, jsonProblem, type JsonValue } from '../src/json.js';
 
 class Seat {
   row = 'A';
@@ -61,5 +62,19 @@ describe('isJsonValue', () => {
       seat = 1;
     })();
     expect(jsonProblem(anon)).toBe('$ is not a plain object (an anonymous class)');
+  });
+});
+
+describe('the main entry', () => {
+  // Decision 0037: libraries on Troupe check values with the very functions the journal uses.
+  it('exports the same check the persistent actor and the backends use', () => {
+    expect(main.isJsonValue).toBe(isJsonValue);
+    expect(main.jsonProblem).toBe(jsonProblem);
+    expect(main.jsonProblem({ items: [1, Number.NaN] })).toBe('$.items[1] is NaN');
+    expect(main.isJsonValue({ at: new Date(0) })).toBe(false);
+  });
+
+  it('exports the JsonValue type events are checked against', () => {
+    expectTypeOf<main.JsonValue>().toEqualTypeOf<JsonValue>();
   });
 });

@@ -219,7 +219,8 @@ export function WriteUp({ data }: { data: WriteupData }) {
             <p>
               The cost is a rule: no functions or class instances in state. Events and snapshots
               enforce it, since they’re checked as JSON values before they’re written{' '}
-              <Record id="0014" />.
+              <Record id="0014" />. The check is public, so a library built on Troupe can run the
+              very same one on a value before it gets as far as the journal <Record id="0037" />.
             </p>
           </section>
 

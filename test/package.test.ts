@@ -6,7 +6,8 @@ import { DatabaseSync } from 'node:sqlite';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { exportsOf, program, root } from './helpers/exports.js';
 
-// The public API, as the milestone 1 spec lists it under T6.
+// The public API, as the milestone 1 spec lists it under T6, plus the JSON check events and
+// snapshots must pass (0037).
 const MAIN_VALUES = [
   'ActorNameError',
   'ActorStoppedError',
@@ -16,6 +17,8 @@ const MAIN_VALUES = [
   'actor',
   'consoleLogger',
   'createActorSystem',
+  'isJsonValue',
+  'jsonProblem',
   'realScheduler',
   'silentLogger',
   'supervise',
@@ -29,6 +32,7 @@ const MAIN_TYPES = [
   'AnyRef',
   'AskOptions',
   'EventStream',
+  'JsonValue',
   'LogLevel',
   'Logger',
   'Result',
