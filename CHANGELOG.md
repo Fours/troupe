@@ -4,9 +4,13 @@ This project follows [Semantic Versioning](https://semver.org/). Under 0.x, a mi
 
 ## Unreleased
 
-- `ctx.pipeToSelf(promise, map, { signal })`: when `signal` aborts, the pipe delivers `{ ok: false, error: signal.reason }` at once and ignores whatever the promise does later. A pipe with a signal isn't busy work, so the testkit's `settle` and `advance` let time pass while it's pending, and Rehearsal's run loop doesn't count it as a stall. Abort it from one of the actor's timers or its `postStop`. `settle` still gives it one event-loop turn, so a promise that has already settled arrives first. `PipeOptions` and `PipeSignal`, a structural type every runtime's `AbortSignal` fits, are exported from the main entry. `pipeToSelf` without options is unchanged ([0038](https://github.com/Fours/troupe/blob/main/docs/decisions/0038-a-pipe-with-a-signal-ends-on-the-scheduler.md)).
-
 - `@kylewillett/troupe/rehearsal`, for any runtime: deterministic simulation testing of a whole cluster in one process. `scenario({ nodes, spares, clients, durationMs, setup, workload, faults, invariants })` describes one, and `scenario.run({ seed, plan })` runs it: every node on a clock of its own, on a simulated network and database, with the faults in `plan`, plain JSON, or drawn from the seed. A run gives its `history`, JSON, the same byte for byte from the same seed and plan, its `violations`, and the overlaps `expected` past a lease's margin. `invariants` has `oneLiveInstance`, `acknowledgedWritesKept`, `noStaleReads`, `atMostOnce`, `orderPerPair`, `recovers` and `failoverWithin`, and any `{ name, check }` is an invariant too ([0034](https://github.com/Fours/troupe/blob/main/docs/decisions/0034-a-run-is-a-seed-and-a-plan.md), [0035](https://github.com/Fours/troupe/blob/main/docs/decisions/0035-safety-under-any-network-ordering-under-the-contract.md)).
+
+## 0.3.1 (2026-11-24)
+
+For Steadfast: a piped promise that the actor's own timer ends no longer holds up the testkit's `advance`. Released from 0.3.0, so Rehearsal still isn't exported.
+
+- `ctx.pipeToSelf(promise, map, { signal })`: when `signal` aborts, the pipe delivers `{ ok: false, error: signal.reason }` at once and ignores whatever the promise does later. A pipe with a signal isn't busy work, so the testkit's `settle` and `advance` let time pass while it's pending, and Rehearsal's run loop doesn't count it as a stall. Abort it from one of the actor's timers or its `postStop`. `settle` still gives it one event-loop turn, so a promise that has already settled arrives first. `PipeOptions` and `PipeSignal`, a structural type every runtime's `AbortSignal` fits, are exported from the main entry. `pipeToSelf` without options is unchanged ([0038](https://github.com/Fours/troupe/blob/main/docs/decisions/0038-a-pipe-with-a-signal-ends-on-the-scheduler.md)).
 
 ## 0.3.0 (2026-11-24)
 
