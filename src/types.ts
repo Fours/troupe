@@ -270,7 +270,8 @@ export type SystemEvent = Timestamped<
     }
   /**
    * An actor is about to run `initial` again. `attempt` counts restarts from 1, since the
-   * restart window or the backoff last reset. `delayMs` is the backoff it waited, 0 for a restart.
+   * restart window or the backoff last reset. `delayMs` is the backoff it waited, including any
+   * minimum its failure set through `minDelayFor`, and 0 for a restart.
    */
   | {
       readonly type: 'restarted';

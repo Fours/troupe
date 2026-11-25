@@ -25,6 +25,13 @@ describe('supervise', () => {
     });
     expect(Object.isFrozen(backoff)).toBe(true);
     expect(Object.isFrozen(supervise)).toBe(true);
+    const minDelayFor = () => undefined;
+    const withMinimum = supervise.restartWithBackoff({ minMs: 200, maxMs: 5000, minDelayFor });
+    expect(withMinimum).toEqual({ ...backoff, minDelayFor });
+    expect(withMinimum.type === 'backoff' && withMinimum.minDelayFor).toBe(minDelayFor);
+    expect(Object.isFrozen(withMinimum)).toBe(true);
+    // Without one, the key is absent, not undefined.
+    expect(Object.keys(backoff)).not.toContain('minDelayFor');
   });
 
   const badRestart: [string, unknown][] = [
@@ -54,6 +61,8 @@ describe('supervise', () => {
     ['a NaN randomFactor', { ...goodBackoff, randomFactor: NaN }],
     ['a string randomFactor', { ...goodBackoff, randomFactor: '0.2' }],
     ['a zero resetAfterMs', { ...goodBackoff, resetAfterMs: 0 }],
+    ['a minDelayFor that is a number', { ...goodBackoff, minDelayFor: 5000 }],
+    ['a minDelayFor that is null', { ...goodBackoff, minDelayFor: null }],
   ];
   for (const [what, opts] of badBackoff) {
     it(`restartWithBackoff throws TypeError for ${what}`, () => {
@@ -68,5 +77,14 @@ describe('supervise', () => {
     expect(() => supervise.restart({ withinMs: 0 })).toThrow(
       /withinMs must be a positive integer or Infinity, got 0/,
     );
+    expect(() =>
+      supervise.restartWithBackoff({ minMs: 1, maxMs: 2, minDelayFor: 5000 as never }),
+    ).toThrow(/supervise\.restartWithBackoff: minDelayFor must be a function, got 5000/);
+  });
+
+  it('accepts minDelayFor as undefined, as if it were left out', () => {
+    expect(
+      supervise.restartWithBackoff({ minMs: 1, maxMs: 2, minDelayFor: undefined as never }),
+    ).toEqual(supervise.restartWithBackoff({ minMs: 1, maxMs: 2 }));
   });
 });

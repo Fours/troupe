@@ -515,6 +515,227 @@ describe('backoff', () => {
   });
 });
 
+describe('backoff with a minimum delay', () => {
+  // Steadfast's step children: a model error with a retry-after, wrapped in the step's failure.
+  class ModelError extends Error {
+    constructor(readonly retryAfterMs?: number) {
+      super('rate limited');
+    }
+  }
+  const rateLimited = (retryAfterMs?: number) =>
+    new Error('model call failed', { cause: new ModelError(retryAfterMs) });
+  const retryAfter = (failure: unknown) =>
+    failure instanceof Error && failure.cause instanceof ModelError
+      ? failure.cause.retryAfterMs
+      : undefined;
+  const opts = { minMs: 1000, maxMs: 60_000, randomFactor: 0.2 };
+  /** The formula with a minimum per restart, worked out from the same seed, draw by draw. */
+  const expected = (seed: number, steps: readonly (readonly [n: number, minimum: number])[]) => {
+    const random = seededRandom(seed);
+    return steps.map(([n, minimum]) =>
+      Math.round(
+        Math.max(Math.min(opts.maxMs, opts.minMs * 2 ** n), minimum) *
+          (1 + random() * opts.randomFactor),
+      ),
+    );
+  };
+  const delays = (kit: TestKit) => ofType(kit, 'restarted').map((e) => e.delayMs);
+
+  it('waits for the minimum when it is larger than the backoff, and not a ms less', async () => {
+    const kit = createTestKit({ seed: 5 });
+    const log: string[] = [];
+    const strategy = supervise.restartWithBackoff({ ...opts, minDelayFor: retryAfter });
+    const ref = kit.system.spawn(worker({ log }), 'w', { supervision: strategy });
+    await kit.settle();
+    const [delay = NaN] = expected(5, [[0, 5000]]);
+    expect(delay).toBeGreaterThanOrEqual(5000);
+    expect(delay).toBeLessThanOrEqual(6000);
+    const probe = kit.probe<number>();
+    ref.tell(fail(rateLimited(5000)));
+    ref.tell(add(2));
+    ref.tell({ type: 'report', to: probe.ref });
+    await kit.settle();
+    // Well past the 1 s backoff, and 1 ms short of the delay: still restarting.
+    await advance(kit, delay - 1);
+    probe.expectNoMessage();
+    expect(log).toEqual(['initial', 'preRestart 0 Error: model call failed']);
+    await advance(kit, 1);
+    expect(probe.expectMessage()).toBe(2);
+    expect(log.at(-1)).toBe('initial');
+    expect(delays(kit)).toEqual([delay]);
+    const failed = ofType(kit, 'failed');
+    const restarted = ofType(kit, 'restarted');
+    expect((restarted[0]?.at ?? NaN) - (failed[0]?.at ?? NaN)).toBe(delay);
+  });
+
+  it('waits for the backoff when it is larger than the minimum', async () => {
+    const kit = createTestKit({ seed: 5 });
+    const strategy = supervise.restartWithBackoff({ ...opts, minDelayFor: retryAfter });
+    const ref = kit.system.spawn(worker(), 'w', { supervision: strategy });
+    const steps = [
+      [0, 500],
+      [1, 1999],
+      [2, 0],
+    ] as const;
+    const want = expected(5, steps);
+    for (const [, minimum] of steps) {
+      ref.tell(fail(rateLimited(minimum)));
+      await kit.settle();
+      await advance(kit, want[delays(kit).length] ?? NaN);
+    }
+    expect(delays(kit)).toEqual(want);
+    // The same as plain backoff from the same seed.
+    expect(want).toEqual(
+      expected(5, [
+        [0, 0],
+        [1, 0],
+        [2, 0],
+      ]),
+    );
+  });
+
+  it('is not capped by maxMs, and does not count as extra backoff steps', async () => {
+    const kit = createTestKit({ seed: 9 });
+    const strategy = supervise.restartWithBackoff({ ...opts, minDelayFor: retryAfter });
+    const ref = kit.system.spawn(worker(), 'w', { supervision: strategy });
+    // Ten minutes, ten times maxMs. Then a failure with no retry-after: step 1, as if the first
+    // restart had been an ordinary one.
+    const want = expected(9, [
+      [0, 600_000],
+      [1, 0],
+    ]);
+    expect(want[0]).toBeGreaterThanOrEqual(600_000);
+    ref.tell(fail(rateLimited(600_000)));
+    await kit.settle();
+    await advance(kit, (want[0] ?? NaN) - 1);
+    expect(delays(kit)).toEqual([]);
+    await advance(kit, 1);
+    ref.tell(fail(rateLimited()));
+    await kit.settle();
+    await advance(kit, want[1] ?? NaN);
+    expect(delays(kit)).toEqual(want);
+    expect(ofType(kit, 'restarted').map((e) => e.attempt)).toEqual([1, 2]);
+  });
+
+  it('waits exactly the larger of the two with no jitter', async () => {
+    const kit = createTestKit();
+    const minDelayFor = (failure: unknown) => (typeof failure === 'number' ? failure : undefined);
+    const strategy = supervise.restartWithBackoff({
+      minMs: 100,
+      maxMs: 1000,
+      randomFactor: 0,
+      resetAfterMs: 60_000,
+      minDelayFor,
+    });
+    const ref = kit.system.spawn(worker(), 'w', { supervision: strategy });
+    for (const minimum of [250, 0, 150, 5000]) {
+      ref.tell(fail(minimum));
+      await kit.settle();
+      await advance(kit, 5000);
+    }
+    // Steps 100, 200, 400 and 800 against minimums of 250, 0, 150 and 5000.
+    expect(delays(kit)).toEqual([250, 200, 400, 5000]);
+  });
+
+  it('leaves the ordinary backoff unchanged when no minimum applies', async () => {
+    const run = async (minDelayFor?: (failure: unknown) => number | undefined) => {
+      const kit = createTestKit({ seed: 7 });
+      const backoff = { minMs: 100, maxMs: 1000, randomFactor: 0.5, resetAfterMs: 5000 };
+      const strategy = supervise.restartWithBackoff(
+        minDelayFor === undefined ? backoff : { ...backoff, minDelayFor },
+      );
+      const ref = kit.system.spawn(worker(), 'w', { supervision: strategy });
+      for (let i = 0; i < 6; i++) {
+        ref.tell(fail(i % 2 === 0 ? rateLimited() : 'boom'));
+        await kit.settle();
+        await advance(kit, 1500);
+      }
+      return ofType(kit, 'restarted').map((e) => [e.attempt, e.delayMs, e.at]);
+    };
+    const plain = await run();
+    // The pinned delays of the plain backoff test, from the same seed.
+    expect(plain.map(([, delayMs]) => delayMs)).toEqual([101, 206, 595, 1080, 1261, 1203]);
+    expect(await run(retryAfter)).toEqual(plain);
+    expect(await run(() => 0)).toEqual(plain);
+  });
+
+  it('passes the failure as it is, from receive, a rejection or initial', async () => {
+    const kit = createTestKit();
+    const seen: unknown[] = [];
+    const strategy = supervise.restartWithBackoff({
+      minMs: 10,
+      maxMs: 10,
+      randomFactor: 0,
+      minDelayFor: (failure) => {
+        seen.push(failure);
+        return undefined;
+      },
+    });
+    let failInitial = false;
+    const ref = kit.system.spawn(worker({ initialFails: () => failInitial }), 'w', {
+      supervision: strategy,
+    });
+    const error = rateLimited(1);
+    ref.tell(fail(error));
+    await kit.settle();
+    await advance(kit, 10);
+    ref.tell({ type: 'failAsync', error: undefined });
+    await kit.settle();
+    await advance(kit, 10);
+    ref.tell(fail(42));
+    await kit.settle();
+    // The restart after 42 runs initial, which fails once.
+    failInitial = true;
+    await advance(kit, 10);
+    failInitial = false;
+    await advance(kit, 10);
+    expect(seen[0]).toBe(error);
+    expect(seen.slice(1, 3)).toEqual([undefined, 42]);
+    expect(seen[3]).toMatchObject({ message: 'initial failed' });
+  });
+
+  const broken: [string, (failure: unknown) => number | undefined, RegExp][] = [
+    [
+      'throws',
+      () => {
+        throw new Error('bad reader');
+      },
+      /^minDelayFor threw/,
+    ],
+    ['returns a negative number', () => -1, /got -1;/],
+    ['returns a fraction', () => 1.5, /got 1\.5;/],
+    ['returns NaN', () => NaN, /got NaN;/],
+    ['returns Infinity', () => Infinity, /got Infinity;/],
+    ['returns a string', () => '5000' as never, /got "5000";/],
+  ];
+  for (const [what, minDelayFor, msg] of broken) {
+    it(`logs a minDelayFor that ${what}, and uses the backoff alone`, async () => {
+      const kit = createTestKit();
+      const strategy = supervise.restartWithBackoff({
+        minMs: 100,
+        maxMs: 1000,
+        randomFactor: 0,
+        minDelayFor,
+      });
+      const ref = kit.system.spawn(worker(), 'w', { supervision: strategy });
+      ref.tell(add(1));
+      ref.tell(fail(rateLimited(5000)));
+      await kit.settle();
+      await advance(kit, 100);
+      expect(delays(kit)).toEqual([100]);
+      expect(await stateOf(kit, ref)).toBe(0);
+      const problem = kit.logs.find((l) => msg.test(l.msg));
+      expect(problem).toMatchObject({ level: 'error', fields: { path: '/user/w' } });
+      expect(problem?.fields?.error).toBeInstanceOf(Error);
+      if (what === 'throws') {
+        expect(problem?.fields?.thrown).toMatchObject({ message: 'bad reader' });
+      } else {
+        expect(problem?.fields).not.toHaveProperty('thrown');
+      }
+    });
+  }
+});
+
 describe('preRestart and postStop failures', () => {
   for (const how of ['throw', 'reject'] as const) {
     it(`logs a preRestart that ${how}s, and restarts anyway`, async () => {

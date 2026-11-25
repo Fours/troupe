@@ -277,6 +277,11 @@ export function WriteUp({ data }: { data: WriteupData }) {
             <p>
               Supervision decides from the failure times as each failure happens, so neither the
               restart limit’s window nor the backoff needs a timer of its own <Record id="0006" />.
+              A failure can also say how long to wait. A model call that got a 429 with a{' '}
+              <code>retry-after</code> shouldn’t come back sooner, so a backoff strategy can read
+              each failure for a minimum delay, and wait for that or for its own backoff, whichever
+              is longer. It’s the parent’s strategy that reads it, not the actor that decides, and a
+              server’s answer outranks <code>maxMs</code>, Troupe’s own guess <Record id="0041" />.
               In the demo, “Bad request” crashes <code>hamlet</code>, and you can watch it come back
               200 ms later.
             </p>

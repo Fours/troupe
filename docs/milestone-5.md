@@ -558,6 +558,7 @@ The tasks add these records, as Proposed, and accept them once their tests pass.
 | 0038 | A pipe with a signal ends on the scheduler (written after T5, for 0.3.1) | — |
 | 0039 | What 1.0 promises. Numbered 0038 until 0038 went to the pipe | T9 |
 | 0040 | A planted bug is found by what it breaks, and failover means answering again | T6 |
+| 0041 | A failure can raise its backoff delay (written after T6, for 0.3.2) | — |
 
 T7 adds a record for each bug fix that changes a decision, and one for fencing, numbered as they come.
 

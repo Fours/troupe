@@ -59,3 +59,4 @@ When you change a decision, update its record in the same commit as the code.
 | [0037](0037-the-json-check-is-public.md) | The JSON check is public: `JsonValue`, `isJsonValue` and `jsonProblem` from the main entry | Accepted | 5 |
 | [0038](0038-a-pipe-with-a-signal-ends-on-the-scheduler.md) | A pipe with a signal ends when the signal aborts, so it isn't busy work for `settle` | Accepted | 5 |
 | [0040](0040-planted-bugs-are-found-by-what-they-break.md) | A planted bug is found by what it breaks, and failover means answering again | Accepted | 5 |
+| [0041](0041-a-failure-can-raise-its-backoff-delay.md) | A failure can raise its backoff delay, through the strategy's `minDelayFor`, past `maxMs` | Accepted | 5 |

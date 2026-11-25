@@ -173,6 +173,31 @@ describe('supervision types', () => {
     expectTypeOf(missing).returns.toEqualTypeOf<SupervisorStrategy>();
   });
 
+  it('types minDelayFor as a reader of an unknown failure that returns ms or undefined', () => {
+    type Opts = Parameters<typeof supervise.restartWithBackoff>[0];
+    expectTypeOf<NonNullable<Opts['minDelayFor']>>().toEqualTypeOf<
+      (failure: unknown) => number | undefined
+    >();
+    // A reader that narrows the failure itself fits, as one that always answers does.
+    expectTypeOf((failure: unknown) => (failure instanceof Error ? 5000 : undefined)).toExtend<
+      NonNullable<Opts['minDelayFor']>
+    >();
+    expectTypeOf(() => 5000).toExtend<NonNullable<Opts['minDelayFor']>>();
+    // Never called. A reader that needs an Error can't be given every failure.
+    const narrow = () =>
+      supervise.restartWithBackoff({
+        minMs: 1,
+        maxMs: 2,
+        // @ts-expect-error the failure is unknown, not an Error
+        minDelayFor: (e: Error) => e.name.length,
+      });
+    expectTypeOf(narrow).returns.toEqualTypeOf<SupervisorStrategy>();
+    const stringly = () =>
+      // @ts-expect-error a delay is a number of ms
+      supervise.restartWithBackoff({ minMs: 1, maxMs: 2, minDelayFor: () => '5s' });
+    expectTypeOf(stringly).returns.toEqualTypeOf<SupervisorStrategy>();
+  });
+
   it('adds preRestart to Signal, and failed and restarted to SystemEvent', () => {
     expectTypeOf<Extract<Signal, { type: 'preRestart' }>>().toEqualTypeOf<{
       readonly type: 'preRestart';
