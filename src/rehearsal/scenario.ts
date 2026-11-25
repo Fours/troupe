@@ -18,6 +18,7 @@ import { joinCluster, type Cluster } from '../cluster/membership.js';
 import type { ShardStore } from '../cluster/shard-store.js';
 import type { Transport } from '../cluster/transport.js';
 import { checkLeases, type EntityType, type LeaseOptions } from '../cluster/sharding.js';
+import { plant, type Plant } from '../internal.js';
 import { silentLogger } from '../logger.js';
 import type { Persistence } from '../persistence/types.js';
 import { createSystem, type SystemHandle } from '../system.js';
@@ -41,7 +42,9 @@ import {
   type LeaveFault,
   type PlanWorld,
 } from './plan.js';
+import { grantsHeldLeases } from './plants.js';
 import { checkRange, draw, type Range } from './ranges.js';
+import { decodeReplay, encodeReplay } from './replay.js';
 import { pick, stream } from './streams.js';
 
 /** Chance, drawn from a client's workload stream. */
@@ -152,10 +155,31 @@ export interface ScenarioOptions {
   stallAfterMs?: number;
 }
 
+/**
+ * How to run a scenario once: a seed, with a plan in place of the one it draws and a time to cut
+ * the run short at if you like, or a replay line, which holds all three.
+ */
+export type RunOptions =
+  | {
+      readonly seed: number;
+      readonly plan?: FaultPlan;
+      /**
+       * Where to end the run, in ms of simulation time, if before `durationMs`. Everything up to
+       * then happens as it would in the whole run. Shrinking cuts a failing run short this way.
+       */
+      readonly untilMs?: number;
+    }
+  | {
+      /** A run's {@link Run.replay} line, which replays it exactly. */
+      readonly replay: string;
+    };
+
 /** One run of a scenario: its seed and plan, what happened, and what broke. */
 export interface Run {
   readonly seed: number;
   readonly plan: FaultPlan;
+  /** Where the run ended, in ms of simulation time: `durationMs` unless it was cut short. */
+  readonly untilMs: number;
   readonly history: History;
   /** What the invariants found. */
   readonly violations: readonly Violation[];
@@ -165,6 +189,11 @@ export interface Run {
    * lost and no stale read. Counted apart, since they're a stated limit rather than a bug.
    */
   readonly expected: readonly Violation[];
+  /**
+   * One line that replays this run exactly: its seed, plan and end, and its first violation,
+   * which a replay checks it finds again. Pass it to `run({ replay })` or {@link replay}.
+   */
+  readonly replay: string;
 }
 
 /** A scenario, ready to run. */
@@ -172,11 +201,13 @@ export interface Scenario {
   /** The network mode its runs use, from `faults.network`. */
   readonly mode: NetworkMode;
   /**
-   * Runs it once: from `seed`, with `plan` in place of the one the seed draws.
-   * @throws TypeError for a seed or plan that can't be run, before anything starts.
+   * Runs it once: from `seed`, with `plan` in place of the one the seed draws, or from a replay
+   * line.
+   * @throws TypeError for a seed, plan, end or line that can't be run, before anything starts,
+   * a line from a scenario in another network mode included.
    * @throws StallError if an actor waits on something outside the simulation.
    */
-  run(opts: { readonly seed: number; readonly plan?: FaultPlan }): Promise<Run>;
+  run(opts: RunOptions): Promise<Run>;
   /** The plan `seed` draws. */
   plan(seed: number): FaultPlan;
 }
@@ -187,6 +218,8 @@ export interface ScenarioInternals {
   wrapStore?: (store: ShardStore, node: string) => ShardStore;
   /** Wraps the transport each node incarnation sees, under its clock. */
   wrapTransport?: (transport: Transport, node: string) => Transport;
+  /** A bug to plant on every node incarnation (T6). */
+  plant?: Plant;
 }
 
 const OPTIONS = new Set([
@@ -215,7 +248,8 @@ const CLUSTER_OPTIONS = new Set([
   'seedTimeoutMs',
   'leases',
 ]);
-const RUN_OPTIONS = new Set(['seed', 'plan']);
+const RUN_OPTIONS = new Set(['seed', 'plan', 'untilMs']);
+const REPLAY_OPTIONS = new Set(['replay']);
 
 interface Checked {
   readonly nodes: readonly string[];
@@ -248,29 +282,111 @@ export function scenario(opts: ScenarioOptions): Scenario {
   return scenarioWith(opts, {});
 }
 
+/** What rehearse needs to know of a scenario that its public face keeps to itself. */
+export interface ScenarioInfo {
+  readonly durationMs: number;
+  /** When the quiet tail begins, which every fault must end by. */
+  readonly quietFrom: number;
+  readonly plant: Plant | undefined;
+}
+
+const infos = new WeakMap<Scenario, ScenarioInfo>();
+
+/**
+ * What rehearse needs to know of `s`.
+ * @throws TypeError for a scenario `scenario()` didn't make.
+ */
+export function scenarioInfo(s: Scenario): ScenarioInfo {
+  const info = infos.get(s);
+  if (info === undefined) throw new TypeError('rehearse: not a scenario made by scenario()');
+  return info;
+}
+
 /** {@link scenario}, with what only tests set. */
 export function scenarioWith(opts: ScenarioOptions, internals: ScenarioInternals): Scenario {
   const checked = checkOptions(opts);
-  return {
+  const made: Scenario = {
     mode: checked.faults.mode,
     plan: (seed) => {
       checkSeed(seed);
       return drawPlan(stream(seed, 'plan'), checked.world, checked.faults);
     },
     run: async (ropts) => {
-      checkKeys(ropts, RUN_OPTIONS, 'run');
-      const { seed } = ropts;
-      checkSeed(seed);
-      const plan =
-        ropts.plan === undefined
-          ? drawPlan(stream(seed, 'plan'), checked.world, checked.faults)
-          : checkPlan(ropts.plan, checked.world);
-      const world = new World(checked, internals, seed, plan);
+      const { seed, plan, untilMs } = runOptions(ropts, checked, internals);
+      const world = new World(checked, internals, seed, plan, untilMs);
       const history = await world.run();
       const { violations, expected } = checkInvariants(checked.invariants, history);
-      return { seed, plan, history, violations, expected };
+      const first = violations[0];
+      const replay = encodeReplay({
+        seed,
+        mode: checked.faults.mode,
+        plan,
+        ...(untilMs < checked.durationMs ? { untilMs } : {}),
+        ...(internals.plant === undefined ? {} : { plant: internals.plant }),
+        ...(first === undefined
+          ? {}
+          : { violation: { invariant: first.invariant, message: first.message } }),
+      });
+      return { seed, plan, untilMs, history, violations, expected, replay };
     },
   };
+  infos.set(made, {
+    durationMs: checked.durationMs,
+    quietFrom: checked.quietFrom,
+    plant: internals.plant,
+  });
+  return made;
+}
+
+/** A run's seed, checked plan and end, from its options or its replay line. */
+function runOptions(
+  ropts: RunOptions,
+  checked: Checked,
+  internals: ScenarioInternals,
+): { seed: number; plan: FaultPlan; untilMs: number } {
+  const raw: unknown = ropts;
+  if (typeof raw === 'object' && raw !== null && 'replay' in raw) {
+    checkKeys(raw, REPLAY_OPTIONS, 'run');
+    const line = decodeReplay(raw.replay);
+    if (line.mode !== checked.faults.mode) {
+      throw new TypeError(
+        `run: this line was recorded with the network in ${line.mode} mode, and this scenario's is in ${checked.faults.mode} mode`,
+      );
+    }
+    if (line.plant !== internals.plant) {
+      throw new TypeError(
+        line.plant === undefined
+          ? `run: this line was recorded with no bug planted, and this scenario has ${String(internals.plant)} planted`
+          : `run: this line was recorded with the bug ${line.plant} planted, and this scenario doesn't plant it`,
+      );
+    }
+    return runOptions(
+      {
+        seed: line.seed,
+        plan: line.plan,
+        ...(line.untilMs === undefined ? {} : { untilMs: line.untilMs }),
+      },
+      checked,
+      internals,
+    );
+  }
+  checkKeys(ropts, RUN_OPTIONS, 'run');
+  // Not a replay line, which was handled above.
+  const opts = ropts as Extract<RunOptions, { readonly seed: number }>;
+  const { seed } = opts;
+  checkSeed(seed);
+  const untilMs = opts.untilMs ?? checked.durationMs;
+  checkInt(untilMs, 'run: untilMs');
+  if (untilMs > checked.durationMs) {
+    throw new TypeError(
+      `run: untilMs must be at most durationMs, ${String(checked.durationMs)}, got ${String(untilMs)}`,
+    );
+  }
+  const plan =
+    opts.plan === undefined
+      ? drawPlan(stream(seed, 'plan'), checked.world, checked.faults)
+      : checkPlan(opts.plan, checked.world);
+  return { seed, plan, untilMs };
 }
 
 function checkSeed(seed: unknown): void {
@@ -409,6 +525,7 @@ class World {
   readonly #internals: ScenarioInternals;
   readonly #seed: number;
   readonly #plan: FaultPlan;
+  readonly #untilMs: number;
   readonly #sim = new ManualScheduler({ maxSteps: 10_000_000 });
   readonly #loop: RunLoop;
   readonly #network: SimulatedNetwork;
@@ -417,11 +534,18 @@ class World {
   readonly #history: HistoryEntry[] = [];
   #ops = 0;
 
-  constructor(o: Checked, internals: ScenarioInternals, seed: number, plan: FaultPlan) {
+  constructor(
+    o: Checked,
+    internals: ScenarioInternals,
+    seed: number,
+    plan: FaultPlan,
+    untilMs: number,
+  ) {
     this.#o = o;
     this.#internals = internals;
     this.#seed = seed;
     this.#plan = plan;
+    this.#untilMs = untilMs;
     this.#loop = new RunLoop(
       this.#sim,
       o.stallAfterMs === undefined ? {} : { stallAfterMs: o.stallAfterMs },
@@ -459,6 +583,7 @@ class World {
       quietFrom: o.quietFrom,
       leases: { ttlMs: o.leases.ttlMs, renewMs: o.leases.renewMs, marginMs: o.leases.marginMs },
       plan: this.#plan,
+      ...(this.#untilMs < o.durationMs ? { untilMs: this.#untilMs } : {}),
     });
     for (const name of [...o.nodes, ...o.clients]) this.#start(name);
     for (const [index, fault] of this.#plan.entries()) {
@@ -469,7 +594,7 @@ class World {
     if (o.workload !== undefined) {
       for (const client of o.clients) this.#drive(client, o.workload);
     }
-    await this.#loop.runUntil(o.durationMs);
+    await this.#loop.runUntil(this.#untilMs);
     this.#history.push({
       kind: 'journal',
       time: this.#sim.now(),
@@ -517,15 +642,18 @@ class World {
       random: stream(this.#seed, `node ${name} ${String(inc)}`),
       logger: silentLogger,
     });
+    const bug = this.#internals.plant;
+    if (bug !== undefined) plant(handle.system, bug);
     const raw = this.#network.transport(name);
     const wrapped =
       this.#internals.wrapTransport === undefined ? raw : this.#internals.wrapTransport(raw, name);
     const transport = throughClock(wrapped, clock);
     const client = this.#db.connect(name, clock);
-    const shards =
+    const own =
       this.#internals.wrapStore === undefined
         ? client.shards
         : this.#internals.wrapStore(client.shards, name);
+    const shards = bug === 'grants-held' ? grantsHeldLeases(own) : own;
     const cluster = joinCluster(handle.system, {
       ...o.cluster,
       name: o.clusterName,

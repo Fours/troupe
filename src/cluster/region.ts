@@ -10,7 +10,7 @@
 // it back with `notOwner`, and the sender looks again. Every wait and retry is on the scheduler,
 // with jitter from the system's random (decision 0003).
 import { actor } from '../actor.js';
-import { internalsOf } from '../internal.js';
+import { internalsOf, type Plant } from '../internal.js';
 import { supervise } from '../supervision.js';
 import type { ActorContext, ActorDef, ActorRef, AnyRef, Result } from '../types.js';
 import type { LeaseKeeper } from './leases.js';
@@ -43,6 +43,8 @@ export interface RegionEnv extends ShardEnv {
   readonly keeper: LeaseKeeper | undefined;
   /** The members as this node sees them, itself included. */
   readonly members: () => readonly Member[];
+  /** A bug Rehearsal planted on this node's system, if any (T6). */
+  readonly plant: Plant | undefined;
   /** Called once the region has stopped, so nothing more is sent to it. */
   readonly onStopped: () => void;
   /** Called as the region starts, with its holder cache, which inspectors read but never change. */
@@ -778,6 +780,8 @@ class Region {
     this.#ctx.timers.cancel(retryKey(shard));
     slot.phase = 'handoff';
     asShard(local.ref).tell(new ShardInternal({ t: 'drain' }));
+    // Planted (T6): the lease goes now, while the entities may still be finishing what they have.
+    if (this.#env.plant === 'early-release') this.#release(shard, local, reason, this.#ctx, true);
   }
 
   /** A handed-off shard's lease is gone: its desired owner takes it, and what waited follows. */
@@ -829,6 +833,8 @@ class Region {
    * otherwise leave that member out of placement for good (found by T8, decision 0031).
    */
   #greetSilent(): void {
+    // Planted (T6): each member is greeted once, so a hello lost both ways is lost for good.
+    if (this.#env.plant === 'greets-once') return;
     for (const [key, member] of this.#members) {
       if (key === this.#self.key || member.status !== 'up' || !member.reachable) continue;
       if (this.#peers.get(member.address)?.uid === member.uid) continue;
@@ -911,7 +917,10 @@ class Region {
    */
   #usable(holder: string): boolean {
     const member = this.#members.get(holder);
-    if (member === undefined || member.status === 'down' || !member.reachable) return false;
+    if (member === undefined || member.status === 'down') return false;
+    // Planted (T6): a holder this node can't reach still gets its messages, which wait in
+    // remoting's buffer until the holder is downed.
+    if (!member.reachable && this.#env.plant !== 'routes-unreachable') return false;
     const peer = this.#peers.get(member.address);
     return !(peer?.uid === member.uid && peer.refused);
   }

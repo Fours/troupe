@@ -10,7 +10,7 @@
 
 import { checkInt, checkKeys, describe } from '../checks.js';
 import type { EventBody } from '../events.js';
-import { hooksOf, type SystemHooks } from '../internal.js';
+import { hooksOf, plantOf, type Plant, type SystemHooks } from '../internal.js';
 import type { ActorSystem } from '../types.js';
 import { isTransport, startRemoting, type PeerId, type Remoting } from './remoting.js';
 import type { ShardStore } from './shard-store.js';
@@ -30,6 +30,7 @@ import {
   keyOf,
   merge,
   sameTable,
+  tableOf,
   type Entry,
   type Status,
   type Table,
@@ -270,6 +271,7 @@ class Membership {
   readonly #remoting: Remoting;
   readonly #opts: Checked;
   readonly #pruneAfterMs: number;
+  readonly #plant: Plant | undefined;
   readonly #selfKey: string;
   #table: Table = new Map();
   readonly #local = new Map<string, Local>();
@@ -298,6 +300,7 @@ class Membership {
     this.#remoting = remoting;
     this.#opts = opts;
     this.#pruneAfterMs = pruneAfterMs;
+    this.#plant = plantOf(system);
     const { address, uid } = remoting.self;
     this.#selfKey = keyOf(address, uid);
     const whenUp = new Promise<void>((resolve, reject) => {
@@ -726,7 +729,14 @@ class Membership {
     }
     // Gossip from a member this node hasn't heard of yet is welcome: it was let in elsewhere.
     if (this.#distrusts(from)) return;
-    const next = merge(this.#table, received);
+    const next =
+      this.#plant === 'gossip-backwards'
+        ? // Planted (T6): what the gossip says wins, so a status can go backwards.
+          tableOf([
+            ...[...this.#table].filter(([key]) => !received.has(key)).map(([, entry]) => entry),
+            ...received.values(),
+          ])
+        : merge(this.#table, received);
     if (!sameTable(next, this.#table)) this.#apply(next);
     // Push-pull: a node that knew more answers, once, so two nodes agree after one exchange.
     if (frame.reply !== true && !sameTable(this.#table, received)) this.#gossip(from.address, true);

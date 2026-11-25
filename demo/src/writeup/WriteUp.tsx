@@ -692,7 +692,12 @@ export function WriteUp({ data }: { data: WriteupData }) {
               shrunk, and each part of a run draws its chance from a stream of its own, so taking
               one fault out changes nothing that happened before it <Record id="0034" />. A minute
               of festival night under faults takes 30 ms to simulate, and across a thousand of them
-              no show ran twice and no sale was lost, in either mode.
+              no show ran twice and no sale was lost, in either mode. A run that breaks something
+              now shrinks itself: faults come out, the rest get shorter, and what’s left replays
+              exactly from one printed line. To prove the checks catch what they’re for, seven bugs
+              went back in one at a time, most of them ones milestone 4 found by hand. Each was
+              found within 10,000 seeds and shrunk to three faults or fewer, counted only where the
+              same run without the bug passed <Record id="0040" />.
             </p>
             <p>
               Troupe is <a href={NPM_URL}>on npm</a>, published from CI with provenance, which ties

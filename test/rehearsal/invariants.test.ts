@@ -10,6 +10,7 @@ import {
   scenarioWith,
   type ScenarioInternals,
   type ScenarioOptions,
+  type SetupContext,
 } from '../../src/rehearsal/scenario.js';
 import type { ActorRef } from '../../src/types.js';
 
@@ -374,6 +375,66 @@ describe('the built-in invariants', () => {
     expect(v?.time).toBe(5_000);
     expect(v?.until).toBe(6_000);
     expect(invariants.failoverWithin().check(run.history)).toEqual([]);
+  });
+
+  it('failoverWithin: fails when a killed node’s entities run again but don’t answer', async () => {
+    // Downing slower than the lease, and a region that routes to a holder it can't reach
+    // (planted, T6): node-2's ledgers start elsewhere once its lease runs out, but the crowd's
+    // asks still go to node-2, and wait there until it's downed.
+    const slowDowning = {
+      heartbeatMs: 200,
+      unreachableAfterMs: 1_000,
+      downAfterMs: 20_000,
+      seedTimeoutMs: 500,
+      leases: { ttlMs: 2_000, renewMs: 500, marginMs: 500 },
+    };
+    const opts = {
+      invariants: [invariants.failoverWithin()],
+      extra: {
+        cluster: slowDowning,
+        // Remembered, so a shard whose lease ran out starts again on its new owner unasked.
+        setup: ({ cluster, db, client }: SetupContext) =>
+          cluster.sharding.init<LedgerCmd, unknown>({
+            type: 'ledger',
+            shardCount: 8,
+            host: !client,
+            remember: true,
+            entity: (id) => ledger(db.persistence(), id),
+          }),
+      },
+    };
+    // Down for good, as far as the run goes, so its restart can't heal the routing first.
+    const plan: FaultPlan = [{ at: 5_000, kill: 'node-2', restartAfterMs: 10_000 }];
+    const run = await bank(opts, { plant: 'routes-unreachable' }).run({ seed: 1, plan });
+    expect(run.violations.length).toBeGreaterThan(0);
+    for (const v of run.violations) {
+      expect(v.message).toMatch(
+        /^ledger\/[a-d], on node-2#\d+ when it was killed at 5,000, ran again on node-\d#\d+ from [\d,]+, and none of the \d+ operations begun on it by 9,400 answered$/,
+      );
+      expect(v.nodes).toHaveLength(2);
+      expect(v.until).toBe(9_500);
+    }
+    // Routed around the holder, as decision 0031 has it, they answer.
+    const fixed = await bank(opts).run({ seed: 1, plan });
+    expect(fixed.violations).toEqual([]);
+  });
+
+  it('checks nothing a run cut short ended before: failover’s bound and recovery’s time', async () => {
+    const s = bank({ invariants: [invariants.failoverWithin({ withinMs: 1_000 })] });
+    // The whole run fails a 1 s bound, as above. Cut before the bound is up, it can't say yet.
+    expect((await s.run({ seed: 1, plan: KILL })).violations.length).toBeGreaterThan(0);
+    const cut = await s.run({ seed: 1, plan: KILL, untilMs: 5_500 });
+    expect(cut.violations).toEqual([]);
+    expect(cut.history[0]).toMatchObject({ kind: 'run', untilMs: 5_500 });
+    // A cluster still recovering when the run was cut hasn't failed to recover.
+    const recovering = await bank({ invariants: [invariants.recovers({ withinMs: 15_000 })] }).run({
+      seed: 1,
+      plan: KILL,
+      untilMs: 8_001,
+    });
+    expect(recovering.violations).toEqual([]);
+    const strict = invariants.recovers({ withinMs: 1 });
+    expect(strict.check(recovering.history).length).toBeGreaterThan(0);
   });
 
   it('reports drift past the lease margin as expected, not as a violation, while the journal holds', async () => {

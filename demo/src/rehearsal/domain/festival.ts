@@ -10,6 +10,7 @@ import {
   type Invariant,
   type NetworkMode,
   type Scenario,
+  type ScenarioOptions,
 } from '@kylewillett/troupe/rehearsal';
 import {
   show,
@@ -92,8 +93,15 @@ export function festivalInvariants(mode: NetworkMode): Invariant[] {
 
 /** Festival night's scenario, with the network in `mode`. */
 export function festival(opts: { readonly mode?: NetworkMode } = {}): Scenario {
-  const mode = opts.mode ?? 'contract';
-  return scenario({
+  return scenario(festivalOptions(opts.mode ?? 'contract'));
+}
+
+/**
+ * Festival night's scenario options, with the network in `mode`: for the tests and
+ * `npm run rehearse`, which plant bugs in it through the package's internals.
+ */
+export function festivalOptions(mode: NetworkMode): ScenarioOptions {
+  return {
     nodes: NODES,
     spares: SPARES,
     clients: [CROWD],
@@ -135,5 +143,5 @@ export function festival(opts: { readonly mode?: NetworkMode } = {}): Scenario {
     },
     faults: { nodes: true, clocks: true, network: mode, disks: true },
     invariants: festivalInvariants(mode),
-  });
+  };
 }

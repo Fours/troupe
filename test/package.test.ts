@@ -138,8 +138,9 @@ const CLUSTER_TYPES = [
 // The milestone 4 spec's Postgres shard store.
 const CLUSTER_POSTGRES_VALUES = ['postgresShardStore'];
 const CLUSTER_POSTGRES_TYPES = ['PostgresShardStore'];
-// The milestone 5 spec's Rehearsal, as of T5: scenarios, fault plans, histories and invariants.
-const REHEARSAL_VALUES = ['StallError', 'invariants', 'scenario'];
+// The milestone 5 spec's Rehearsal, as of T6: scenarios, fault plans, histories, invariants,
+// rehearse, shrinking and replay.
+const REHEARSAL_VALUES = ['StallError', 'invariants', 'rehearse', 'replay', 'scenario'];
 const REHEARSAL_TYPES = [
   'AcknowledgedWrite',
   'AcknowledgedWritesOptions',
@@ -154,6 +155,7 @@ const REHEARSAL_TYPES = [
   'EntityHandle',
   'EventEntry',
   'FailoverOptions',
+  'Failure',
   'Fault',
   'FaultEntry',
   'FaultKind',
@@ -175,16 +177,22 @@ const REHEARSAL_TYPES = [
   'PartitionFault',
   'PauseFault',
   'RecoversOptions',
+  'RehearsalReport',
+  'RehearseOptions',
   'ReorderFault',
+  'Replayed',
   'ResetFault',
   'Run',
   'RunEntry',
+  'RunOptions',
   'Scenario',
   'ScenarioCluster',
   'ScenarioOptions',
+  'SeedResult',
   'SendEntry',
   'SetupContext',
   'SetupResult',
+  'Shrunk',
   'StartEntry',
   'StopEntry',
   'Violation',

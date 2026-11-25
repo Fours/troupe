@@ -8,6 +8,7 @@
 // A renewal that comes back after that can't win the lease back: only `acquire` can. Never
 // exported: T6's shards use it.
 import { checkInt, checkId, checkKeys } from '../checks.js';
+import type { Plant } from '../internal.js';
 import type { Scheduler } from '../scheduler.js';
 import type { AcquireResult, ShardStore } from './shard-store.js';
 
@@ -25,6 +26,8 @@ export interface LeaseKeeperOptions {
   readonly marginMs: number;
   /** Called once for each lease this node stops holding without releasing it. */
   readonly onLost: (lease: string, token: number) => void;
+  /** A bug Rehearsal planted on this node's system, if any (T6). */
+  readonly plant?: Plant | undefined;
 }
 
 /** The leases one node holds. */
@@ -49,7 +52,16 @@ interface Held {
   cancel: () => void;
 }
 
-const OPTIONS = new Set(['store', 'holder', 'scheduler', 'ttlMs', 'renewMs', 'marginMs', 'onLost']);
+const OPTIONS = new Set([
+  'store',
+  'holder',
+  'scheduler',
+  'ttlMs',
+  'renewMs',
+  'marginMs',
+  'onLost',
+  'plant',
+]);
 
 /**
  * Keeps one node's leases: acquires, renews every `renewMs` on the scheduler, and drops each at
@@ -59,7 +71,7 @@ const OPTIONS = new Set(['store', 'holder', 'scheduler', 'ttlMs', 'renewMs', 'ma
  */
 export function leaseKeeper(opts: LeaseKeeperOptions): LeaseKeeper {
   checkKeys(opts, OPTIONS, 'leaseKeeper');
-  const { store, holder, scheduler, ttlMs, renewMs, marginMs, onLost } = opts;
+  const { store, holder, scheduler, ttlMs, renewMs, marginMs, onLost, plant } = opts;
   checkId(holder, 'leaseKeeper: holder');
   checkInt(ttlMs, 'leaseKeeper: ttlMs');
   checkInt(renewMs, 'leaseKeeper: renewMs');
@@ -97,7 +109,7 @@ export function leaseKeeper(opts: LeaseKeeperOptions): LeaseKeeper {
 
   async function renew(): Promise<void> {
     if (held.size === 0) return;
-    const noted = scheduler.now();
+    let noted = scheduler.now();
     let renewed: readonly string[];
     try {
       renewed = await store.renewAll(holder, ttlMs);
@@ -105,6 +117,9 @@ export function leaseKeeper(opts: LeaseKeeperOptions): LeaseKeeper {
       // Keep trying on the next tick. The deadline stops the shard if none gets through.
       return;
     }
+    // Planted (T6): the time noted once the store has answered, so a slow reply stretches the
+    // deadline past the store's own expiry.
+    if (plant === 'late-deadline') noted = scheduler.now();
     const yes = new Set(renewed);
     for (const [lease, entry] of [...held]) {
       if (yes.has(lease)) extend(lease, entry, noted);

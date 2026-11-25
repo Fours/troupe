@@ -107,7 +107,8 @@
     "demo:preview": "vite preview --config demo/vite.config.ts",
     "test:e2e": "npm run build && npm run demo:build && playwright test",
     "check:package": "node scripts/check-pack.ts && publint && attw --pack --profile esm-only",
-    "deploy": "bash scripts/deploy.sh"
+    "deploy": "bash scripts/deploy.sh",
+    "rehearse": "npm run build && node scripts/rehearse.ts"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",

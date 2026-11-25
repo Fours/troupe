@@ -7,6 +7,7 @@ import { EventBus, type EventBody } from './events.js';
 import {
   HOOKS,
   INSPECT,
+  plantOf,
   type CellInspection,
   type ClusterInspection,
   type SystemHooks,
@@ -206,6 +207,8 @@ export function createSystem(opts: ActorSystemOptions = {}): SystemHandle {
     now,
     random,
     setTimer,
+    // The system is made below, before any cell asks.
+    plant: () => plantOf(system),
     makeRef,
     onAskSettled: (promise, listener) => asker.onSettled(promise, listener),
     trackBusy: (path, delta) => {

@@ -56,6 +56,8 @@ export interface CellInternals {
    * keyed timers can't help: their messages wait in the mailbox it holds (decision 0036).
    */
   readonly setTimer: (task: () => void, delayMs: number) => () => void;
+  /** The bug Rehearsal planted on this actor's system, if any (milestone 5, T6). */
+  plant(): Plant | undefined;
 }
 
 /** The internals of a `ctx` the system made. */
@@ -273,4 +275,30 @@ export function hooksOf(system: ActorSystem): SystemHooks {
   const hooks = (system as unknown as { [HOOKS]?: SystemHooks })[HOOKS];
   if (hooks === undefined) throw new TypeError('this system was not made by createActorSystem');
   return hooks;
+}
+
+/**
+ * A bug Rehearsal puts back on purpose, to prove its invariants catch what they're for (milestone
+ * 5, T6). Each name is a one-line change in the code that reads it, made only on a system a test
+ * or `npm run rehearse` planted it on. Nothing public can set one.
+ */
+export type Plant =
+  | 'late-deadline'
+  | 'early-release'
+  | 'grants-held'
+  | 'greets-once'
+  | 'routes-unreachable'
+  | 'gossip-backwards'
+  | 'early-reply';
+
+const plants = new WeakMap<ActorSystem, Plant>();
+
+/** Plants `bug` on `system`, before anything has been spawned or joined on it. */
+export function plant(system: ActorSystem, bug: Plant): void {
+  plants.set(system, bug);
+}
+
+/** The bug planted on `system`, if any. */
+export function plantOf(system: ActorSystem): Plant | undefined {
+  return plants.get(system);
 }

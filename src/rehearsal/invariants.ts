@@ -648,6 +648,8 @@ function recovers(opts: RecoversOptions): Invariant {
       let healed = 0;
       for (const e of history)
         if (e.kind === 'fault' && e.phase === 'end') healed = Math.max(healed, e.time);
+      // A run cut short before the cluster's time was up has nothing to check yet (T6).
+      if (run.untilMs !== undefined && healed + withinMs > end) return [];
       const by = Math.min(healed + withinMs, end);
       const out: Violation[] = [];
       // Who's running at `by`, and each one's view of the members, from its member events.
@@ -761,6 +763,7 @@ function failoverWithin(opts: FailoverOptions = {}): Invariant {
     check(history) {
       const run = runOf(history);
       const bound = opts.withinMs ?? run.leases.ttlMs + run.leases.renewMs + 2_000;
+      const end = history.at(-1)?.time ?? run.durationMs;
       const faults: { index: number; from: number; to: number; kill?: string }[] = [];
       for (const e of history) {
         if (e.kind !== 'fault') continue;
@@ -782,6 +785,8 @@ function failoverWithin(opts: FailoverOptions = {}): Invariant {
       for (const kill of faults) {
         if (kill.kill === undefined) continue;
         const t = kill.from;
+        // A run cut short before the bound was up can't say yet (T6).
+        if (run.untilMs !== undefined && t + bound > end) continue;
         const others = faults.filter((f) => f !== kill && f.from <= t + bound && f.to >= t);
         if (others.length > 0) continue;
         const dead = all.filter((i) => i.node === kill.kill && i.from <= t && i.to >= t);
@@ -793,14 +798,34 @@ function failoverWithin(opts: FailoverOptions = {}): Invariant {
               op.invoke.time <= t + bound - 100,
           );
           if (!asked) continue;
-          const again = all.some(
+          const again = all.find(
             (i) =>
               i.entity === instance.entity &&
               i.holder !== instance.holder &&
               i.from > t - 1 &&
               i.from <= t + bound,
           );
-          if (again) continue;
+          if (again !== undefined) {
+            // Running again isn't enough: what's asked of it from then on must reach it. Some
+            // operation begun once it was back, within the bound, has to answer.
+            const after = ops.filter(
+              (op) =>
+                entityKey(op) === instance.entity &&
+                op.invoke.time >= again.from &&
+                op.invoke.time <= t + bound - 100 &&
+                op.complete !== undefined,
+            );
+            if (after.length === 0 || after.some((op) => op.complete?.outcome === 'ok')) continue;
+            out.push({
+              invariant: name,
+              message: `${instance.entity}, on ${instance.holder} when it was killed at ${ms(t)}, ran again on ${again.holder} from ${ms(again.from)}, and none of the ${String(after.length)} operations begun on it by ${ms(t + bound - 100)} answered`,
+              time: t,
+              until: t + bound,
+              nodes: [instance.holder, again.holder],
+              entity: instance.entity,
+            });
+            continue;
+          }
           out.push({
             invariant: name,
             message: `${instance.entity}, on ${instance.holder} when it was killed at ${ms(t)}, wasn't running anywhere else by ${ms(t + bound)}`,

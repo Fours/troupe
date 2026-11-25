@@ -49,10 +49,21 @@ export {
   type Violation,
 } from './invariants.js';
 export {
+  rehearse,
+  replay,
+  type Failure,
+  type RehearsalReport,
+  type RehearseOptions,
+  type Replayed,
+  type SeedResult,
+} from './rehearse.js';
+export type { Shrunk } from './shrink.js';
+export {
   scenario,
   type Chance,
   type EntityHandle,
   type Run,
+  type RunOptions,
   type Scenario,
   type ScenarioCluster,
   type ScenarioOptions,

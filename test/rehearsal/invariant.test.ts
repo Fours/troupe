@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { ShardStore } from '../../src/cluster/shard-store.js';
 import { text } from '../../src/rehearsal/history.js';
 import { invariants, type Invariant, type Violation } from '../../src/rehearsal/invariants.js';
+import { grantsHeldLeases } from '../../src/rehearsal/plants.js';
 import type { Run } from '../../src/rehearsal/scenario.js';
 import { scenarioWith, type ScenarioInternals } from '../../src/rehearsal/scenario.js';
 import { account, type AccountCmd, type Receipt } from '../helpers/account.js';
@@ -104,17 +104,6 @@ function accounts(internals: ScenarioInternals = {}) {
     },
     internals,
   );
-}
-
-/** A store that grants every lease, held or not: the bug milestone 4's T6 found by hand. */
-function grantsHeldLeases(store: ShardStore): ShardStore {
-  return {
-    ...store,
-    acquire: async (lease, holder, ttlMs) => {
-      const result = await store.acquire(lease, holder, ttlMs);
-      return result.acquired ? result : { acquired: true, token: 1_000_000 };
-    },
-  };
 }
 
 /** What happened over a run, for the totals that show the runs did what they're for. */

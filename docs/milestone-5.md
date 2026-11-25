@@ -324,7 +324,7 @@ The fourth page, after opening night, the write-up and festival night. Words fir
 
 ### The write-up
 
-A section on Rehearsal, after the cluster's: why a single thread makes simulation possible (0003, 0004), closing virtual time (0033), a run as a seed and a plan (0034), safety under any network (0035), timeouts as unknown outcomes (0036), the public JSON check (0037), the planted-bug table, the bugs the hunt found, and what 1.0 promises (0038). "What's next" lists the roadmap's later ideas.
+A section on Rehearsal, after the cluster's: why a single thread makes simulation possible (0003, 0004), closing virtual time (0033), a run as a seed and a plan (0034), safety under any network (0035), timeouts as unknown outcomes (0036), the public JSON check (0037), the planted bugs (0040), the bugs the hunt found, and what 1.0 promises (0039). "What's next" lists the roadmap's later ideas.
 
 ### Layout and build
 
@@ -372,8 +372,8 @@ Do these in order. Each one ends with passing tests.
 | T2. The simulated network | Done | 2f7e1ff |
 | T3. The simulated database | Done | 683985d |
 | T4. Timeouts | Done | bea8541 |
-| T5. Fault plans, the history and the invariants | Done | |
-| T6. `rehearse()`, shrinking, replay and planted bugs | Not started | |
+| T5. Fault plans, the history and the invariants | Done | 825e281 |
+| T6. `rehearse()`, shrinking, replay and planted bugs | Done | |
 | T7. The hunt | Not started | |
 | T8. The site's `/rehearsal/` page and the write-up | Not started | |
 | T9. API review, README and 1.0.0 | Not started | |
@@ -459,11 +459,17 @@ Write [0034](#decision-records).
 
 **Done when:**
 
-- [ ] Each planted bug in the table is found within 10,000 seeds of the festival scenario, by the invariant its row names, and shrunk to at most five faults. The seeds each took are recorded
-- [ ] Every shrunk plan replays to the same violation from its line, from `npm run rehearse -- --replay` and from `scenario.run`
-- [ ] A replay that doesn't reproduce says so
-- [ ] `npm run rehearse -- --seeds 1..10000` runs on all cores and prints a summary, and its runs per second on Node 22, 24 and 26 are recorded under `docs/decisions/data/`
-- [ ] CI runs seeds 1 to 1,000 in both modes, with determinism checked, inside its two minutes
+- [x] Each planted bug in the table is found within 10,000 seeds of the festival scenario, by the invariant its row names, and shrunk to at most five faults. The seeds each took are recorded
+- [x] Every shrunk plan replays to the same violation from its line, from `npm run rehearse -- --replay` and from `scenario.run`
+- [x] A replay that doesn't reproduce says so
+- [x] `npm run rehearse -- --seeds 1..10000` runs on all cores and prints a summary, and its runs per second on Node 22, 24 and 26 are recorded under `docs/decisions/data/`
+- [x] CI runs seeds 1 to 1,000 in both modes, with determinism checked, inside its two minutes
+
+Settled in T6 ([0034](decisions/0034-a-run-is-a-seed-and-a-plan.md), [0040](decisions/0040-planted-bugs-are-found-by-what-they-break.md)):
+
+- `rehearse(scenario, { seeds, ignore, maxFailures, maxShrinkRuns, determinismEvery, onSeed })`, `replay(scenario, line)`, `scenario.run({ seed, plan, untilMs })` and `scenario.run({ replay })`, and `Run.replay` and `Run.untilMs`. A stall is a violation called `stall`.
+- A planted bug counts only where the same seed, plan and end without it pass the invariant it broke, since festival fails `recovers` on about 7% of seeds today. `late-deadline` and `routes-unreachable` have hunts of their own: slow disks, cuts and partitions for one, and `joinCluster`'s default downing for the other. Festival's own mix found the other five.
+- `failoverWithin` checks that the entities answer once they're back, as its row here says, where T5's checked only that they ran. On festival night that fails 23 of 10,000 seeds in each mode with no bug planted, so CI counts `recovers`, `orderPerPair` and `failoverWithin` without failing on them until T7.
 
 ### T7. The hunt
 
@@ -478,6 +484,7 @@ Leads from T5, where the checks found real behaviour on the way (see [0035](deci
 - **A leave that never ends.** A node that starts leaving during a database hang, and is downed while it leaves, stays `leaving` for good (festival contract seed 93).
 - **Asks that never answer** 20 s after the faults heal (festival chaos seeds 8 and 51).
 - **A message overtaken just after a partition heals** (festival contract seed 777).
+- **Asks that don't reach an entity that failed over** (T6, [0040](decisions/0040-planted-bugs-are-found-by-what-they-break.md)). With `failoverWithin` checking answers, 23 of 10,000 festival seeds fail in each mode: a show runs again after a kill, often on the restarted incarnation of the same node, and none of the asks begun on it in the next few seconds answers. Contract seeds 8,959 and 9,025 and chaos seeds 7,159 and 8,044 are among them. At 10,000 seeds, `recovers` fails 726 in contract mode and 860 in chaos mode, and `orderPerPair` 4. When T7 fixes them, CI's `--ignore` goes.
 - **A deposed holder's write landing after the new owner recovered** (festival chaos seed 602): the sequence check caught it, as 0013 promises, so it's evidence for the fencing decision, not a bug.
 
 **Done when:**
@@ -498,12 +505,12 @@ Leads from T5, where the checks found real behaviour on the way (see [0035](deci
 - [ ] The recorded histories come from `docs/decisions/data/` at build time, and the build fails if one is missing
 - [ ] Playwright covers running seeds, the scrubber, each bug, the phone width, and the frame budget (no frame over 50 ms while seeds run)
 - [ ] The site bar links the page, and it has its own title, link preview and pageviews
-- [ ] "How Troupe works" has a Rehearsal section citing 0033 to 0038 and every record the hunt added, and the records test passes
+- [ ] "How Troupe works" has a Rehearsal section citing 0033 to 0040 and every record the hunt added, and the records test passes
 - [ ] Someone non-technical can say what the page shows and why it matters (you check this)
 
 ### T9. API review, README and 1.0.0
 
-Write [0038](#decision-records).
+Write [0039](#decision-records).
 
 - An API review: every export, its name, its TSDoc, and whether it's ready to promise
 - The README's Rehearsal section, AGENTS.md's layout and commands, the changelog
@@ -512,7 +519,7 @@ Write [0038](#decision-records).
 **Done when:**
 
 - [ ] Every public export has been reviewed, and anything not ready is removed or renamed before 1.0, with the changelog saying so
-- [ ] 0038 says what 1.0 promises: which exports, whether a new `SystemEvent` or dead-letter reason is a minor or a major change, and Backstage's protocol
+- [ ] 0039 says what 1.0 promises: which exports, whether a new `SystemEvent` or dead-letter reason is a minor or a major change, and Backstage's protocol
 - [ ] The README covers rehearsing your own entity types, writing an invariant, replaying a failure, and what Rehearsal doesn't simulate
 - [ ] The export-list test, `publint`, `attw` and `check-pack.ts` cover `/rehearsal`
 - [ ] After your approval in chat, `v1.0.0` is tagged and published with provenance, and the smoke script's quick start works from npm on Node 22, 24 and 26
@@ -548,7 +555,9 @@ The tasks add these records, as Proposed, and accept them once their tests pass.
 | 0035 | Safety is checked under any network fault, and ordering only under faults the `Transport` contract allows | T2, T5 |
 | 0036 | Journal and shard store calls time out on the scheduler, and a timeout is an unknown outcome, settled by recovery. Answers milestone 2's open question 2 | T4 |
 | 0037 | The JSON check is public (written between T4 and T5, for 0.3.0) | — |
-| 0038 | What 1.0 promises | T9 |
+| 0038 | A pipe with a signal ends on the scheduler (written after T5, for 0.3.1) | — |
+| 0039 | What 1.0 promises. Numbered 0038 until 0038 went to the pipe | T9 |
+| 0040 | A planted bug is found by what it breaks, and failover means answering again | T6 |
 
 T7 adds a record for each bug fix that changes a decision, and one for fencing, numbered as they come.
 

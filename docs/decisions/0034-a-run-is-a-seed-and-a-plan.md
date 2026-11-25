@@ -1,6 +1,6 @@
 # 0034. A run is a seed and a fault plan, the plan is data, and each concern draws from its own stream
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-24
 - **Milestone:** 5
 
@@ -18,6 +18,15 @@ Rehearsal runs thousands of seeded simulations of a cluster, and a failing one h
 - **One seed, separate streams.** Each stream is `seededRandom` of the FNV-1a hash of its name and the seed: `plan`, `workload <client>`, `node <name> <n>` and `clock <name> <n>` for incarnation `n` of a node, `network` and `database`. An incarnation's streams are keyed by its node's name and its own count, so a kill of one node shifts nothing on another.
 - **The workload runs on simulation time,** not on a node's clock and not on replies: each client's `workload` is called every draw of `everyMs` (default 50 to 250 ms) from its own stream, and starts operations with `op(name, entity, run)`. What an operation sends through the ref it's given, and how it ends, go into the history, but nothing the cluster does feeds back into what the workload draws.
 - **A process manager restarts nodes.** A node whose process ends on its own, because it was downed or never got in, exits and starts again as a new incarnation after `restartAfterMs` (default 2,000), as a supervisor or Compose would restart it. What's left of an ended process in this one is paused for good and unwatched by the run loop, so none of its tasks or timers run again.
+- **A failure shrinks to the smallest plan that still fails the same invariant** (settled in T6). Every attempt is a whole run from the same seed with an edited plan, so each is deterministic, and the streams keep the workload and every node's draws the same whatever is taken out. In three steps, keeping only edits that still fail:
+  1. Remove faults in chunks that halve down to one: half the plan, then quarters, and so on, then one at a time until none can go. That's the spec's "one at a time and in halves" in the cheaper order, since a long plan usually loses most of its faults in the first few runs.
+  2. Halve each remaining fault's length, then move its start later by half of what's left before the quiet tail, for as long as it still fails. A moved fault re-sorts the plan, so each is found again by identity.
+  3. Cut the run to 1 ms past the violation, or past its end for one that lasted. `recovers` and `failoverWithin` don't judge a window that a cut run ends before, so a cut can't fail them on its own.
+
+  At most `maxShrinkRuns` attempts (default 500). A stall is a violation called `stall`, so a stalled run fails, shrinks and replays like any other.
+- **A run can end early,** with `run({ seed, plan, untilMs })`: everything up to then happens as in the whole run, and the history's run entry records `untilMs`.
+- **One line replays a run:** `Run.replay`, base64url JSON of the seed, the network mode, the plan, `untilMs` when the run was cut, and the first violation's invariant and message, seed first. It's written with no runtime global, escaped to ASCII, so it reads the same everywhere ([0004](0004-runtime-agnostic-core.md)). `scenario.run({ replay })` runs it, and throws for a line from another mode. `replay(scenario, line)` runs it and checks that it finds that violation again, or that it passes if the line recorded none. A line that doesn't reproduce says so, and why that matters: a run is a pure function of its seed and plan, so something in it isn't deterministic.
+- **`rehearse(scenario, { seeds: { from, count } })`** runs seeds one after another in this process, shrinks each that fails, and reports the failures with their lines, how many seeds each invariant failed, the `expected` overlaps, and the seeds whose two runs differed when `determinismEvery` asks for a second run. `ignore` names invariants to count but not fail on, `maxFailures` stops early, and `onSeed` sees each seed's result. `npm run rehearse` splits a range across worker processes, with the same pieces, as a script.
 - **The history is JSON.** Every entry has its simulation `time`: the run, each incarnation's start and stop, every system event (refs as `ref <address>#<uid><path>`, errors as `{ error, message }`, and message events only for entities), each fault's begin and end, each operation's invocation, sends and completion (`ok`, `failed`, or `unknown` for a timeout), journal appends and lease calls with what became of their replies, and the journal as the run ended.
 
 ## Alternatives considered
@@ -30,6 +39,9 @@ Rehearsal runs thousands of seeded simulations of a cluster, and a failing one h
 | A workload that reacts to replies, such as buying again after a refusal | Then a fault changes the workload, and shrinking can't tell which mattered. A scenario can still react inside one operation, whose sends and outcome are recorded |
 | A plan as calls in TypeScript | Can't be printed, edited, stored with a failure or replayed from a line |
 | Killed nodes stay dead unless the plan restarts them | A downed node stays out for good, so `recovers` could never pass after a partition that downs one |
+| Remove faults one at a time first, then in halves, as the spec first had it | A plan of 20 faults takes 20 runs before anything bigger is tried. Halving first usually takes most of them out in a few runs, and ends one at a time anyway |
+| A replay line of the seed alone, or of the seed and the whole history | A shrunk plan isn't the one the seed draws, so the seed alone can't replay it, and a history is tens of thousands of entries. The seed and the plan are enough, since the rest follows from them |
+| Replay that only runs the line | Can't tell a run that reproduced from one that didn't, which is the one thing a replay that diverges needs to say |
 | Record every message event | The festival's histories would be several times larger, for heartbeats and region traffic no checker reads, and byte-for-byte comparison would cost more than the run |
 
 ## Evidence
@@ -55,7 +67,30 @@ Rehearsal runs thousands of seeded simulations of a cluster, and a failing one h
   - drawing the workload from the network's stream fails the removal test
   - not restarting a node that exits, or not exiting a downed one, fails the restart test
 
-T6 proves the rest: that a failing run shrinks to a smaller plan from the same seed, and replays from its line. The record is accepted then.
+**T6 (2026-11-24):**
+
+- `test/rehearsal/rehearse.test.ts`:
+  - **Shrinking.** For a failure that needs two of six faults at any length, shrinking keeps just those two, each 1 ms long and as late as the quiet tail lets it, in order, and cuts the run 1 ms past the violation, in under 100 runs. It keeps every fault when each is needed, and stops at `maxShrinkRuns` with a plan that still fails. On festival night with `early-release` planted, seed 28's plan of 3 faults shrinks to 1, and its line replays it.
+  - **The line** round-trips a seed, a mode, a plan, an end, a plant and a violation with non-ASCII text in it, starts with the seed, and 12 kinds of bad line throw with a message that says what's wrong.
+  - **Replay.** A run cut short ends where it was cut, replays byte for byte from `scenario.run({ replay })`, and `replay` says it reproduced. A line whose violation the run doesn't find, a failing run's line replayed where the run passes, and a passing run's line replayed where an invariant fails each say they didn't reproduce, and why that matters. A line from another mode or with a bug planted throws before anything starts, as do a bad end and a bad plan in a line.
+  - **rehearse** reports each seed in order, shrinks each failure within `maxShrinkRuns`, counts ignored invariants without failing on them, stops at `maxFailures`, finds a seed whose two runs differ when the workload reads state outside the run, and fails, shrinks and replays a stall. 10 kinds of bad option throw.
+- `test/rehearsal/plants.test.ts` and [0040](0040-planted-bugs-are-found-by-what-they-break.md): each of the seven planted bugs found within 10,000 seeds and shrunk to at most three faults, each line still reproducing.
+- `test/multiprocess/rehearse.test.ts`, against `dist/`: `npm run rehearse` over 40 seeds on 2 workers prints its summary, with 4 seeds run twice and every history identical. It replays each planted bug's line, says so and exits 1 for a line that doesn't reproduce, and rejects 7 kinds of bad argument.
+- **Runs per second** of `npm run rehearse -- --seeds 1..10000` on all cores but one, Apple M5 Pro, 17 workers, shrinking every failure ([Node 22](data/0034-rehearse-node22-2026-11-24.json), [24](data/0034-rehearse-node24-2026-11-24.json), [26](data/0034-rehearse-node26-2026-11-24.json)). The three found the same 732 failing seeds and took the same 37,446 runs, shrinking included, so a run is the same function of its seed and plan on every Node line:
+
+  | Node | Wall time, s | Runs a second |
+  | --- | --- | --- |
+  | 22.23.5 | 147.8 | 253 |
+  | 24.22.3 | 158.6 | 236 |
+  | 26.12.1 | 138.2 | 271 |
+
+- **CI** runs seeds 1 to 1,000 in each mode on every push, every hundredth run twice and compared, on the runner's cores. Locally on 3 workers that takes 21 s for both modes.
+- Breaking each of these fails a test:
+  - never removing a fault, and never cutting the run, fail the shrinking tests
+  - `replay` always saying it reproduced fails the replay test
+  - never comparing the two runs of a seed fails the determinism test
+  - ignoring `untilMs` fails the replay test
+  - letting `recovers` or `failoverWithin` judge a window a cut run ended before fails the invariant test for cut runs
 
 ## Consequences
 

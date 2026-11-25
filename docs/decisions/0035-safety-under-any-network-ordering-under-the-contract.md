@@ -1,6 +1,6 @@
 # 0035. Safety is checked under any network fault, and ordering only under faults the `Transport` contract allows
 
-- **Status:** Accepted
+- **Status:** Accepted, `failoverWithin` superseded by [0040](0040-planted-bugs-are-found-by-what-they-break.md)
 - **Date:** 2026-11-24
 - **Milestone:** 5
 

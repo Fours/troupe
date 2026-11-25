@@ -377,7 +377,18 @@ export function persistentActor<C, E, S>(
       tags: tagsFor(applied[i] as E, i),
     }));
     // A timeout rejects here too: the outcome is unknown, so nothing is applied and no step runs.
-    await timed(ctx, 'append', journal.append(id, current.seq, batch));
+    const appending = timed(ctx, 'append', journal.append(id, current.seq, batch));
+    // Planted (T6): the replies go before the append has settled, so one may acknowledge a write
+    // the journal never got.
+    const early = internalsOf(ctx).plant() === 'early-reply';
+    if (early) {
+      appending.catch(() => {});
+      const folded = applied.reduce((s, event) => def.onEvent(s, event), current.state);
+      internalsOf(ctx).asSender(() => {
+        runSteps(effect, folded, ctx);
+      });
+    }
+    await appending;
     let state = current.state;
     // The schema's output, as recovery will see it, so a write and its replay fold the same value.
     for (const event of applied) state = def.onEvent(state, event);
@@ -391,9 +402,11 @@ export function persistentActor<C, E, S>(
     });
     // After the append's await, so outside the cell's turn: the steps' tells name this actor as
     // their sender only through the hook (decision 0020).
-    internalsOf(ctx).asSender(() => {
-      runSteps(effect, state, ctx);
-    });
+    if (!early) {
+      internalsOf(ctx).asSender(() => {
+        runSteps(effect, state, ctx);
+      });
+    }
     if (snapshotting !== undefined && snapshotDue(current.seq, next.seq, snapshotting.every)) {
       saveSnapshot(snapshotting, next, ctx);
     }

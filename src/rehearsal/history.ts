@@ -23,6 +23,8 @@ export interface RunEntry {
   /** The cluster's lease timings. */
   readonly leases: { readonly ttlMs: number; readonly renewMs: number; readonly marginMs: number };
   readonly plan: FaultPlan;
+  /** Where the run was cut short, if it was: it ended here, not at `durationMs`. */
+  readonly untilMs?: number;
 }
 
 /** A node incarnation started: `inc` counts its node's incarnations from 0, `uid` is its own. */

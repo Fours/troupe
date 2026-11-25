@@ -6,7 +6,7 @@
 import { actor } from '../actor.js';
 import { checkInt, checkKeys, describe } from '../checks.js';
 import { ActorNameError } from '../errors.js';
-import type { EntityTypeInspection, SystemHooks } from '../internal.js';
+import { plantOf, type EntityTypeInspection, type SystemHooks } from '../internal.js';
 import { isValidName } from '../names.js';
 import type { StandardSchemaV1 } from '../persistence/standard-schema.js';
 import { checkStrategy, supervise, type SupervisorStrategy } from '../supervision.js';
@@ -194,6 +194,7 @@ export function startSharding(env: ShardingEnv): ShardingNode {
   const { hooks, remoting } = env;
   const { address, uid } = remoting.self;
   const holder = keyOf(address, uid);
+  const planted = plantOf(env.system);
   const types = new Map<string, Registered>();
   const names = new WeakMap<object, EntityName>();
   // Regions that have stopped, which nothing more is sent to.
@@ -239,6 +240,7 @@ export function startSharding(env: ShardingEnv): ShardingNode {
       holder,
       scheduler: hooks.scheduler,
       ...timing,
+      plant: planted,
       onLost: (lease, token) => {
         const slash = lease.indexOf('/');
         const registered = types.get(lease.slice(0, slash));
@@ -326,6 +328,7 @@ export function startSharding(env: ShardingEnv): ShardingNode {
           store,
           keeper: checked.host ? keeperFor(store) : undefined,
           members: env.members,
+          plant: planted,
           showHolders: (holders) => {
             cache.holders = holders;
           },

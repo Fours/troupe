@@ -8,6 +8,7 @@ import {
   START,
   type CellInspection,
   type CellInternals,
+  type Plant,
   type Watcher,
   type WatchTarget,
   type WithStart,
@@ -124,6 +125,8 @@ export interface CellHost {
   random(): number;
   /** The system scheduler's `setTimer`. */
   setTimer(task: () => void, delayMs: number): () => void;
+  /** The bug Rehearsal planted on the system, if any (milestone 5, T6). */
+  plant(): Plant | undefined;
   /**
    * Called with +1 when a cell starts waiting on a promise, from an async handler or
    * `pipeToSelf`, and -1 when it settles, with the cell's path. The testkit's `settle` waits for
@@ -283,6 +286,7 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
       },
       asSender: (fn) => this.#asSender(fn),
       setTimer: (task, delayMs) => host.setTimer(task, delayMs),
+      plant: () => host.plant(),
     };
     this.ref = host.makeRef(path, (msg: M) => {
       this.#enqueue(msg);

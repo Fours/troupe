@@ -17,7 +17,7 @@ Troupe is an actor framework for TypeScript, in the spirit of Akka. It has typed
 | 2 | Event-sourced persistent actors: journals, snapshots, recovery | Done — [spec](docs/milestone-2.md) |
 | 3 | Backstage inspector, demo app and site, first npm release | Done — [spec](docs/milestone-3.md) |
 | 4 | Multi-node: remoting, membership, cluster sharding | Done — [spec](docs/milestone-4.md) |
-| 5 | Rehearsal: deterministic simulation testing | Not started — [spec](docs/milestone-5.md) |
+| 5 | Rehearsal: deterministic simulation testing | In progress — [spec](docs/milestone-5.md) |
 
 ## Stack
 
@@ -44,6 +44,9 @@ npm run cluster:smoke  # the same in Docker: kills node-2, checks its shows fail
                        # sales, starts it again, and removes it all. CI runs it
 npm run build       # tsc → dist/
 npm run bench       # the benchmark, against dist/ (build first); --quick for a smoke run
+npm run rehearse    # builds, then festival night rehearsed on seeds across worker processes:
+                    # --seeds a..b, --mode contract|chaos, --plant <bug>, --replay '<line>',
+                    # --ignore, --determinism-every n (scripts/rehearse.ts has them all)
 npm run postgres:down
 npm run demo:dev    # the demo site on Vite's dev server; demo:build builds it into demo/dist/
 npm run example:backstage  # opening night in Node with serveBackstage; prints the URL
@@ -72,7 +75,8 @@ src/
                     the inspection hook with the cluster's view for Backstage, and the cluster's
                     hooks (/system and children under it, lookup
                     by path, makeRef (0025), stopWhenIdle, and onTerminate, which runs the
-                    cluster's leave between /user stopping and /system stopping (0030))
+                    cluster's leave between /user stopping and /system stopping (0030)), and the
+                    bug Rehearsal plants on a system (T6, 0040)
   json.ts           what a JSON value is, once: the check events use (0014), with a ref hook for
                     the wire (0025)
   hash.ts           FNV-1a, the one string hash: Postgres lock keys (0016) and shard placement (0030)
@@ -126,7 +130,9 @@ src/
                     in-memory backends behind request and reply latencies, with slow spells,
                     hangs, errors, lost replies, cut-off nodes and clock jumps, and an observer
                     for the history; ranges.ts, the range and rate checks the network and the
-                    database share
+                    database share; shrink.ts, shrinking a failing plan; replay.ts, the replay
+                    line; rehearse.ts, rehearse() and replay(), with the per-seed pieces the
+                    script's workers use; plants.ts, the planted bugs and each one's hunt (0040)
 test/               mirrors src/; helpers/ holds deferred() and test actors (tree, watcher, idle),
                     the persistent account, faultyJournal() and faultySnapshots() for holding
                     and failing calls, postgres.ts (the test database, fresh schemas, and a
@@ -150,7 +156,9 @@ test/               mirrors src/; helpers/ holds deferred() and test actors (tre
                     history (history.test.ts), each invariant passing and failing
                     (invariants.test.ts), and milestone 4's in-process invariant scenario on
                     Rehearsal over 1,000 seeds, with the store that grants held leases it catches
-                    (invariant.test.ts)
+                    (invariant.test.ts), shrinking, the replay line and rehearse
+                    (rehearse.test.ts), and each planted bug's recorded hunt replayed
+                    (plants.test.ts, with the hunts in planted.ts)
                     persistence/contract.ts is the journal contract every backend runs, and
                     cluster/shard-store-contract.ts the shard stores';
                     node/ tests the Node-only backends, lint.test.ts the lint config's boundaries
@@ -163,7 +171,7 @@ test/               mirrors src/; helpers/ holds deferred() and test actors (tre
                     against dist/: its own Vitest project, run by test:cluster. harness.ts starts,
                     kills and restarts them and reads their JSON lines, and journal.ts checks the
                     journal afterwards: every acknowledged sale there, no two incarnations of a
-                    show writing at once
+                    show writing at once. rehearse.test.ts runs scripts/rehearse.ts
                     backstage-ui/ tests the Backstage UI's store and diff, with no browser
 backstage/          the Backstage UI (React, plain CSS), with its own tsconfig for the browser.
                     Ships only as built files: npm run build puts index.html and src/standalone/,
@@ -202,6 +210,7 @@ examples/           runnable examples, run by Node with type stripping, against 
 scripts/            run by Node with type stripping: write-sql.ts ships table SQL in dist/,
                     check-pack.ts checks the tarball, check-release-tag.ts the release tag,
                     cluster-smoke.ts the Docker Compose demo,
+                    rehearse.ts npm run rehearse, across worker processes,
                     smoke-published.sh runs the quick start against the published package,
                     probe-macrotask.ts times the ways to yield a macrotask, in Node or Chromium
                     (0033),
