@@ -2,6 +2,12 @@
 
 This project follows [Semantic Versioning](https://semver.org/). Under 0.x, a minor version can break the API. 1.0 comes after milestone 5 ([0032](https://github.com/Fours/troupe/blob/main/docs/decisions/0032-1-0-comes-after-rehearsal.md)). Each design choice behind these entries has a record in [docs/decisions](https://github.com/Fours/troupe/tree/main/docs/decisions).
 
+## 0.3.2 (2026-11-24)
+
+For Steadfast: a failure can raise its backoff restart delay, for a 429's `retry-after`. Released from 0.3.1, so Rehearsal still isn't exported.
+
+- `supervise.restartWithBackoff` takes `minDelayFor: (failure) => number | undefined`. It's called with each failure as it was thrown, and returns the fewest ms the restart must wait, such as a server's `retry-after`, or `undefined`. The restart waits `max(backoff, minimum)`, with jitter on top, so never sooner than the minimum. The minimum isn't capped by `maxMs`, and doesn't count as extra backoff steps. A `minDelayFor` that throws, or returns anything but a non-negative integer or `undefined`, is logged at `error` and the ordinary backoff applies. Without it, backoff is unchanged ([0041](https://github.com/Fours/troupe/blob/main/docs/decisions/0041-a-failure-can-raise-its-backoff-delay.md)).
+
 ## 0.3.1 (2026-11-24)
 
 For Steadfast: a piped promise that the actor's own timer ends no longer holds up the testkit's `advance`. Released from 0.3.0, so Rehearsal still isn't exported.

@@ -17,6 +17,7 @@ import { Names } from './names.js';
 import { Queue } from './queue.js';
 import {
   decide,
+  minimumDelay,
   NO_FAILURES,
   type RestartHistory,
   type SupervisorStrategy,
@@ -828,11 +829,17 @@ export class Cell<M, S> implements Runnable, CellNode, ParentNode {
 
   /** Hands a failure to the strategy, then publishes and logs what it decided. */
   #fail(error: unknown, context: Record<string, unknown>, inInitial = false): void {
+    const minimum = minimumDelay(this.#strategy, error);
+    if (minimum.problem !== undefined) {
+      const thrown = 'error' in minimum ? { thrown: minimum.error } : {};
+      this.#log.error(minimum.problem, { ...context, error, ...thrown });
+    }
     const { decision, history } = decide(this.#strategy, this.#history, {
       now: this.#host.now(),
       startedAt: this.#startedAt,
       inInitial,
       random: () => this.#host.random(),
+      minDelayMs: minimum.ms,
     });
     this.#history = history;
     const { directive } = decision;

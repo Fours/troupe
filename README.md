@@ -125,7 +125,20 @@ ctx.spawn(show, 'hamlet', {
 | `supervise.stop()` (the default) | The actor stops, and watchers get `terminated` with the `failure`. |
 | `supervise.resume()` | The actor keeps its state, drops the message that failed, and carries on. |
 | `supervise.restart({ maxRestarts, withinMs })` | It runs `preRestart`, stops its children and timers, and runs `initial` again. The mailbox and the ref carry over. Too many failures within the window stop it instead. |
-| `supervise.restartWithBackoff({ minMs, maxMs, randomFactor, resetAfterMs })` | A restart that first waits `minMs`, doubling each time up to `maxMs`, with random jitter. Messages queue up while it waits. |
+| `supervise.restartWithBackoff({ minMs, maxMs, randomFactor, resetAfterMs, minDelayFor })` | A restart that first waits `minMs`, doubling each time up to `maxMs`, with random jitter. Messages queue up while it waits. |
+
+When a failure says how long to wait, such as a 429 with a `retry-after`, give the backoff a **`minDelayFor`**. It's called with each failure, as it was thrown, and returns the fewest ms to wait, or `undefined`. The restart waits for that or for the backoff, whichever is longer, with jitter on top. A minimum isn't capped by `maxMs`, since the server knows better, and doesn't count as extra backoff steps ([0041](docs/decisions/0041-a-failure-can-raise-its-backoff-delay.md)):
+
+```ts
+supervise.restartWithBackoff({
+  minMs: 1_000,
+  maxMs: 60_000,
+  minDelayFor: (failure) =>
+    failure instanceof Error && failure.cause instanceof ModelError
+      ? failure.cause.retryAfterMs // a 5 s retry-after waits 5 to 6 s, not 1 s
+      : undefined,
+});
+```
 
 A restart is a new incarnation: its state starts from `initial`, and whatever the old one held is gone, unless it's a [persistent actor](#persistent-actors), which recovers its state from its journal. Every failure publishes a `failed` event and logs at `error`.
 

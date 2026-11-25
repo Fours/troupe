@@ -68,6 +68,19 @@ describe('spawn checks', () => {
       'a hand-built backoff with no randomFactor',
       { supervision: { type: 'backoff', minMs: 1, maxMs: 2, resetAfterMs: 2 } },
     ],
+    [
+      'a hand-built backoff whose minDelayFor is not a function',
+      {
+        supervision: {
+          type: 'backoff',
+          minMs: 1,
+          maxMs: 2,
+          randomFactor: 0,
+          resetAfterMs: 2,
+          minDelayFor: 'retry-after',
+        },
+      },
+    ],
     ['an unknown mailbox field', { mailbox: { size: 2 } }],
     ['a mailbox that is not an object', { mailbox: 3 }],
     ['a zero capacity', { mailbox: { capacity: 0 } }],
@@ -97,6 +110,14 @@ describe('spawn checks', () => {
       { type: 'resume' },
       { type: 'restart', maxRestarts: 0, withinMs: Infinity },
       { type: 'backoff', minMs: 1, maxMs: 1, randomFactor: 0, resetAfterMs: 1 },
+      {
+        type: 'backoff',
+        minMs: 1,
+        maxMs: 1,
+        randomFactor: 0,
+        resetAfterMs: 1,
+        minDelayFor: () => undefined,
+      },
     ] as const;
     for (const supervision of strategies) {
       expect(system.spawn(idle, undefined, { supervision }).path).toMatch(/^\/user\//);
