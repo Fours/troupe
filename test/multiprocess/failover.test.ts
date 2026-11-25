@@ -48,6 +48,8 @@ describe('three nodes and a crowd, with the default timings', () => {
     if (victim === undefined) throw new Error('no nodes');
     const victimShows = showsOn(victim);
     expect(victimShows.length).toBeGreaterThan(0);
+    const before = cluster.holders();
+    const victimShards = [...active].filter((shard) => before.get(shard) === victim.key);
     const killed = cluster.seen.length;
     const killedAt = performance.now();
     await victim.kill();
@@ -87,9 +89,10 @@ describe('three nodes and a crowd, with the default timings', () => {
     const holders = cluster.holders();
     const moved = [...active].filter((shard) => holders.get(shard) === victim.key);
     expect(moved.sort()).toEqual(expected.sort());
-    // About a third of the shards in use, as rendezvous hashing spreads them over three nodes.
-    expect(moved.length).toBeGreaterThanOrEqual(Math.floor(active.size / 6));
-    expect(moved.length).toBeLessThanOrEqual(Math.ceil(active.size / 2));
+    // Back at the same address, it tops the same shards, so it takes back exactly what it had.
+    // Not a count near a third: ports are random, and with 9 shards in use the busiest of three
+    // nodes, the one killed, holds more than half of them in about 1 run in 8.
+    expect(moved).toEqual(victimShards.sort());
     // Each by handoff from the node that had it.
     const handedOff = cluster.seen
       .slice(restarted)
