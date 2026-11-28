@@ -2,9 +2,8 @@
 // after it, read from the journal with `stateAt` rather than from the live actor, with what that
 // event changed highlighted. "Live" goes back to the actor's state now.
 
-import type { TimelineEvent } from '@kylewillett/troupe/backstage';
+import type { BackstageClient, TimelineEvent } from '@kylewillett/troupe/backstage';
 import { useMemo, useState } from 'react';
-import type { BackstageClient } from '../client.ts';
 import { diff } from '../store/diff.ts';
 import type { ActorView } from '../store/store.ts';
 import { formatTime, summarize } from './format.ts';

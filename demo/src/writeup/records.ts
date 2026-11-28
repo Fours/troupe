@@ -43,6 +43,7 @@ export const RECORDS = {
   '0037': '0037-the-json-check-is-public',
   '0038': '0038-a-pipe-with-a-signal-ends-on-the-scheduler',
   '0041': '0041-a-failure-can-raise-its-backoff-delay',
+  '0045': '0045-backstage-embeds-with-a-mount-function-and-react-inside',
 } as const;
 
 export type RecordId = keyof typeof RECORDS;

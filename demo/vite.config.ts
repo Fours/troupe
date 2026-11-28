@@ -35,6 +35,8 @@ export default defineConfig({
     alias: [
       entry('@kylewillett/troupe/testkit', 'testkit/index.ts'),
       entry('@kylewillett/troupe/persistence', 'persistence/index.ts'),
+      // Backstage's UI is built from backstage/src/, not src/ (decision 0045).
+      { find: '@kylewillett/troupe/backstage/ui', replacement: here('../backstage/src/mount.tsx') },
       entry('@kylewillett/troupe/backstage', 'backstage/index.ts'),
       entry('@kylewillett/troupe/cluster', 'cluster/index.ts'),
       entry('@kylewillett/troupe', 'index.ts'),
@@ -65,7 +67,7 @@ export default defineConfig({
             },
             {
               name: 'stage',
-              test: /troupe[\\/]src[\\/](?!cluster[\\/])|backstage[\\/]src[\\/]|demo[\\/]src[\\/](domain[\\/](clock|crowd|shows|sales-board)\.ts|yield\.ts)/,
+              test: /troupe[\\/]src[\\/](?!cluster[\\/])|backstage[\\/]src[\\/]|demo[\\/]src[\\/](domain[\\/](clock|crowd|shows|sales-board)\.ts|yield\.ts|Backstage\.tsx)/,
             },
           ],
         },

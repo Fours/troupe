@@ -30,6 +30,7 @@
       "@kylewillett/troupe/persistence/sqlite": ["./src/node/sqlite/index.ts"],
       "@kylewillett/troupe/persistence/postgres": ["./src/persistence/postgres/index.ts"],
       "@kylewillett/troupe/backstage": ["./src/backstage/index.ts"],
+      "@kylewillett/troupe/backstage/ui": ["./backstage/src/ui-api.ts"],
       "@kylewillett/troupe/backstage/server": ["./src/node/backstage/index.ts"],
       "@kylewillett/troupe/cluster": ["./src/cluster/index.ts"],
       "@kylewillett/troupe/cluster/postgres": ["./src/cluster/postgres/index.ts"],
@@ -45,6 +46,7 @@
     "demo/vite.config.ts",
     "demo/build",
     "backstage/vite.config.ts",
+    "backstage/vite.ui.config.ts",
     "*.config.ts"
   ],
   // Node's types already declare these globals, and skipLibCheck would hide any clash, so the

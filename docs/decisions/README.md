@@ -58,3 +58,4 @@ When you change a decision, update its record in the same commit as the code.
 | [0037](0037-the-json-check-is-public.md) | The JSON check is public: `JsonValue`, `isJsonValue` and `jsonProblem` from the main entry | Accepted | 5 |
 | [0038](0038-a-pipe-with-a-signal-ends-on-the-scheduler.md) | A pipe with a signal ends when the signal aborts, so it isn't busy work for `settle` | Accepted | 5 |
 | [0041](0041-a-failure-can-raise-its-backoff-delay.md) | A failure can raise its backoff delay, through the strategy's `minDelayFor`, past `maxMs` | Accepted | 5 |
+| [0045](0045-backstage-embeds-with-a-mount-function-and-react-inside.md) | A page embeds Backstage with `mountBackstage`, from an entry point that has React inside it | Accepted | 5 |

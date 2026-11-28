@@ -153,12 +153,16 @@ test/               mirrors src/; helpers/ holds deferred() and test actors (tre
                     show writing at once
                     backstage-ui/ tests the Backstage UI's store and diff, with no browser
 backstage/          the Backstage UI (React, plain CSS), with its own tsconfig for the browser.
-                    Ships only as built files: npm run build puts index.html and src/standalone/,
-                    the page serveBackstage serves, in dist/backstage-ui/. src/store/ turns frames
-                    into a view model with no React and no clock of its own; src/ui/ draws it
-                    against a BackstageClient: the demo's in-process ones, or src/http-client.ts.
-                    A cluster node gets a Cluster panel, and the sharding tree above /user
+                    Ships only as built files. npm run build puts index.html and src/standalone/,
+                    the page serveBackstage serves, in dist/backstage-ui/, and src/mount.tsx, the
+                    /backstage/ui entry point, in dist/backstage/ui/ with vite.ui.config.ts: one
+                    file with React inside, and src/ui-api.ts, its API with no React type, as its
+                    index.d.ts (0045). src/store/ turns frames into a view model with no React
+                    and no clock of its own; src/ui/ draws it against a BackstageClient: the
+                    demo's in-process ones, or src/http-client.ts. A cluster node gets a Cluster
+                    panel, and the sharding tree above /user
 demo/               the demo site (Vite, React, plain CSS), with its own tsconfig for the browser
+  src/Backstage.tsx Backstage on the live pages, through /backstage/ui by name, as a page would (0045)
   src/domain/       opening night, with no React: shows, the crowd, the sales board, the faulty
                     journal, the driven clock (0022), the log's narration, and the Backstage client
                     that follows a restart. No Date.now or Math.random: it runs on virtual time
@@ -175,7 +179,8 @@ demo/               the demo site (Vite, React, plain CSS), with its own tsconfi
   build/            writeup-data.ts reads the charts' numbers from docs/decisions/data/ when the
                     site builds, and fails the build if a source is missing
 e2e/                Playwright tests of the built demo, run by test:e2e, with its own tsconfig for
-                    the DOM. cluster.spec.ts is festival night's. frames.spec.ts runs in its own
+                    the DOM. cluster.spec.ts is festival night's, and embed.spec.ts the built
+                    /backstage/ui on a plain page with dist/ alone. frames.spec.ts runs in its own
                     project, after the others, and server.spec.ts in its own, against
                     examples/backstage on port 7071
 examples/           runnable examples, run by Node with type stripping, against dist/: box-office/

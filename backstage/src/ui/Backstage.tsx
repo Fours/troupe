@@ -1,18 +1,16 @@
 // Backstage: the tree, the selected actor's details and its timeline, side by side on a wide
 // screen and one at a time, behind tabs, on a phone. Each panel says in a sentence what it
-// shows, with the technical detail one click away.
+// shows, with the technical detail one click away. Its styles are backstage.css, which whoever
+// draws it brings: mount.tsx puts them in the page, and the standalone page imports them.
 
+import type { BackstageClient } from '@kylewillett/troupe/backstage';
 import { useState, type ReactNode } from 'react';
-import type { BackstageClient } from '../client.ts';
+import type { Panel } from '../ui-api.ts';
 import { Cluster } from './Cluster.tsx';
 import { Details } from './Details.tsx';
 import { useBackstage } from './hooks.ts';
 import { Timeline } from './Timeline.tsx';
 import { Tree } from './Tree.tsx';
-import './backstage.css';
-
-/** The panels, in the order the phone's tabs show them. `cluster` only for a cluster node. */
-export type Panel = 'cluster' | 'tree' | 'details' | 'timeline';
 
 const PANELS: readonly { readonly id: Panel; readonly label: string }[] = [
   { id: 'cluster', label: 'Cluster' },

@@ -9,6 +9,8 @@ const ENTRIES = [
   `${root}src/node/sqlite/index.ts`,
   `${root}src/persistence/postgres/index.ts`,
   `${root}src/backstage/index.ts`,
+  // /backstage/ui's declarations, which the build ships as its index.d.ts (decision 0045).
+  `${root}backstage/src/ui-api.ts`,
   `${root}src/node/backstage/index.ts`,
   `${root}src/cluster/index.ts`,
   `${root}src/cluster/postgres/index.ts`,

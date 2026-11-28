@@ -1,11 +1,13 @@
 // Checks what `npm pack` would publish: dist/, the README, the licence, the changelog and
 // package.json, and nothing else. Every entry point, the table SQL and the Backstage UI must be
-// there, and the package must have no dependencies of any kind that users would install. Run
-// after `npm run build`, from a clean dist/: tsc never deletes what an older build left.
+// there, and the package must have no dependencies of any kind that users would install, none
+// hidden in the embeddable UI either. Run after `npm run build`, from a clean dist/: tsc never
+// deletes what an older build left.
 import { execFileSync } from 'node:child_process';
 import console from 'node:console';
 import { readFileSync } from 'node:fs';
 import process from 'node:process';
+import ts from 'typescript';
 
 const TOP_LEVEL = new Set(['README.md', 'LICENSE', 'CHANGELOG.md', 'package.json']);
 
@@ -48,6 +50,14 @@ const problems = [
 if (!files.some((path) => /^dist\/backstage-ui\/assets\/.+\.js$/.test(path))) {
   problems.push("doesn't ship the Backstage UI's script");
 }
+// /backstage/ui has React inside it (decision 0045), so it's one file that imports nothing: an
+// import of react there would be a dependency nobody declared. TypeScript's scanner reads
+// imports, requires and dynamic imports, and not words in strings.
+const UI = 'dist/backstage/ui/index.js';
+const uiImports = files.includes(UI)
+  ? ts.preProcessFile(readFileSync(UI, 'utf8'), true, true).importedFiles.map((f) => f.fileName)
+  : [];
+for (const specifier of uiImports) problems.push(`${UI} imports ${specifier}`);
 // No runtime or peer dependencies (decision 0017): drivers are the user's own.
 for (const field of [
   'dependencies',
