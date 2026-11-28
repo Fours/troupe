@@ -2,7 +2,9 @@
 
 This project follows [Semantic Versioning](https://semver.org/). Under 0.x, a minor version can break the API. 1.0 comes after milestone 5 ([0032](https://github.com/Fours/troupe/blob/main/docs/decisions/0032-1-0-comes-after-rehearsal.md)). Each design choice behind these entries has a record in [docs/decisions](https://github.com/Fours/troupe/tree/main/docs/decisions).
 
-## Unreleased
+## 0.4.0 (2026-11-28)
+
+For Steadfast: Backstage's UI, for a page to embed, from a new entry point. Released from 0.3.2, so Rehearsal still isn't exported. Nothing that worked in 0.3.2 changes.
 
 - `@kylewillett/troupe/backstage/ui`, for a page to embed Backstage: `mountBackstage(element, { client, selected, onSelect, explain })` draws the inspector in a new child of `element`, on any `BackstageClient`, and returns `{ update(changes), unmount() }`. The page owns the selection: picking an actor calls `onSelect(path)`, and it's selected once the page passes it back as `selected`. `explain` is the page's own words after each panel's, as text. `update({ client })` starts over on a new system. React is inside the entry point, so a page needs none and the package still has no dependencies. Neither the main entry nor `/backstage` loads it. Invalid options throw `TypeError` when they're passed in ([0045](https://github.com/Fours/troupe/blob/main/docs/decisions/0045-backstage-embeds-with-a-mount-function-and-react-inside.md)).
 - `@kylewillett/troupe/backstage` exports the `BackstageClient` type, the `connect` and `request` that Backstage's UI draws from. `BackstageSource` extends it ([0045](https://github.com/Fours/troupe/blob/main/docs/decisions/0045-backstage-embeds-with-a-mount-function-and-react-inside.md)).
