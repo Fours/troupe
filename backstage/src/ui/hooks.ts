@@ -3,13 +3,13 @@
 // one request in flight for it, and the journal's history is cached, since it never changes.
 
 import type {
+  BackstageClient,
   BackstageRequest,
   BackstageResponse,
   TimelineEvent,
   WireValue,
 } from '@kylewillett/troupe/backstage';
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
-import type { BackstageClient } from '../client.ts';
 import { createStore, type ViewModel } from '../store/store.ts';
 
 /**

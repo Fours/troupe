@@ -48,6 +48,7 @@ export const RECORDS = {
   '0042': '0042-keep-the-majority',
   '0043': '0043-the-hunt-and-fencing',
   '0044': '0044-rehearsal-page-runs-in-a-worker-and-draws-recorded-runs',
+  '0045': '0045-backstage-embeds-with-a-mount-function-and-react-inside',
 } as const;
 
 export type RecordId = keyof typeof RECORDS;

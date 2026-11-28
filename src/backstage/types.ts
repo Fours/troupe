@@ -10,8 +10,24 @@ export interface BackstageOptions {
   history?: number;
 }
 
+/**
+ * A connection to one system's Backstage, wherever the system runs: what Backstage's UI draws from
+ * (`@kylewillett/troupe/backstage/ui`). The in-process source, {@link BackstageSource}, is one, and
+ * so is anything that carries its frames and requests, such as `serveBackstage`'s page over HTTP.
+ */
+export interface BackstageClient {
+  /**
+   * Calls `listener` with a `hello`, then a frame for every event. Another `hello` means a new
+   * connection, or a new system: the UI starts over from it.
+   * @returns A function that ends the connection.
+   */
+  connect(listener: (frame: Frame) => void): () => void;
+  /** Answers one read-only request. Never rejects: a failure is an error response. */
+  request(req: BackstageRequest): Promise<BackstageResponse>;
+}
+
 /** An inspector's view of one system: a stream of frames, and requests that only read. */
-export interface BackstageSource {
+export interface BackstageSource extends BackstageClient {
   /**
    * Calls `listener` with a `hello` frame at once, then an `event` frame for every event. Every
    * connection gets the same frame objects, so don't change them. A listener that throws is

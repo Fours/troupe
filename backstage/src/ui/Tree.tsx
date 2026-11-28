@@ -68,7 +68,12 @@ export function Tree({ actors, flows, selected, onSelect }: TreeProps) {
   const focusable = selected !== undefined && indexOf.has(selected) ? selected : actors[0]?.path;
 
   const onKeyDown = (e: KeyboardEvent<HTMLUListElement>) => {
-    const index = focusable === undefined ? -1 : (indexOf.get(focusable) ?? -1);
+    // From the row that has focus, not the selection: the selection comes back from the page
+    // when it passes it on, which an embedding page may do a render later (decision 0045), and a
+    // second key mustn't start from where the first one began.
+    const target = e.target instanceof Element ? e.target.closest('[data-path]') : null;
+    const from = target?.getAttribute('data-path') ?? focusable;
+    const index = from === undefined ? -1 : (indexOf.get(from) ?? -1);
     const go = (i: number) => {
       const next = actors[Math.max(0, Math.min(actors.length - 1, i))];
       if (next === undefined) return;
@@ -94,9 +99,9 @@ export function Tree({ actors, flows, selected, onSelect }: TreeProps) {
         return;
       case 'Enter':
       case ' ':
-        if (focusable !== undefined) {
+        if (from !== undefined) {
           e.preventDefault();
-          onSelect(focusable, true);
+          onSelect(from, true);
         }
         return;
     }

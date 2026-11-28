@@ -2,8 +2,12 @@
 // posts (decision 0023). EventSource reconnects by itself, and the server greets every new
 // connection with a fresh hello, so the UI starts over from it as it would after a restart.
 
-import type { BackstageRequest, BackstageResponse, Frame } from '@kylewillett/troupe/backstage';
-import type { BackstageClient } from './client.ts';
+import type {
+  BackstageClient,
+  BackstageRequest,
+  BackstageResponse,
+  Frame,
+} from '@kylewillett/troupe/backstage';
 
 /** Where a connection stands: open, waiting to reconnect, or given up because it was refused. */
 export type ConnectionStatus = 'connecting' | 'open' | 'reconnecting' | 'closed';

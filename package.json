@@ -61,6 +61,10 @@
       "types": "./dist/backstage/index.d.ts",
       "import": "./dist/backstage/index.js"
     },
+    "./backstage/ui": {
+      "types": "./dist/backstage/ui/index.d.ts",
+      "import": "./dist/backstage/ui/index.js"
+    },
     "./backstage/server": {
       "types": "./dist/node/backstage/index.d.ts",
       "import": "./dist/node/backstage/index.js"
@@ -84,7 +88,7 @@
   },
   "sideEffects": false,
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && tsc -p tsconfig.build.node.json && node scripts/write-sql.ts && vite build --config backstage/vite.config.ts",
+    "build": "tsc -p tsconfig.build.json && tsc -p tsconfig.build.node.json && node scripts/write-sql.ts && vite build --config backstage/vite.config.ts && vite build --config backstage/vite.ui.config.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.build.json --noEmit && tsc -p tsconfig.build.node.json --noEmit && tsc -p demo/tsconfig.json && tsc -p backstage/tsconfig.json && tsc -p e2e/tsconfig.json",
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",

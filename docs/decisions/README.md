@@ -63,3 +63,4 @@ When you change a decision, update its record in the same commit as the code.
 | [0042](0042-keep-the-majority.md) | Keep the majority: only the larger side of a split downs the rest, and two clusters settle it when they meet | Accepted | 5 |
 | [0043](0043-the-hunt-and-fencing.md) | The hunt: a million seeds pass on the fixed code, and the journal stays unfenced | Accepted | 5 |
 | [0044](0044-rehearsal-page-runs-in-a-worker-and-draws-recorded-runs.md) | The Rehearsal page runs its seeds in a worker, and draws recorded runs built into the page | Accepted | 5 |
+| [0045](0045-backstage-embeds-with-a-mount-function-and-react-inside.md) | A page embeds Backstage with `mountBackstage`, from an entry point that has React inside it | Accepted | 5 |

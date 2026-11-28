@@ -8,6 +8,7 @@ export type { WireValue } from './encode.js';
 export type {
   ActorInfo,
   ActorStatus,
+  BackstageClient,
   BackstageError,
   BackstageOptions,
   BackstageRequest,

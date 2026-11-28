@@ -28,6 +28,7 @@ It needs Node 22.18 or later, and is ESM only. Each release is published from CI
 | `@kylewillett/troupe/persistence/sqlite` | the SQLite backend, on `node:sqlite` | Node |
 | `@kylewillett/troupe/persistence/postgres` | the Postgres backend, on your own `pg` pool | any runtime with a pool |
 | `@kylewillett/troupe/backstage` | Backstage, the inspector: its protocol and an in-process source | any runtime |
+| `@kylewillett/troupe/backstage/ui` | `mountBackstage`, the inspector's UI in your own page, with React inside | browsers |
 | `@kylewillett/troupe/backstage/server` | `serveBackstage`, the inspector's UI over HTTP | Node |
 | `@kylewillett/troupe/cluster` | joining a cluster, cluster sharding, the in-memory network and shard store | any runtime |
 | `@kylewillett/troupe/cluster/postgres` | the Postgres shard store, on your own `pg` pool | any runtime with a pool |
@@ -454,6 +455,24 @@ Open the URL in a browser. The UI ships in the package, so it needs nothing else
 > **Backstage shows every message and every state.** Keep it on a loopback address, as it is by default. Binding `host` to anything else shows them to whoever can reach that address. On loopback, it refuses requests whose `Host` header isn't a name for the address it serves, which stops other sites in your browser from reaching it through DNS rebinding, and it sends no CORS headers.
 
 `npm run example:backstage` builds the package and runs [examples/backstage](examples/backstage): the demo's opening night on real time and SQLite, with Backstage on <http://127.0.0.1:7070/>. Ten seconds in, `hamlet` gets a bad request, so there's a crash and a restart to look at.
+
+In a page of your own, beside your own views, `mountBackstage` draws it in an element you give it, on a system in the page or on anything else that speaks its protocol:
+
+```ts
+import { backstage } from '@kylewillett/troupe/backstage';
+import { mountBackstage } from '@kylewillett/troupe/backstage/ui';
+
+const ui = mountBackstage(document.getElementById('inspector')!, {
+  client: backstage(system),
+  selected: undefined,
+  onSelect: (path) => ui.update({ selected: path }),
+  explain: { tree: 'The box office and its shows.' },
+});
+ui.update({ client: backstage(restartedSystem) }); // a new system: Backstage starts over
+ui.unmount();
+```
+
+The selection is the page's: picking an actor calls `onSelect`, and it's selected once you pass it back as `selected`, so your own views can select it too. `explain` adds your words to each panel's. React is inside this entry point, so your page needs none, whatever it's built with, and the package still has no dependencies. Nothing else in the package loads it ([0045](docs/decisions/0045-backstage-embeds-with-a-mount-function-and-react-inside.md)).
 
 ## The box office example
 

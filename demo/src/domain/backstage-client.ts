@@ -1,8 +1,12 @@
 // Backstage for opening night: one in-process source per system. A restart makes a new system, so
 // the client closes the old source, attaches a new one before the new system's actors spawn, and
 // connects everyone again, which hands each of them a fresh hello, as a reconnect would.
-import { backstage, type BackstageSource, type Frame } from '@kylewillett/troupe/backstage';
-import type { BackstageClient } from '../../../backstage/src/client.ts';
+import {
+  backstage,
+  type BackstageClient,
+  type BackstageSource,
+  type Frame,
+} from '@kylewillett/troupe/backstage';
 import type { OpeningNight } from './opening-night.ts';
 
 /** A {@link BackstageClient} that follows the night across restarts. */

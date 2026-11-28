@@ -2,6 +2,7 @@
 // it's connected.
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import '../ui/backstage.css';
 import { App } from './App.tsx';
 import './standalone.css';
 

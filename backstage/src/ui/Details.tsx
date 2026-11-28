@@ -1,8 +1,8 @@
 // The selected actor: its state as it changes, its mailbox over the last 30 s, its recent
 // messages, and its failures with the restart and backoff that followed each.
 
+import type { BackstageClient } from '@kylewillett/troupe/backstage';
 import type { ActorView, DepthSample, FailureView, MessageView } from '../store/store.ts';
-import type { BackstageClient } from '../client.ts';
 import { describeMarker, formatDuration, formatTime, nameOf, summarize } from './format.ts';
 import { useActorState } from './hooks.ts';
 import { Value } from './Value.tsx';

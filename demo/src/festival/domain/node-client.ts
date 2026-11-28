@@ -2,8 +2,12 @@
 // the picked node, since it turns message events on there. Picking another node, or the picked
 // node starting again, connects everyone to a fresh source, which greets them with a new hello. A
 // killed node's source closes, so Backstage keeps showing it as it last was.
-import { backstage, type BackstageSource, type Frame } from '@kylewillett/troupe/backstage';
-import type { BackstageClient } from '../../../../backstage/src/client.ts';
+import {
+  backstage,
+  type BackstageClient,
+  type BackstageSource,
+  type Frame,
+} from '@kylewillett/troupe/backstage';
 import type { FestivalNight, FestivalNode } from './festival-night.ts';
 
 /** A {@link BackstageClient} for whichever node is picked. */

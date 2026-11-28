@@ -1,5 +1,9 @@
 // The cluster map: a card per node with the shows it runs, built from every node's events, and the
 // buttons that act on that node. Backstage shows one node from the inside; this shows them all.
+// The one import from backstage/src/ rather than the package: the cards take their colours from
+// the function Backstage's Cluster panel uses, so the two always agree. It's how this repo's two
+// pages match, not something a page that embeds Backstage needs, so the package doesn't export it
+// (decision 0045).
 import { colourOf } from '../../../backstage/src/ui/Cluster.tsx';
 import type { NodeState } from './domain/festival-night.ts';
 import type { StageNode, StageView } from './domain/stage.ts';

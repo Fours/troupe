@@ -50,11 +50,19 @@ describe("the write-up's record links", () => {
   });
 
   // Milestone 5, T8: the Rehearsal section cites the records Rehearsal made, 0033 on, and every
-  // record the hunt added. 0039 comes with 1.0, in T9.
+  // record the hunt added. 0039 comes with 1.0, in T9. 0045, Backstage for a page to embed, made
+  // alongside milestone 5 for Steadfast, is told where Backstage is, in the browser section.
+  const ELSEWHERE: Readonly<Record<string, string>> = { '0045': 'browser' };
   it('cite every record from 0033 on in the Rehearsal section', () => {
-    const start = WRITEUP.indexOf('<section id="rehearsal"');
-    const body = WRITEUP.slice(start, WRITEUP.indexOf('</section>', start));
-    const later = Object.keys(RECORDS).filter((id) => Number(id) >= 33);
+    const section = (id: string) => {
+      const start = WRITEUP.indexOf(`<section id="${id}"`);
+      return WRITEUP.slice(start, WRITEUP.indexOf('</section>', start));
+    };
+    const body = section('rehearsal');
+    for (const [record, id] of Object.entries(ELSEWHERE)) {
+      expect(cited(section(id)), record).toContain(record);
+    }
+    const later = Object.keys(RECORDS).filter((id) => Number(id) >= 33 && !(id in ELSEWHERE));
     expect(later).toContain('0043');
     expect([...new Set(cited(body))].filter((id) => Number(id) >= 33).sort()).toEqual(later);
   });

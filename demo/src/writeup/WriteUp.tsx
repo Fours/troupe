@@ -373,7 +373,11 @@ export function WriteUp({ data }: { data: WriteupData }) {
               message events, which cost nothing while nobody asks for them <Record id="0020" />.
               The same UI attaches to a system in Node: <code>serveBackstage(system)</code> streams
               the frames as server-sent events on <code>node:http</code>, on localhost only, with no
-              dependency <Record id="0023" />.
+              dependency <Record id="0023" />. And any page can put it beside its own views:{' '}
+              <code>mountBackstage(element, options)</code> draws it in an element the page gives
+              it, on any client, with the selection the page’s to keep. React comes inside that
+              entry point, so the package still has no dependencies, and nothing else loads it{' '}
+              <Record id="0045" />.
             </p>
           </section>
 

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Backstage } from '../../../backstage/src/index.ts';
+import { Backstage } from '../Backstage.tsx';
 import { SPEEDS, type Speed } from '../domain/clock.ts';
 import { RUSH_SIZE } from '../domain/crowd.ts';
 import { SiteBar } from '../site/SiteBar.tsx';

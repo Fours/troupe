@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import ts from 'typescript';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { exportsOf, program, root } from './helpers/exports.js';
 
@@ -100,6 +101,7 @@ const BACKSTAGE_VALUES = ['backstage', 'encode', 'PROTOCOL'];
 const BACKSTAGE_TYPES = [
   'ActorInfo',
   'ActorStatus',
+  'BackstageClient',
   'BackstageError',
   'BackstageOptions',
   'BackstageRequest',
@@ -113,6 +115,9 @@ const BACKSTAGE_TYPES = [
   'WireEvent',
   'WireValue',
 ];
+// Backstage's UI for a page to embed, for Steadfast (decision 0045).
+const UI_VALUES = ['mountBackstage'];
+const UI_TYPES = ['BackstageUiOptions', 'MountedBackstage', 'Panel'];
 // The milestone 3 spec's server.
 const SERVER_VALUES = ['serveBackstage'];
 const SERVER_TYPES = ['BackstageServer', 'BackstageServerOptions'];
@@ -250,6 +255,7 @@ describe('the built package', () => {
       const sqlite = await import('@kylewillett/troupe/persistence/sqlite');
       const postgres = await import('@kylewillett/troupe/persistence/postgres');
       const backstage = await import('@kylewillett/troupe/backstage');
+      const ui = await import('@kylewillett/troupe/backstage/ui');
       const server = await import('@kylewillett/troupe/backstage/server');
       const cluster = await import('@kylewillett/troupe/cluster');
       const tcp = await import('@kylewillett/troupe/cluster/tcp');
@@ -262,6 +268,7 @@ describe('the built package', () => {
         sqlite: Object.keys(sqlite),
         postgres: Object.keys(postgres),
         backstage: Object.keys(backstage),
+        ui: Object.keys(ui),
         server: Object.keys(server),
         cluster: Object.keys(cluster),
         tcp: Object.keys(tcp),
@@ -280,6 +287,7 @@ describe('the built package', () => {
       | 'sqlite'
       | 'postgres'
       | 'backstage'
+      | 'ui'
       | 'server'
       | 'cluster'
       | 'tcp'
@@ -293,6 +301,7 @@ describe('the built package', () => {
     expect(sorted(loaded.sqlite)).toEqual(sorted(SQLITE_VALUES));
     expect(sorted(loaded.postgres)).toEqual(sorted(POSTGRES_VALUES));
     expect(sorted(loaded.backstage)).toEqual(sorted(BACKSTAGE_VALUES));
+    expect(sorted(loaded.ui)).toEqual(sorted(UI_VALUES));
     expect(sorted(loaded.server)).toEqual(sorted(SERVER_VALUES));
     expect(sorted(loaded.cluster)).toEqual(sorted(CLUSTER_VALUES));
     expect(sorted(loaded.tcp)).toEqual(sorted(TCP_VALUES));
@@ -307,6 +316,7 @@ describe('the built package', () => {
     const sqlite = `${root}dist/node/sqlite/index.d.ts`;
     const postgres = `${root}dist/persistence/postgres/index.d.ts`;
     const backstage = `${root}dist/backstage/index.d.ts`;
+    const ui = `${root}dist/backstage/ui/index.d.ts`;
     const server = `${root}dist/node/backstage/index.d.ts`;
     const cluster = `${root}dist/cluster/index.d.ts`;
     const tcp = `${root}dist/node/cluster/index.d.ts`;
@@ -319,6 +329,7 @@ describe('the built package', () => {
       sqlite,
       postgres,
       backstage,
+      ui,
       server,
       cluster,
       tcp,
@@ -341,6 +352,7 @@ describe('the built package', () => {
     expect(sorted(exportsOf(prog, backstage).keys())).toEqual(
       sorted([...BACKSTAGE_VALUES, ...BACKSTAGE_TYPES]),
     );
+    expect(sorted(exportsOf(prog, ui).keys())).toEqual(sorted([...UI_VALUES, ...UI_TYPES]));
     expect(sorted(exportsOf(prog, server).keys())).toEqual(
       sorted([...SERVER_VALUES, ...SERVER_TYPES]),
     );
@@ -479,6 +491,41 @@ describe('the built package', () => {
       expect(loaded.length, specifier).toBeGreaterThan(1);
       expect(
         loaded.filter((url) => url.includes('/dist/backstage/')),
+        specifier,
+      ).toEqual([]);
+    }
+  });
+
+  it('loads /backstage/ui as one file, with React inside it', () => {
+    // Only the entry point's own file: no React from node_modules, nothing else from dist/.
+    expect(loadedBy('@kylewillett/troupe/backstage/ui')).toEqual([
+      `file://${root}dist/backstage/ui/index.js`,
+    ]);
+    // The check above means something only if the hook sees react when it does load.
+    expect(loadedBy('react').some((url) => url.includes('/node_modules/react/'))).toBe(true);
+    // Production React, with JSX to match, though this test builds under Vitest's NODE_ENV.
+    const js = readFileSync(`${root}dist/backstage/ui/index.js`, 'utf8');
+    expect(js.includes('jsxDEV'), 'built with development JSX').toBe(false);
+    // Its types name no React type, so a user needs no @types/react: they import /backstage's.
+    const types = readFileSync(`${root}dist/backstage/ui/index.d.ts`, 'utf8');
+    const imported = ts.preProcessFile(types, true, true).importedFiles.map((f) => f.fileName);
+    expect(imported).toEqual(['../index.js']);
+  });
+
+  it('loads /backstage/ui and React from no other entry point', () => {
+    for (const specifier of [
+      ...ENTRY_POINTS,
+      '@kylewillett/troupe/backstage',
+      '@kylewillett/troupe/backstage/server',
+      '@kylewillett/troupe/cluster',
+      '@kylewillett/troupe/cluster/postgres',
+      '@kylewillett/troupe/cluster/tcp',
+      '@kylewillett/troupe/rehearsal',
+    ]) {
+      const loaded = loadedBy(specifier);
+      expect(loaded.length, specifier).toBeGreaterThan(1);
+      expect(
+        loaded.filter((url) => url.includes('/dist/backstage/ui/') || url.includes('/react')),
         specifier,
       ).toEqual([]);
     }
