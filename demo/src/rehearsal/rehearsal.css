@@ -152,6 +152,39 @@ summary:focus-visible {
   color: var(--muted);
 }
 
+/* What contract and chaos mean. */
+.modes-explained h3 {
+  margin-top: 1rem;
+  scroll-margin-top: 1rem;
+}
+
+.mode-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.mode-cards article {
+  padding: 0 1rem 0.25rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+}
+
+.mode-cards h4 {
+  margin-top: 0.75rem;
+}
+
+.mode-cards p {
+  margin: 0.5rem 0;
+  font-size: 0.95rem;
+}
+
+.mode-source,
+.hint {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
 /* A run, drawn. */
 .run {
   margin: 1rem 0 2rem;
@@ -418,6 +451,10 @@ details pre {
 }
 
 @media (max-width: 40rem) {
+  .mode-cards {
+    grid-template-columns: 1fr;
+  }
+
   .run-chart {
     grid-template-columns: 4.5rem 1fr;
   }

@@ -375,7 +375,7 @@ Do these in order. Each one ends with passing tests.
 | T5. Fault plans, the history and the invariants | Done | 825e281 |
 | T6. `rehearse()`, shrinking, replay and planted bugs | Done | fb778f5 |
 | T7. The hunt | Done | cb6c8cd |
-| T8. The site's `/rehearsal/` page and the write-up | Done but the read-through, which is yours | |
+| T8. The site's `/rehearsal/` page and the write-up | Done but the read-through, which is yours | 3b610be |
 | T9. API review, README and 1.0.0 | Not started | |
 
 ### T1. Node clocks and the run loop

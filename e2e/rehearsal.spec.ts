@@ -58,6 +58,20 @@ test('runs seeds in the browser, and stops', async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+test('says what contract and chaos mode are, and links there from each run', async ({ page }) => {
+  await open(page);
+  const modes = page.getByRole('region', { name: /^Contract or chaos/ });
+  await expect(modes.getByRole('article', { name: 'Contract' })).toContainText('TCP');
+  await expect(modes.getByRole('article', { name: 'Chaos' })).toContainText('arrive twice');
+  const run = page.getByRole('figure', { name: 'One run: seed 1' });
+  await expect(run).toBeVisible({ timeout: 20_000 });
+  await expect(run.getByRole('link', { name: 'contract mode' })).toHaveAttribute('href', '#modes');
+  await expect(page.getByRole('link', { name: 'Contract or chaos?' })).toHaveAttribute(
+    'href',
+    '#modes',
+  );
+});
+
 test('draws one run, and the scrubber steps through it', async ({ page }) => {
   await open(page);
   const run = page.getByRole('figure', { name: 'One run: seed 1' });

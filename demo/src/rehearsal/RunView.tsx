@@ -280,8 +280,9 @@ export function RunView({ drawing, label }: { drawing: Drawing; label: string })
         </section>
       </div>
       <figcaption>
-        Seed {drawing.seed}, {drawing.mode} mode: {drawing.outcomes.ok} requests answered,{' '}
-        {drawing.outcomes.failed} refused or failed, {drawing.outcomes.unknown} timed out.
+        Seed {drawing.seed}, <a href="#modes">{drawing.mode} mode</a>: {drawing.outcomes.ok}{' '}
+        requests answered, {drawing.outcomes.failed} refused or failed, {drawing.outcomes.unknown}{' '}
+        timed out.
       </figcaption>
     </figure>
   );

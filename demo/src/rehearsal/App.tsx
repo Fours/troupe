@@ -28,6 +28,59 @@ function Drawn({ requested, label }: { requested: Requested | undefined; label: 
   return <RunView drawing={requested.drawing} label={label} />;
 }
 
+/**
+ * What the two network modes are, and why there are two (decision 0035). The page's other
+ * mentions of a mode link here.
+ */
+function Modes() {
+  return (
+    <section className="modes-explained" aria-labelledby="modes">
+      <h3 id="modes">Contract or chaos: how badly the network may behave</h3>
+      <div className="mode-cards">
+        <article aria-labelledby="mode-contract">
+          <h4 id="mode-contract">Contract</h4>
+          <p>
+            The network fails only in the ways a real one does. Connections drop, messages slow
+            down, and parts of the cluster lose touch with each other for a while. But a message
+            that does arrive arrives once, and in the order it was sent on its connection. That’s
+            the promise TCP keeps, and Troupe’s network layer is built on it: it’s the{' '}
+            <em>contract</em>.
+          </p>
+          <p>
+            <strong>Why:</strong> it tests the cluster against the network it will really get.
+          </p>
+          <p>
+            <strong>Checked:</strong> no show ever runs twice at once, no sale a customer was told
+            about is lost, nobody is shown older sales than someone before them, and the cluster
+            settles once the faults heal. And, because the contract promises it, no message is
+            handled twice and messages from one sender arrive in order.
+          </p>
+        </article>
+        <article aria-labelledby="mode-chaos">
+          <h4 id="mode-chaos">Chaos</h4>
+          <p>
+            Everything contract mode does, and the network breaks its promise too: single messages
+            vanish, arrive twice, or overtake each other on the same connection. A healthy network
+            never does this.
+          </p>
+          <p>
+            <strong>Why:</strong> Troupe’s most important guarantees, one copy of a show at a time
+            and no lost sales, shouldn’t depend on the network behaving at all. They rest on each
+            show’s lease and its journal. Chaos mode proves they hold anyway.
+          </p>
+          <p>
+            <strong>Checked:</strong> the same, except the two rules about duplicate and
+            out-of-order messages, which chaos breaks on purpose.
+          </p>
+        </article>
+      </div>
+      <p className="mode-source">
+        The design record behind the two modes: <a href={recordUrl('0035')}>0035</a>.
+      </p>
+    </section>
+  );
+}
+
 function Seeds({ rehearsal }: { rehearsal: ReturnType<typeof useRehearsal> }) {
   const { progress, error, start, stop, request } = rehearsal;
   const [mode, setMode] = useState<NetworkMode>('contract');
@@ -43,10 +96,9 @@ function Seeds({ rehearsal }: { rehearsal: ReturnType<typeof useRehearsal> }) {
         Each run is a minute of festival night: three nodes running a dozen shows, a spare that may
         join, and the crowd’s node buying tickets, with faults drawn from its seed. Here they run in
         your browser, one after another, as fast as one core allows, and each is checked when it
-        ends. Contract mode breaks the network only in the ways a real one breaks: dropped
-        connections, delays, cables cut. Chaos mode goes further, losing and repeating single
-        messages too.
+        ends. Pick how badly the network between the nodes may behave: contract or chaos.
       </p>
+      <Modes />
       <div className="controls">
         <fieldset className="modes" disabled={running}>
           <legend>Network</legend>
@@ -172,6 +224,9 @@ function OneRun({ rehearsal }: { rehearsal: ReturnType<typeof useRehearsal> }) {
           />{' '}
           Chaos mode
         </label>
+        <a href="#modes" className="hint">
+          Contract or chaos?
+        </a>
         <button type="submit">Draw it</button>
       </form>
       <Drawn requested={one} label={`One run: seed ${String(seed)}`} />
