@@ -318,7 +318,7 @@ The fourth page, after opening night, the write-up and festival night. Words fir
 
 ### CI
 
-- **Every push:** the festival scenario on seeds 1 to 1,000, in contract and chaos mode, with determinism checked on every hundredth seed, and each planted bug's regression plan. The budget is two minutes on CI's runner.
+- **Every push:** the festival scenario on seeds 1 to 1,000, in contract and chaos mode, with determinism checked on every hundredth seed, and each planted bug's regression plan. The budget is two minutes on CI's runner. (Two minutes a mode since T8's CI runs, when one mode took 27 to 65 s on GitHub's runners and both in one shared budget flaked.)
 - **No nightly run** (open question 8). New ground comes from running `npm run rehearse` on fresh ranges by hand, as the hunt does in T7.
 - `npm run rehearse` takes `--seeds a..b`, `--workers n` (default the number of cores less one), `--mode contract|chaos`, `--plant <bug>` and `--replay <line>`.
 
