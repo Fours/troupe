@@ -374,7 +374,7 @@ Do these in order. Each one ends with passing tests.
 | T4. Timeouts | Done | bea8541 |
 | T5. Fault plans, the history and the invariants | Done | 825e281 |
 | T6. `rehearse()`, shrinking, replay and planted bugs | Done | fb778f5 |
-| T7. The hunt | Done | |
+| T7. The hunt | Done | cb6c8cd |
 | T8. The site's `/rehearsal/` page and the write-up | Not started | |
 | T9. API review, README and 1.0.0 | Not started | |
 
