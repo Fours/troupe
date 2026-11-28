@@ -376,7 +376,7 @@ Do these in order. Each one ends with passing tests.
 | T6. `rehearse()`, shrinking, replay and planted bugs | Done | fb778f5 |
 | T7. The hunt | Done | cb6c8cd |
 | T8. The site's `/rehearsal/` page and the write-up | Done | 3b610be |
-| T9. API review, README and 1.0.0 | Done but the release, which waits on your approval of the tag | |
+| T9. API review, README and 1.0.0 | Done but the release, which waits on your approval of the tag | fbdbc66 |
 
 ### T1. Node clocks and the run loop
 

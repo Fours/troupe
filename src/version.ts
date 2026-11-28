@@ -3,4 +3,4 @@
 // and test/version.test.ts fails unless it's package.json's. Change both together on a release.
 
 /** This package's version. */
-export const VERSION = '0.4.0';
+export const VERSION = '1.0.0';

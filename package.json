@@ -1,6 +1,6 @@
 {
   "name": "@kylewillett/troupe",
-  "version": "0.4.0",
+  "version": "1.0.0",
   "description": "Typed actors for TypeScript: supervision, event-sourced persistent actors, and cluster sharding.",
   "license": "MIT",
   "author": "Kyle Willett",
