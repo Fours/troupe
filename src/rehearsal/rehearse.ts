@@ -6,6 +6,7 @@
 // with the per-seed pieces here: that's a script, not public API.
 
 import { checkInt, checkKeys, describe } from '../checks.js';
+import { VERSION } from '../version.js';
 import type { Violation } from './invariants.js';
 import type { FaultPlan } from './plan.js';
 import { decodeReplay, encodeReplay } from './replay.js';
@@ -36,6 +37,7 @@ export interface RehearseOptions {
 
 /** What one seed's run did, as {@link rehearse} reports it. */
 export interface SeedResult {
+  /** The seed. */
   readonly seed: number;
   /** How many faults its plan had. */
   readonly faults: number;
@@ -51,6 +53,7 @@ export interface SeedResult {
 
 /** A seed that failed, shrunk, with the line that replays the shrunk run. */
 export interface Failure {
+  /** The seed whose run failed. */
   readonly seed: number;
   /** The invariant it was shrunk for: the first one that failed. */
   readonly invariant: string;
@@ -354,11 +357,15 @@ export interface Replayed {
 /**
  * Runs a replay line on `scenario` and checks it finds the violation the line recorded, or, for a
  * line from a run that passed, that it passes. A line that doesn't reproduce says so, since a run
- * is a pure function of its seed and plan: something in it isn't deterministic.
+ * is a pure function of its seed and plan: something in it isn't deterministic, or the line came
+ * from another version of this package, which the message names. A seed's plan and history are
+ * promised only within one version (decision 0039).
  * @throws TypeError for a line that can't be run on `scenario`.
  */
 export async function replay(scenario: Scenario, line: string): Promise<Replayed> {
-  const recorded = decodeReplay(line).violation;
+  const decoded = decodeReplay(line);
+  const recorded = decoded.violation;
+  const why = decoded.version === VERSION ? NOT_DETERMINISTIC : otherVersion(decoded.version);
   let run: Run | undefined;
   let violations: readonly Violation[];
   try {
@@ -377,7 +384,7 @@ export async function replay(scenario: Scenario, line: string): Promise<Replayed
       found: undefined,
       message: reproduced
         ? 'reproduced: the run passed, as it did when the line was recorded'
-        : `didn't reproduce: the line recorded a run that passed, and this one found ${describeAll(violations)}. ${NOT_DETERMINISTIC}`,
+        : `didn't reproduce: the line recorded a run that passed, and this one found ${describeAll(violations)}. ${why}`,
     };
   }
   const found = violations.find(
@@ -391,7 +398,7 @@ export async function replay(scenario: Scenario, line: string): Promise<Replayed
     message:
       found !== undefined
         ? `reproduced: ${recorded.invariant}: ${recorded.message}`
-        : `didn't reproduce: the line recorded ${recorded.invariant}: ${recorded.message}, and this run found ${describeAll(violations)}. ${NOT_DETERMINISTIC}`,
+        : `didn't reproduce: the line recorded ${recorded.invariant}: ${recorded.message}, and this run found ${describeAll(violations)}. ${why}`,
   };
 }
 
@@ -399,6 +406,14 @@ const NOT_DETERMINISTIC =
   "A run is a pure function of its seed and plan, so something in it isn't deterministic: a " +
   'scenario that reads Date.now, Math.random or a real timer, or code that changed since the ' +
   'line was recorded.';
+
+function otherVersion(version: string | undefined): string {
+  return (
+    `The line was recorded on ${version === undefined ? 'a version before 1.0' : version}, and ` +
+    `this is ${VERSION}. A seed's plan and history can change between versions (decision 0039), ` +
+    'so replay it on the version that recorded it.'
+  );
+}
 
 function describeAll(violations: readonly Violation[]): string {
   if (violations.length === 0) return 'nothing';

@@ -78,6 +78,18 @@ describe('the Backstage store', () => {
     expect(store.view().actors).toEqual([]);
   });
 
+  // A minor version can add frame types and event types without a new protocol (decision 0039),
+  // so a UI from an older version, on a newer server, skips what it doesn't know.
+  it('skips frame types and event types it doesn’t know', () => {
+    const store = connected();
+    const before = store.view();
+    store.apply({ type: 'encore', at: 5 } as unknown as Frame);
+    store.apply({ type: 'event', event: { seq: ++seq, type: 'bowed', at: 6 } } as unknown as Frame);
+    expect(store.view().actors).toEqual(before.actors);
+    store.apply(ev('stopped', { at: 7, path: SHOW }));
+    expect(actor(store, SHOW).phase).toBe('stopped');
+  });
+
   describe('a hello', () => {
     it('lists every actor under /user, each parent before its children', () => {
       const store = createStore();

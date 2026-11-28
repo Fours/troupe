@@ -108,10 +108,17 @@ export interface ClusterInfo {
   readonly types: readonly EntityTypeInfo[];
 }
 
-/** The protocol's version: 2 since milestone 4, which added the cluster. */
+/**
+ * The protocol's version: 2 since milestone 4, which added the cluster. A new version, which an
+ * inspector for the old one can't read, comes only with a major version (decision 0039).
+ */
 export const PROTOCOL = 2;
 
-/** What a source sends a connection. */
+/**
+ * What a source sends a connection. A minor version can add frame types, and optional fields to
+ * a frame, without a new {@link PROTOCOL} (decision 0039), so an inspector should skip a frame
+ * type it doesn't know.
+ */
 export type Frame =
   | {
       readonly type: 'hello';

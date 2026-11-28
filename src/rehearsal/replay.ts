@@ -1,11 +1,13 @@
 // The replay line (milestone 5, T6): one printable string that replays a run exactly, since a run
 // is a pure function of its seed and plan (decision 0034). It's base64url JSON, written here with
 // no runtime global, so it reads the same in every runtime (0004): the seed, the network mode,
-// the plan, where the run was cut short, the bug planted if there was one, and the violation the
-// run found, so a replay can say whether it reproduced.
+// the plan, where the run was cut short, the bug planted if there was one, the violation the
+// run found, so a replay can say whether it reproduced, and the package's version, since a seed's
+// plan and history are promised only within one (decision 0039).
 
 import { describe } from '../checks.js';
 import type { Plant } from '../internal.js';
+import { VERSION } from '../version.js';
 import type { NetworkMode } from './network.js';
 import type { FaultPlan } from './plan.js';
 
@@ -20,12 +22,17 @@ export interface ReplayLine {
   readonly plant?: Plant;
   /** The violation the run found, which a replay must find again. None for a run that passed. */
   readonly violation?: { readonly invariant: string; readonly message: string };
+  /**
+   * The package version that recorded it. Lines from before 1.0 have none. Encoding always
+   * writes this version's.
+   */
+  readonly version?: string;
 }
 
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
-const KEYS = new Set(['seed', 'mode', 'plan', 'untilMs', 'plant', 'violation']);
+const KEYS = new Set(['seed', 'mode', 'plan', 'untilMs', 'plant', 'violation', 'version']);
 
-/** `line` as a replay line: seed first, as it prints. */
+/** `line` as a replay line: seed first, as it prints, and this package's version last. */
 export function encodeReplay(line: ReplayLine): string {
   const ordered: Record<string, unknown> = { seed: line.seed, mode: line.mode, plan: line.plan };
   if (line.untilMs !== undefined) ordered.untilMs = line.untilMs;
@@ -33,6 +40,7 @@ export function encodeReplay(line: ReplayLine): string {
   if (line.violation !== undefined) {
     ordered.violation = { invariant: line.violation.invariant, message: line.violation.message };
   }
+  ordered.version = VERSION;
   // Escaped to ASCII, so each character is one byte and the encoding needs no UTF-8 step.
   const json = JSON.stringify(ordered).replace(
     /[\u007f-￿]/g,
@@ -94,6 +102,9 @@ export function decodeReplay(text: unknown): ReplayLine {
   ) {
     throw new TypeError("replay: the line's violation must have an invariant and a message");
   }
+  if (r.version !== undefined && typeof r.version !== 'string') {
+    throw new TypeError(`replay: the line's version must be a string, got ${describe(r.version)}`);
+  }
   return {
     seed: r.seed,
     mode: r.mode,
@@ -103,6 +114,7 @@ export function decodeReplay(text: unknown): ReplayLine {
     ...(v === undefined
       ? {}
       : { violation: { invariant: v.invariant as string, message: v.message as string } }),
+    ...(r.version === undefined ? {} : { version: r.version }),
   };
 }
 

@@ -589,10 +589,11 @@ export function WriteUp({ data }: { data: WriteupData }) {
               earlier one had, and the cluster settled once the faults healed. A run that breaks one
               shrinks itself, with faults coming out and the rest getting shorter, to the smallest
               plan that still breaks it, which replays exactly from one printed line{' '}
-              <Record id="0034" />. Getting there tightened a few public pieces on the way: the JSON
-              check that events use is now yours to call <Record id="0037" />, a piped ask with a
-              signal ends on the scheduler <Record id="0038" />, and a failure can ask for a longer
-              backoff <Record id="0041" />.
+              <Record id="0034" />. The line names the version that printed it, since a fix anywhere
+              in the cluster can change what a seed’s run does <Record id="0039" />. Getting there
+              tightened a few public pieces on the way: the JSON check that events use is now yours
+              to call <Record id="0037" />, a piped ask with a signal ends on the scheduler{' '}
+              <Record id="0038" />, and a failure can ask for a longer backoff <Record id="0041" />.
             </p>
             <h3>Bugs put back on purpose</h3>
             <p>
@@ -804,9 +805,13 @@ export function WriteUp({ data }: { data: WriteupData }) {
             <p>
               Troupe is <a href={NPM_URL}>on npm</a>, published from CI with provenance, which ties
               each release to the commit and the run that built it <Record id="0024" />. It stayed
-              at 0.x until Rehearsal had tried the cluster’s interfaces against faults, and 1.0
-              comes next, once every export has been reviewed <Record id="0032" />. After that, the
-              roadmap’s later ideas, none of them scheduled:
+              at 0.x until Rehearsal had tried the cluster’s interfaces against faults, and every
+              export had been reviewed <Record id="0032" />. 1.0 promises each entry point’s exact
+              list of exports. A minor version can still add an event type, a dead-letter reason or
+              a kind of fault, so code that switches over them keeps a default. A seed’s run is
+              promised only on the version that recorded it, since every fix to the cluster changes
+              what a seed does <Record id="0039" />. After that, the roadmap’s later ideas, none of
+              them scheduled:
             </p>
             <ul className="wu-list">
               <li>A dispatcher on worker threads, for actors that are heavy on CPU.</li>

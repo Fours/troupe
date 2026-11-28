@@ -674,10 +674,18 @@ export function createStore(): BackstageStore {
 
   return {
     apply(frame) {
-      if (frame.type === 'hello') hello(frame);
-      else if (frame.type === 'cluster') {
-        if (connected) cluster(frame.cluster);
-      } else event(frame.event);
+      // A newer server can send frame types this version doesn't know (decision 0039), which no
+      // case matches, so they're skipped.
+      switch (frame.type) {
+        case 'hello':
+          hello(frame);
+          return;
+        case 'cluster':
+          if (connected) cluster(frame.cluster);
+          return;
+        case 'event':
+          event(frame.event);
+      }
     },
     view() {
       if (cached !== undefined) return cached;

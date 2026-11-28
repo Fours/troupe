@@ -59,7 +59,9 @@ export interface Chance {
 
 /** An entity an operation is on: its type and id, wherever it lives. */
 export interface EntityHandle<M> {
+  /** The entity type's name, as `sharding.init` registered it. */
   readonly type: string;
+  /** The entity's id. */
   readonly id: string;
   /** Never set: it only carries the entity's message type. */
   readonly messages?: M;
@@ -96,6 +98,7 @@ export interface SetupContext {
   readonly inc: number;
   /** Whether the node is a client: it routes and runs the workload, and hosts nothing. */
   readonly client: boolean;
+  /** The incarnation's actor system, on its own clock. */
   readonly system: ActorSystem;
   /** The node's place in the cluster. */
   readonly cluster: Cluster;
@@ -108,12 +111,17 @@ export type SetupResult = undefined | EntityType<never> | readonly EntityType<ne
 
 /** The cluster each node joins: `joinCluster`'s timings and lease options. */
 export interface ScenarioCluster {
-  /** Default `rehearsal`. */
+  /** The cluster's name. Default `rehearsal`. */
   name?: string;
+  /** As `joinCluster`'s: how often a node heartbeats and gossips. Default 1,000. */
   heartbeatMs?: number;
+  /** As `joinCluster`'s: how long a member can go unheard. Default 5,000. */
   unreachableAfterMs?: number;
+  /** As `joinCluster`'s: how long a member can stay unreachable. Default 10,000. */
   downAfterMs?: number;
+  /** As `joinCluster`'s: how long the first seed tries the others. Default 5,000. */
   seedTimeoutMs?: number;
+  /** As `joinCluster`'s: how each node times its shard leases. */
   leases?: LeaseOptions;
 }
 
@@ -132,6 +140,7 @@ export interface ScenarioOptions {
    * third of `durationMs`, and at most 20,000.
    */
   quietMs?: number;
+  /** The cluster each node joins. */
   cluster?: ScenarioCluster;
   /** Registers the entity types on each node incarnation, and returns them. */
   setup: (ctx: SetupContext) => SetupResult;
@@ -176,10 +185,13 @@ export type RunOptions =
 
 /** One run of a scenario: its seed and plan, what happened, and what broke. */
 export interface Run {
+  /** The run's seed. */
   readonly seed: number;
+  /** The faults it carried out: the seed's plan, or the one it was given. */
   readonly plan: FaultPlan;
   /** Where the run ended, in ms of simulation time: `durationMs` unless it was cut short. */
   readonly untilMs: number;
+  /** Everything it did, as JSON, the same byte for byte from the same seed and plan. */
   readonly history: History;
   /** What the invariants found. */
   readonly violations: readonly Violation[];

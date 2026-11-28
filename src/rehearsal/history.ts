@@ -9,19 +9,27 @@ import type { Fault, FaultPlan } from './plan.js';
 
 /** The run as it began: what it was, and its plan. Always the history's first entry. */
 export interface RunEntry {
+  /** Always `run`. */
   readonly kind: 'run';
+  /** Always 0. */
   readonly time: number;
+  /** The run's seed, which every stream in it is drawn from. */
   readonly seed: number;
+  /** The network mode the run used (decision 0035). */
   readonly mode: NetworkMode;
   /** Hosts started at once, then spares, then clients. */
   readonly nodes: readonly string[];
+  /** The nodes that host shards but start only when the plan joins them. */
   readonly spares: readonly string[];
+  /** The nodes that route and run the workload, and host nothing. */
   readonly clients: readonly string[];
+  /** How long the run was to last, in ms of simulation time. */
   readonly durationMs: number;
   /** When the quiet tail began. */
   readonly quietFrom: number;
   /** The cluster's lease timings. */
   readonly leases: { readonly ttlMs: number; readonly renewMs: number; readonly marginMs: number };
+  /** The faults the run carried out: drawn from the seed, or the plan it was given. */
   readonly plan: FaultPlan;
   /** Where the run was cut short, if it was: it ended here, not at `durationMs`. */
   readonly untilMs?: number;
@@ -29,10 +37,15 @@ export interface RunEntry {
 
 /** A node incarnation started: `inc` counts its node's incarnations from 0, `uid` is its own. */
 export interface StartEntry {
+  /** Always `start`. */
   readonly kind: 'start';
+  /** When it happened, in ms of simulation time. */
   readonly time: number;
+  /** The node's name, which is its address. */
   readonly node: string;
+  /** Which incarnation of the node, from 0. */
   readonly inc: number;
+  /** The incarnation's uid, as a ref to it has it after `#`. */
   readonly uid: number;
   /** Its clock's drift as it started, drawn from its own stream. */
   readonly driftPpm: number;
@@ -43,10 +56,15 @@ export interface StartEntry {
  * cluster, gracefully or because it was downed. A restart is a new incarnation.
  */
 export interface StopEntry {
+  /** Always `stop`. */
   readonly kind: 'stop';
+  /** When it happened, in ms of simulation time. */
   readonly time: number;
+  /** The node's name, which is its address. */
   readonly node: string;
+  /** Which incarnation of the node, from 0. */
   readonly inc: number;
+  /** `killed` by a fault, or `exited` once it had left the cluster. */
   readonly why: 'killed' | 'exited';
 }
 
@@ -56,10 +74,15 @@ export interface StopEntry {
  * only for entities.
  */
 export interface EventEntry {
+  /** Always `event`. */
   readonly kind: 'event';
+  /** When it happened, in ms of simulation time. */
   readonly time: number;
+  /** The node whose system published it. */
   readonly node: string;
+  /** Which incarnation of the node, from 0. */
   readonly inc: number;
+  /** The event, with its `type` and its node's `at`, and its other fields as JSON. */
   readonly event: { readonly type: string; readonly at: number } & Readonly<
     Record<string, JsonValue>
   >;
@@ -67,31 +90,48 @@ export interface EventEntry {
 
 /** A fault began or ended. `index` is its place in the plan. */
 export interface FaultEntry {
+  /** Always `fault`. */
   readonly kind: 'fault';
+  /** When it happened, in ms of simulation time. */
   readonly time: number;
+  /** The fault's place in the run's plan, from 0. */
   readonly index: number;
+  /**
+   * Whether the fault began or ended: a kill once its node starts again, and a reset, a join or
+   * a jump the moment it begins. Every fault ends unless the run is cut short first.
+   */
   readonly phase: 'begin' | 'end';
+  /** The fault, as the plan has it. */
   readonly fault: Fault;
 }
 
 /** A client began an operation on an entity. */
 export interface InvokeEntry {
+  /** Always `invoke`. */
   readonly kind: 'invoke';
+  /** When it happened, in ms of simulation time. */
   readonly time: number;
   /** The operation's number in the run, from 0. */
   readonly op: number;
+  /** The client that began it. */
   readonly client: string;
   /** Its name, such as `buy`. */
   readonly name: string;
+  /** The entity it's on: its type and id. */
   readonly entity: { readonly type: string; readonly id: string };
 }
 
 /** A message an operation sent to its entity, in the order it sent them. */
 export interface SendEntry {
+  /** Always `send`. */
   readonly kind: 'send';
+  /** When it happened, in ms of simulation time. */
   readonly time: number;
+  /** The operation that sent it, as its {@link InvokeEntry.op}. */
   readonly op: number;
+  /** The client the operation runs on. */
   readonly client: string;
+  /** The message, as JSON: refs as `ref <address>#<uid><path>`, as an event's are. */
   readonly message: JsonValue;
 }
 
@@ -100,41 +140,71 @@ export interface SendEntry {
  * out and its effect may or may not have happened.
  */
 export interface CompleteEntry {
+  /** Always `complete`. */
   readonly kind: 'complete';
+  /** When it happened, in ms of simulation time. */
   readonly time: number;
+  /** The operation that ended, as its {@link InvokeEntry.op}. */
   readonly op: number;
+  /** How it ended. */
   readonly outcome: 'ok' | 'failed' | 'unknown';
+  /** What its `run` resolved with, as JSON, for `ok`. */
   readonly reply?: JsonValue;
+  /** What its `run` rejected with, in words, for `failed` and `unknown`. */
   readonly error?: string;
 }
 
 /** A journal append or lease call, once its caller had its answer or never would. */
 export interface DatabaseEntry {
+  /** Always `db`. */
   readonly kind: 'db';
+  /** When it happened, in ms of simulation time. */
   readonly time: number;
+  /** The node that made the call. */
   readonly node: string;
+  /** `journal.append`, `shards.acquire` or `shards.release`. */
   readonly op: string;
+  /**
+   * What it was about: for an append, its stream, the sequence number it expected and how many
+   * events it held, as `show-hamlet@3+1`, and for a lease call, the lease, as `show/12`.
+   */
   readonly target: string;
+  /** Whether it reached the data. An applied call can still report failure. */
   readonly applied: boolean;
+  /** Whether its answer was a success. */
   readonly ok: boolean;
+  /**
+   * `delivered`: its caller had the answer. `lost`: the reply was lost, and its caller never
+   * heard. `disconnected`: its node was cut off on the way back, so its caller heard of a lost
+   * connection. `closed`: its node's incarnation had ended, which had failed the call already.
+   */
   readonly reply: 'delivered' | 'lost' | 'disconnected' | 'closed';
 }
 
 /** One stored event, as the journal held it when the run ended. */
 export interface JournalEvent {
+  /** The stream it's in. */
   readonly persistenceId: string;
+  /** Its sequence number in the stream, from 1. */
   readonly seq: number;
+  /** The event, as stored. */
   readonly event: JsonValue;
 }
 
 /** The journal as the run ended: every stored event, in offset order. */
 export interface JournalEntry {
+  /** Always `journal`. */
   readonly kind: 'journal';
+  /** When the run ended, in ms of simulation time. Always the history's last entry. */
   readonly time: number;
+  /** Every stored event, in offset order. */
   readonly events: readonly JournalEvent[];
 }
 
-/** One entry in a run's history. */
+/**
+ * One entry in a run's history. A minor version can add kinds of entry, and fields to one
+ * (decision 0039), so an invariant should skip a `kind` it doesn't know.
+ */
 export type HistoryEntry =
   | RunEntry
   | StartEntry

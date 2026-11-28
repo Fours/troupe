@@ -54,7 +54,8 @@ npm run example:backstage  # opening night in Node with serveBackstage; prints t
 npm run test:e2e    # builds the package and the demo, then Playwright in Chromium
                     # (npx playwright install chromium)
 npm run check:package  # after build, from a clean dist/: the tarball, publint and attw
-scripts/smoke-published.sh [version|tgz]  # the README quick start from npm, in Docker
+scripts/smoke-published.sh [version|tgz]  # the README's quick start and Rehearsal example from npm,
+                                          # in Docker, on Node 22, 24 and 26
 npm run deploy      # the demo site to troupe.kylewillett.com; needs AWS, see DEPLOY.md
 ```
 
@@ -84,6 +85,8 @@ src/
   timeout.ts        withTimeout, the one timeout on a store call, on the caller's scheduler (0036)
   actor.ts, names.ts, events.ts, logger.ts, errors.ts, queue.ts
   scheduler.ts      Scheduler and realScheduler (0003)
+  version.ts        the package's version, which a replay line carries (0039): change it with
+                    package.json's on a release, which test/version.test.ts checks
   globals.d.ts      the runtime globals src/ may use (0004); in the build config only
   node/             Node-only entry points, built by tsconfig.build.node.json with Node types, and
                     the only place lint allows Node built-ins: sqlite/ is /persistence/sqlite (0017),
@@ -163,7 +166,9 @@ test/               mirrors src/; helpers/ holds deferred() and test actors (tre
                     (plants.test.ts, with the hunts in planted.ts)
                     persistence/contract.ts is the journal contract every backend runs, and
                     cluster/shard-store-contract.ts the shard stores';
-                    node/ tests the Node-only backends, lint.test.ts the lint config's boundaries
+                    node/ tests the Node-only backends, lint.test.ts the lint config's boundaries,
+                    readme.test.ts typechecks and runs the README's Rehearsal section against src/,
+                    and package.test.ts the export lists that 1.0 promises (0039)
                     integration/ needs Postgres: its own Vitest project, run by test:integration
                     demo/ tests the demo's domain on the testkit and its driven clock, festival
                     night's on its in-memory cluster, festival night rehearsed (rehearsal.test.ts,
@@ -228,7 +233,8 @@ scripts/            run by Node with type stripping: write-sql.ts ships table SQ
                     cluster-smoke.ts the Docker Compose demo,
                     rehearse.ts npm run rehearse, across worker processes,
                     record-runs.ts the planted bugs' failing runs for /rehearsal/ (0044),
-                    smoke-published.sh runs the quick start against the published package,
+                    smoke-published.sh runs the quick start and the Rehearsal example against
+                    the published package,
                     probe-macrotask.ts times the ways to yield a macrotask, in Node or Chromium
                     (0033),
                     deploy.sh deploys the demo site (DEPLOY.md)

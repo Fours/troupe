@@ -43,6 +43,7 @@ export const RECORDS = {
   '0036': '0036-timeouts-are-unknown-outcomes-settled-by-recovery',
   '0037': '0037-the-json-check-is-public',
   '0038': '0038-a-pipe-with-a-signal-ends-on-the-scheduler',
+  '0039': '0039-what-1-0-promises',
   '0040': '0040-planted-bugs-are-found-by-what-they-break',
   '0041': '0041-a-failure-can-raise-its-backoff-delay',
   '0042': '0042-keep-the-majority',

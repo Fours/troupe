@@ -15,6 +15,7 @@ const ENTRIES = [
   `${root}src/cluster/index.ts`,
   `${root}src/cluster/postgres/index.ts`,
   `${root}src/node/cluster/index.ts`,
+  `${root}src/rehearsal/index.ts`,
 ];
 
 function documented(symbol: ts.Symbol, checker: ts.TypeChecker): boolean {

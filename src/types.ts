@@ -49,7 +49,10 @@ export interface AskOptions {
   timeoutMs?: number;
 }
 
-/** Why a message became a dead letter. See the `deadLetter` event. */
+/**
+ * Why a message became a dead letter. See the `deadLetter` event. A minor version can add
+ * reasons (decision 0039), so a `switch` over them needs a `default`.
+ */
 export type DeadLetterReason =
   | 'mailboxFull'
   | 'stopped'
@@ -256,6 +259,9 @@ type Timestamped<E> = E extends unknown ? { readonly seq: number; readonly at: n
  * Something that happened in the system. `seq` orders events across the system: each event takes
  * the next one. It doesn't count a subscriber's events, since one that didn't ask for message
  * events sees gaps while another subscriber did. `at` is the scheduler's time.
+ *
+ * A minor version can add event types, and fields to an event (decision 0039), so a `switch`
+ * over `type` needs a `default`.
  */
 export type SystemEvent = Timestamped<
   | { readonly type: 'spawned'; readonly path: string }

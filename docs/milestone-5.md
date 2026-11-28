@@ -376,7 +376,7 @@ Do these in order. Each one ends with passing tests.
 | T6. `rehearse()`, shrinking, replay and planted bugs | Done | fb778f5 |
 | T7. The hunt | Done | cb6c8cd |
 | T8. The site's `/rehearsal/` page and the write-up | Done | 3b610be |
-| T9. API review, README and 1.0.0 | Not started | |
+| T9. API review, README and 1.0.0 | Done but the release, which waits on your approval of the tag | |
 
 ### T1. Node clocks and the run loop
 
@@ -535,11 +535,21 @@ Write [0039](#decision-records).
 
 **Done when:**
 
-- [ ] Every public export has been reviewed, and anything not ready is removed or renamed before 1.0, with the changelog saying so
-- [ ] 0039 says what 1.0 promises: which exports, whether a new `SystemEvent` or dead-letter reason is a minor or a major change, and Backstage's protocol
-- [ ] The README covers rehearsing your own entity types, writing an invariant, replaying a failure, and what Rehearsal doesn't simulate
-- [ ] The export-list test, `publint`, `attw` and `check-pack.ts` cover `/rehearsal`
+- [x] Every public export has been reviewed, and anything not ready is removed or renamed before 1.0, with the changelog saying so
+- [x] 0039 says what 1.0 promises: which exports, whether a new `SystemEvent` or dead-letter reason is a minor or a major change, and Backstage's protocol
+- [x] The README covers rehearsing your own entity types, writing an invariant, replaying a failure, and what Rehearsal doesn't simulate
+- [x] The export-list test, `publint`, `attw` and `check-pack.ts` cover `/rehearsal`
 - [ ] After your approval in chat, `v1.0.0` is tagged and published with provenance, and the smoke script's quick start works from npm on Node 22, 24 and 26
+
+Settled in T9 ([0039](decisions/0039-what-1-0-promises.md), answered in review, 2026-11-28):
+
+- **The review removed and renamed nothing.** It found three things, all in `/rehearsal`, which has never been released. The TSDoc test didn't list `/rehearsal`, so 123 fields of its types had no comment. `AcknowledgedWritesOptions.kept` had its comment on the wrong field. `DelayFault` and the `slow` disk fault named `Range`, which isn't exported, and now spell it out. The record has the review, entry point by entry point.
+- **Open unions:** a minor version can add `SystemEvent` types, dead-letter reasons, history entry kinds, fault kinds and Backstage frame types, and each one's TSDoc says so. Backstage's own UI took an unknown frame for an event and threw. It skips one now, and a test holds it to that.
+- **Backstage's protocol:** optional fields and new frame types are minor. A new `PROTOCOL` is major.
+- **Replay lines are promised within one version.** A line now carries the version that recorded it, `src/version.ts`, which a test keeps equal to `package.json`'s. When a line from another version doesn't reproduce, `replay` names both versions. The planted bugs' lines, from before 1.0, have no version and still reproduce.
+- **The README's Rehearsal example is a bank:** three accounts on three nodes and a web client, under every fault group, with the built-in invariants and one of its own. `test/readme.test.ts` typechecks the section as a user's code and runs it against `src/`. `smoke-published.sh` runs it from npm, and it printed `20 seeds, 0 failed` from a tarball on Node 22, 24 and 26. Breaking the example's deposit fails its own invariant, and breaking its `kept` fails `acknowledgedWritesKept`.
+- **The README's split-brain line was out of date.** It still said there was no strategy. It now says what keep the majority does (0042).
+- `/rehearsal/` going live on the site needs `npm run deploy` with your AWS credentials.
 
 ## Stretch goals
 

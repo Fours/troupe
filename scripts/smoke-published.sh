@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Installs the package into an empty folder and runs the README's quick start, on each Node line
-# the package supports, in Docker, so nothing from this repo leaks in. Passes when the quick start
-# prints 2, the counter's value.
+# Installs the package into an empty folder and runs the README's quick start and its Rehearsal
+# example, on each Node line the package supports, in Docker, so nothing from this repo leaks in.
+# Passes when the quick start prints 2, the counter's value, and the Rehearsal example prints that
+# its seeds passed.
 #
 # Usage: scripts/smoke-published.sh [version]          (default: package.json's version, from npm)
 #        scripts/smoke-published.sh path/to/package.tgz (an `npm pack` tarball, before publishing)
@@ -25,10 +26,17 @@ if [[ -z "$quickstart" ]]; then
   echo "No quick start found in README.md" >&2
   exit 1
 fi
+# The first ts block under "## Rehearsal": a scenario of the README's own, on 20 seeds.
+rehearsal="$(awk '/^## Rehearsal/{s=1} s&&/^```ts/{c=1;next} c&&/^```/{exit} c' README.md)"
+if [[ -z "$rehearsal" ]]; then
+  echo "No Rehearsal example found in README.md" >&2
+  exit 1
+fi
 
 for node in "${node_versions[@]}"; do
   echo "== Node $node, $spec"
   docker run --rm -i ${mount[@]+"${mount[@]}"} -e SPEC="$spec" -e QUICKSTART="$quickstart" \
+    -e REHEARSAL="$rehearsal" \
     "node:$node-slim" bash -s <<'EOF'
 set -euo pipefail
 mkdir /app && cd /app
@@ -40,6 +48,10 @@ node --version
 out="$(node main.ts)"
 echo "main.ts printed: $out"
 [[ "$out" == "2" ]]
+printf '%s\n' "$REHEARSAL" > rehearsal.ts
+out="$(node rehearsal.ts)"
+echo "rehearsal.ts printed: $out"
+[[ "$out" == "20 seeds, 0 failed" ]]
 EOF
 done
-echo "Quick start works on Node ${node_versions[*]}."
+echo "The quick start and the Rehearsal example work on Node ${node_versions[*]}."

@@ -281,9 +281,11 @@ function checkNameOpt(value: unknown, what: string): void {
 
 /** A write that completed ok, as `acknowledgedWritesKept`'s `kept` is given it. */
 export interface AcknowledgedWrite {
+  /** The entity it wrote to: its type and id. */
   readonly entity: { readonly type: string; readonly id: string };
   /** What it sent its entity, in order. */
   readonly messages: readonly JsonValue[];
+  /** Its entity's reply. */
   readonly reply: JsonValue;
 }
 
@@ -295,12 +297,12 @@ export interface AcknowledgedWritesOptions {
    * Whether an acknowledged write is among `journal`'s events, the journal as the run ended: how
    * to find a write from what it sent and its reply. Needed with `write`.
    */
+  kept?: (write: AcknowledgedWrite, journal: readonly JournalEvent[]) => boolean;
   /**
    * Whether an ok reply acknowledged the write, rather than refusing it, as a sold-out show's
    * does. Default every ok reply.
    */
   acknowledged?: (reply: JsonValue) => boolean;
-  kept?: (write: AcknowledgedWrite, journal: readonly JournalEvent[]) => boolean;
 }
 
 /**

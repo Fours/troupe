@@ -58,6 +58,7 @@ When you change a decision, update its record in the same commit as the code.
 | [0036](0036-timeouts-are-unknown-outcomes-settled-by-recovery.md) | Journal and shard store calls time out on the scheduler, and a timeout is an unknown outcome, settled by recovery | Accepted | 5 |
 | [0037](0037-the-json-check-is-public.md) | The JSON check is public: `JsonValue`, `isJsonValue` and `jsonProblem` from the main entry | Accepted | 5 |
 | [0038](0038-a-pipe-with-a-signal-ends-on-the-scheduler.md) | A pipe with a signal ends when the signal aborts, so it isn't busy work for `settle` | Accepted | 5 |
+| [0039](0039-what-1-0-promises.md) | What 1.0 promises: the export lists, open unions, and a replay line within its version | Proposed | 5 |
 | [0040](0040-planted-bugs-are-found-by-what-they-break.md) | A planted bug is found by what it breaks, and failover means answering again | Accepted | 5 |
 | [0041](0041-a-failure-can-raise-its-backoff-delay.md) | A failure can raise its backoff delay, through the strategy's `minDelayFor`, past `maxMs` | Accepted | 5 |
 | [0042](0042-keep-the-majority.md) | Keep the majority: only the larger side of a split downs the rest, and two clusters settle it when they meet | Accepted | 5 |

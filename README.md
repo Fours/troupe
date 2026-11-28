@@ -1,16 +1,16 @@
 # Troupe
 
-Typed actors for TypeScript, in the spirit of Akka: hierarchies, supervision, `ask`, timers, a testkit that runs on virtual time, and event-sourced persistent actors on an in-memory, SQLite or Postgres journal, and cluster sharding across Node processes, with at most one live instance of each entity.
+Typed actors for TypeScript, in the spirit of Akka: hierarchies, supervision, `ask`, timers, a testkit that runs on virtual time, and event-sourced persistent actors on an in-memory, SQLite or Postgres journal, cluster sharding across Node processes, with at most one live instance of each entity, and Rehearsal, which tests a whole cluster under faults in one process, a thousand seeded runs at a time.
 
 > **Status:** 0.x, so a minor version can change the API. 1.0 comes after milestone 5, Rehearsal, has tested the cluster against injected faults ([0032](docs/decisions/0032-1-0-comes-after-rehearsal.md)). See the [changelog](CHANGELOG.md), the [roadmap](docs/roadmap.md), and the specs for milestones [1](docs/milestone-1.md), [2](docs/milestone-2.md), [3](docs/milestone-3.md) and [4](docs/milestone-4.md).
 
-**[See it run](https://troupe.kylewillett.com/):** opening night at a box office, a Troupe system running live in your browser with no backend, inspected by Backstage. Crash a show and watch it restart and recover from its journal, take the journal down, and scrub a show's events back through time. Then [festival night](https://troupe.kylewillett.com/cluster/): a dozen shows on three nodes in the page, with buttons that kill, restart and add nodes.
+**[See it run](https://troupe.kylewillett.com/):** opening night at a box office, a Troupe system running live in your browser with no backend, inspected by Backstage. Crash a show and watch it restart and recover from its journal, take the journal down, and scrub a show's events back through time. Then [festival night](https://troupe.kylewillett.com/cluster/): a dozen shows on three nodes in the page, with buttons that kill, restart and add nodes. Then [Rehearsal](https://troupe.kylewillett.com/rehearsal/): festival night run on seed after seed in your browser under faults, and the bugs it found, each drawn at the moment it broke.
 
 **[How it works](https://troupe.kylewillett.com/how-it-works/):** the design write-up, "How Troupe works", tells the [decision records](docs/decisions/) as one story, from actors as a state and a reducer to the benchmark's numbers, and links every claim to its record.
 
 - **Typed:** each actor has one message type, and refs are checked against it.
 - **No runtime dependencies**, and the core runs on any JavaScript runtime, not only Node.
-- **Deterministic tests:** time, scheduling and chance are injected, so the testkit replays a run exactly from a seed.
+- **Deterministic tests:** time, scheduling and chance are injected, so the testkit replays a run exactly from a seed, and Rehearsal replays a whole cluster's.
 
 ## Install
 
@@ -33,6 +33,7 @@ It needs Node 22.18 or later, and is ESM only. Each release is published from CI
 | `@kylewillett/troupe/cluster` | joining a cluster, cluster sharding, the in-memory network and shard store | any runtime |
 | `@kylewillett/troupe/cluster/postgres` | the Postgres shard store, on your own `pg` pool | any runtime with a pool |
 | `@kylewillett/troupe/cluster/tcp` | `tcpTransport`, nodes in separate processes, on `node:net` | Node |
+| `@kylewillett/troupe/rehearsal` | Rehearsal: scenarios, fault plans, invariants, `rehearse` and `replay` | any runtime |
 
 None of them has a runtime dependency.
 
@@ -413,7 +414,8 @@ await alice.ask<Receipt>((replyTo) => ({ type: 'deposit', amount: 10, replyTo })
 - **At most once delivery.** Nothing is retried or acknowledged. A message on a connection that breaks, or sent to a node in the seconds before anyone notices it died, is lost, and an `ask` for it times out. If a request must happen, ask again, and make it safe to repeat ([0026](docs/decisions/0026-remoting-is-at-most-once-behind-a-transport.md)).
 - **Order per pair.** Messages from one node to one actor arrive in the order they were sent. While an entity's shard moves, messages already on their way can be reordered, but never delivered twice.
 - **Messages are JSON plus refs.** Every message to an entity is encoded, even when the entity is on the same node, so one with a `Map`, a class instance or a function fails on your laptop, not in production when its shard moves. It becomes an `unserializable` dead letter, and a warning names the bad path ([0025](docs/decisions/0025-messages-on-the-wire-are-json-plus-refs.md)). Refs can go anywhere in a message, and arrive as refs.
-- **Not guaranteed:** exactly-once delivery; availability while Postgres is unreachable, since every shard stops at its lease deadline rather than risk a second copy; a split-brain strategy, so while a partition lasts, the side that can't reach a shard's holder waits for it to heal, or for the holder to learn it was marked down and leave; encryption between nodes.
+- **Only the larger side of a split keeps the cluster.** A node that has had members unreachable for `downAfterMs` downs them only if it can reach more than half of the members up or leaving, itself included. Otherwise it downs itself and leaves, and comes back by starting again. At exactly half, the side with the first seed that's a member keeps the cluster. Run nodes under a process manager that restarts them ([0042](docs/decisions/0042-keep-the-majority.md)).
+- **Not guaranteed:** exactly-once delivery; availability while Postgres is unreachable, since every shard stops at its lease deadline rather than risk a second copy; encryption between nodes.
 - **Not built:** spawning an actor on another node, looking an actor up by path on another node, and cluster singletons. Refs travel in messages, or come from sharding.
 
 ### The secret, and the private network
@@ -429,6 +431,168 @@ With the default leases (`ttlMs` 10,000, renewed every 3,000, given up 2,000 ear
 Shorter leases fail over faster, at a price: a node that stalls, in a long GC pause or a slow Postgres, for longer than `ttlMs` minus `marginMs` loses every lease it holds. Pass `leases: { ttlMs, renewMs, marginMs }` to `joinCluster`, the same on every node, and keep `unreachableAfterMs` shorter than `ttlMs` minus `renewMs`. Every shard store call gives up after `leases.storeTimeoutMs`, `renewMs` by default. A renewal that times out counts as failed, and the holder still gives its shards up at its own deadline, whether the store answers or not.
 
 Backstage works on a cluster node too. It adds a Cluster panel, with the members as this node sees them and a grid of who holds each shard, and shows the sharding tree above `/user`.
+
+## Rehearsal
+
+`@kylewillett/troupe/rehearsal` tests a whole cluster in one process, on simulated time: its nodes, the network between them, the database, and each node's clock. Each run draws faults from its seed, such as kills, pauses, partitions, slow or hanging disks, and clocks that drift. Then it checks the run's history against invariants. A run that breaks one is shrunk to the smallest set of faults that still breaks it, and replays exactly from one printed line ([0033](docs/decisions/0033-one-simulation-clock-and-a-clock-per-node.md), [0034](docs/decisions/0034-a-run-is-a-seed-and-a-plan.md)). Troupe's own cluster runs a million seeds of it, which is how its hunt found twenty bugs ([0043](docs/decisions/0043-the-hunt-and-fencing.md)). It runs on any runtime, in a test or a script.
+
+### Rehearsing your own entity type
+
+A scenario is the cluster, how each node sets up its entity types, what the clients do, which faults to draw, and what must hold. Here a bank's accounts run on three nodes, and a web node deposits and reads balances:
+
+```ts
+import type { ActorRef } from '@kylewillett/troupe';
+import { persistentActor, type Persistence } from '@kylewillett/troupe/persistence';
+import { invariants, rehearse, scenario, type Invariant } from '@kylewillett/troupe/rehearsal';
+
+type Receipt = { balance: number };
+type AccountCmd =
+  | { type: 'deposit'; depositId: string; amount: number; replyTo: ActorRef<Receipt> }
+  | { type: 'balance'; replyTo: ActorRef<Receipt> };
+type Deposited = { type: 'deposited'; depositId: string; amount: number };
+
+const account = (persistence: Persistence) => (id: string) =>
+  persistentActor<AccountCmd, Deposited, { balance: number }>({
+    id: `account-${id}`,
+    persistence,
+    initial: { balance: 0 },
+    onCommand(state, cmd, { persist, reply }) {
+      if (cmd.type === 'balance') return reply(cmd.replyTo, { balance: state.balance });
+      const { depositId, amount } = cmd;
+      return persist({ type: 'deposited', depositId, amount }).thenReply(cmd.replyTo, (s) => s);
+    },
+    onEvent: (state, event) => ({ balance: state.balance + event.amount }),
+  });
+
+// An invariant of your own: a function of the run's history. It skips entries it doesn't use,
+// since a later version can add kinds of entry.
+const depositsShow: Invariant = {
+  name: 'depositsShow',
+  check(history) {
+    const amounts = new Map<number, number>();
+    const found = [];
+    for (const e of history) {
+      if (e.kind === 'send') {
+        const msg = e.message as { type?: string; amount?: number };
+        if (msg.type === 'deposit' && msg.amount !== undefined) amounts.set(e.op, msg.amount);
+      } else if (e.kind === 'complete' && e.outcome === 'ok') {
+        const amount = amounts.get(e.op);
+        const balance = (e.reply as { balance?: number } | undefined)?.balance ?? 0;
+        if (amount !== undefined && balance < amount) {
+          const message = `deposit ${String(e.op)} of ${String(amount)} answered a balance of ${String(balance)}`;
+          found.push({ invariant: 'depositsShow', message, time: e.time });
+        }
+      }
+    }
+    return found;
+  },
+};
+
+const ACCOUNTS = ['alice', 'bob', 'carol'];
+const balanceOf = (reply: unknown) => (reply as { balance?: number } | null)?.balance;
+
+const bank = scenario({
+  nodes: ['node-1', 'node-2', 'node-3'],
+  clients: ['web'], // routes and runs the workload, and hosts no shard
+  durationMs: 60_000,
+  // Runs on every incarnation of every node, against the run's simulated database.
+  setup: ({ cluster, db, client }) =>
+    cluster.sharding.init({ type: 'account', entity: account(db.persistence()), host: !client }),
+  // Each client's operations, drawn from its own stream, so they repeat from the seed.
+  workload: ({ client, now, chance, entity, op }) => {
+    const to = entity<AccountCmd>('account', chance.pick(ACCOUNTS));
+    if (chance.next() < 0.5) {
+      const depositId = `${client}@${String(now)}`;
+      const amount = chance.int(1, 100);
+      op('deposit', to, (ref) =>
+        ref.ask<Receipt>((replyTo) => ({ type: 'deposit', depositId, amount, replyTo }), {
+          timeoutMs: 3_000,
+        }),
+      );
+    } else {
+      op('balance', to, (ref) =>
+        ref.ask<Receipt>((replyTo) => ({ type: 'balance', replyTo }), { timeoutMs: 3_000 }),
+      );
+    }
+  },
+  faults: { nodes: true, clocks: true, network: 'contract', disks: true },
+  invariants: [
+    invariants.oneLiveInstance(),
+    invariants.acknowledgedWritesKept({
+      write: 'deposit',
+      kept: (write, journal) =>
+        journal.some(
+          (e) =>
+            e.persistenceId === `account-${write.entity.id}` &&
+            (e.event as Deposited).depositId === (write.messages[0] as { depositId?: string }).depositId,
+        ),
+    }),
+    invariants.noStaleReads({ read: 'balance', write: 'deposit', position: balanceOf }),
+    invariants.recovers({ withinMs: 20_000 }),
+    depositsShow,
+  ],
+});
+
+const report = await rehearse(bank, { seeds: { from: 1, count: 20 } });
+for (const failure of report.failures) {
+  console.log(`seed ${String(failure.seed)}: ${failure.invariant}`);
+  console.log(`  replay: ${failure.replay}`);
+}
+console.log(`${String(report.seeds)} seeds, ${String(report.failures.length)} failed`);
+```
+
+- **`setup`** runs on every incarnation of every node, with its `cluster`, its `system` and the run's simulated `db`. It registers the entity types and returns them, as your own nodes would. Each restart after a kill is a new incarnation, with its own clock.
+- **`workload`** runs on each client, every 50 to 250 ms by default. `op` starts an operation that the history records: when it began, every message it sent, and how it ended, `ok` with its reply, `failed`, or `unknown` when its ask timed out. Draw only from `chance`, so the workload repeats from the seed.
+- **`faults`** picks what each seed's plan draws: `nodes` (kills, pauses, graceful leaves, and joins of `spares`), `clocks` (drift, and the database's clock jumping), `network`, and `disks` (slow spells, hangs, errors, lost replies, and a node cut off from the database). `only` lists kinds instead, and `perMinute`, `concurrent` and `lastingMs` set how many and how long.
+- **The network's two modes** ([0035](docs/decisions/0035-safety-under-any-network-ordering-under-the-contract.md)). `contract`, which `network: true` means too, fails only as a real network does: partitions, resets, delay, and reordering across connections. `chaos` also loses, repeats and reorders single messages within a connection, which the `Transport` contract rules out. Safety must hold either way. `atMostOnce` and `orderPerPair` are checked only in contract mode.
+- **The built-in invariants:**
+  - `oneLiveInstance`: never two live instances of an entity;
+  - `acknowledgedWritesKept`: every write that answered `ok` is in the journal at the end, with no gaps in any stream;
+  - `noStaleReads`: a read never shows a position older than a write that answered before the read began;
+  - `atMostOnce` and `orderPerPair`;
+  - `recovers`: once the faults end, the members agree, every shard is on its owner, and every operation answers;
+  - `failoverWithin`: a killed node's entities answer again elsewhere within a bound.
+- **`rehearse`** runs seeds one after another, and shrinks each failure. `ignore` counts an invariant without failing on it, `maxFailures` stops early, and `determinismEvery` runs every nth seed twice to check the two histories match. `bank.run({ seed })` runs one seed and gives you its `history`, `violations` and `plan`, and `bank.plan(seed)` the plan alone.
+- **Past the lease's margin.** A run whose clocks drift or jump more than `marginMs` covers can show two live instances, which the lease can't promise against ([0029](docs/decisions/0029-a-shard-is-owned-by-whoever-holds-its-lease.md)). If the journal held, that's reported in `run.expected`, apart from the violations.
+
+### Writing an invariant
+
+An invariant is a `name` and a `check(history)` that returns what it found wrong, as above. The history is plain JSON, in simulation time, and it's the only thing an invariant sees, never the live system. It has these kinds of entry:
+
+- `run`, first, with the seed and the plan;
+- `start` and `stop` for node incarnations;
+- `event` for each node's system events;
+- `fault` as each one begins and ends;
+- `invoke`, `send` and `complete` for each operation;
+- `db` for each journal append and lease call;
+- `journal`, last, with every event stored.
+
+A violation has the `invariant`'s name, a `message` and a `time`. It can also have `until`, for something that lasted, the `nodes` involved and the `entity`. Give `modes: ['contract']` to an invariant that rests on the transport's contract. A later version can add kinds of entry and fields to one ([0039](docs/decisions/0039-what-1-0-promises.md)), so skip what you don't use, as `depositsShow` does.
+
+### Replaying a failure
+
+Each failure in the report has the seed that failed and its shrunk plan, with faults removed, shortened and moved later until no smaller plan still fails. It also has `replay`, one line that holds the seed, the network mode, the plan and where the run can end:
+
+```ts
+import { replay } from '@kylewillett/troupe/rehearsal';
+
+const [failure] = report.failures;
+if (failure) {
+  const run = await bank.run({ replay: failure.replay }); // the shrunk run, with its history
+  console.log(run.plan, run.violations);
+  const again = await replay(bank, failure.replay);
+  console.log(again.message); // "reproduced: depositsShow: ..."
+}
+```
+
+A run is a pure function of its seed and plan, so the line gives the same history byte for byte, as long as the scenario reads time only from its context, draws chance only from `chance`, and waits on nothing outside the simulation. `replay` checks the run finds the violation again, and says why if it doesn't. An actor that waits on real I/O, such as a `fetch`, stalls the run: `run` throws a `StallError` that names the busy actors, and `rehearse` counts it as a violation called `stall`. A line carries the version that recorded it, and is promised only on that version, since a fix to the cluster can change what a seed's run does ([0039](docs/decisions/0039-what-1-0-promises.md)).
+
+### What Rehearsal doesn't simulate
+
+- **TCP and Postgres themselves.** The simulated network implements `Transport`, and the simulated database is the in-memory journal and shard store behind latencies and faults. Both pass the same contract suites as the real backends, which is what Rehearsal's fidelity rests on. The multi-process tests, the Docker smoke test and the Postgres suite test the real ones.
+- **Your actors' own I/O.** Nothing outside the cluster's transport, journal and shard store runs on simulated time. A `fetch` or a real timer in an actor stalls the run.
+- **Real time and real load.** A run is minutes of simulated time in well under a second, so it finds orderings, not slowness or memory leaks. The benchmark measures those.
+- **Full linearizability.** `noStaleReads` checks that reads never go backwards past an acknowledged write. It isn't a Knossos-style checker of every history.
 
 ## Pitfalls
 

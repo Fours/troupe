@@ -10,15 +10,21 @@ import { pick } from './streams.js';
 
 /** A node killed, as `kill -9` does, and started again as a new incarnation after `restartAfterMs`. */
 export interface KillFault {
+  /** When it begins, in ms of simulation time. */
   readonly at: number;
+  /** The node killed. */
   readonly kill: string;
+  /** How long after the kill it starts again, in ms. */
   readonly restartAfterMs: number;
 }
 
 /** A node's process stopped for `ms`, as a long GC or a suspended VM does. Its clock goes on. */
 export interface PauseFault {
+  /** When it begins, in ms of simulation time. */
   readonly at: number;
+  /** The node paused. */
   readonly pause: string;
+  /** How long it's paused, in ms. */
   readonly ms: number;
 }
 
@@ -27,37 +33,53 @@ export interface PauseFault {
  * `rejoinAfterMs` after it began to leave, or once it has left if that takes longer.
  */
 export interface LeaveFault {
+  /** When it begins, in ms of simulation time. */
   readonly at: number;
+  /** The node that leaves. */
   readonly leave: string;
+  /** How long after it begins to leave it starts again, in ms, at the soonest. */
   readonly rejoinAfterMs: number;
 }
 
 /** A spare node starting for the first time, and joining the cluster. It stays. */
 export interface JoinFault {
+  /** When it begins, in ms of simulation time. */
   readonly at: number;
+  /** The spare node that starts. */
   readonly join: string;
 }
 
 /** Frames between two sides lost or held, both ways or, with `oneWay`, from the first only. */
 export interface PartitionFault {
+  /** When it begins, in ms of simulation time. */
   readonly at: number;
+  /** The two sides, each a list of nodes. */
   readonly partition: readonly [readonly string[], readonly string[]];
+  /** Only frames from the first side to the second are lost. Default both ways. */
   readonly oneWay?: true;
+  /** How long the partition lasts, in ms. */
   readonly ms: number;
 }
 
 /** Every connection between two nodes reset, as a TCP reset does. */
 export interface ResetFault {
+  /** When it begins, in ms of simulation time. */
   readonly at: number;
+  /** The two nodes whose connections reset. */
   readonly reset: readonly [string, string];
 }
 
 /** The latency of everything to or from a node, or between it and `peer`, drawn from a range. */
 export interface DelayFault {
+  /** When it begins, in ms of simulation time. */
   readonly at: number;
+  /** The node whose links are slow. */
   readonly delay: string;
+  /** Only the links between that node and this one. Default all of its links. */
   readonly peer?: string;
-  readonly latencyMs: Range;
+  /** The range each latency is drawn from, as `[min, max]` in ms. */
+  readonly latencyMs: readonly [number, number];
+  /** How long the delay lasts, in ms. */
   readonly ms: number;
 }
 
@@ -66,29 +88,45 @@ export interface DelayFault {
  * overtake each other, and with `within`, in chaos mode only, frames on one connection too.
  */
 export interface ReorderFault {
+  /** When it begins, in ms of simulation time. */
   readonly at: number;
+  /** The node whose links reorder. */
   readonly reorder: string;
+  /** Only the links between that node and this one. Default all of its links. */
   readonly peer?: string;
+  /** The most added to each latency, in ms. */
   readonly windowMs: number;
+  /** Frames on one connection overtake each other too. Chaos mode only. */
   readonly within?: true;
+  /** How long the reordering lasts, in ms. */
   readonly ms: number;
 }
 
 /** Single frames on a node's links lost, with chance `rate`. Chaos mode only. */
 export interface LoseFault {
+  /** When it begins, in ms of simulation time. */
   readonly at: number;
+  /** The node whose links lose frames. */
   readonly lose: string;
+  /** Only the links between that node and this one. Default all of its links. */
   readonly peer?: string;
+  /** The chance each frame is lost, from 0 to 1. */
   readonly rate: number;
+  /** How long frames are lost, in ms. */
   readonly ms: number;
 }
 
 /** Frames on a node's links sent twice, with chance `rate`. Chaos mode only. */
 export interface DuplicateFault {
+  /** When it begins, in ms of simulation time. */
   readonly at: number;
+  /** The node whose links repeat frames. */
   readonly duplicate: string;
+  /** Only the links between that node and this one. Default all of its links. */
   readonly peer?: string;
+  /** The chance each frame is sent twice, from 0 to 1. */
   readonly rate: number;
+  /** How long frames are repeated, in ms. */
   readonly ms: number;
 }
 
@@ -102,7 +140,7 @@ export type DiskFault =
       readonly at: number;
       readonly disk: 'slow';
       readonly node?: string;
-      readonly latencyMs: Range;
+      readonly latencyMs: readonly [number, number];
       readonly ms: number;
     }
   | { readonly at: number; readonly disk: 'hang'; readonly node?: string; readonly ms: number }
@@ -116,26 +154,38 @@ export type DiskFault =
 
 /** A node cut off from the database, every incarnation of it. */
 export interface CutFault {
+  /** When it begins, in ms of simulation time. */
   readonly at: number;
+  /** The node cut off. */
   readonly cut: string;
+  /** How long it's cut off, in ms. */
   readonly ms: number;
 }
 
 /** The database's wall clock jumped `jump` ms forward, for good. */
 export interface JumpFault {
+  /** When it begins, in ms of simulation time. */
   readonly at: number;
+  /** How far the clock jumps forward, in ms. */
   readonly jump: number;
 }
 
 /** A node's clock running `ppm` parts per million fast, or slow if negative, for `ms`. */
 export interface DriftFault {
+  /** When it begins, in ms of simulation time. */
   readonly at: number;
+  /** The node whose clock drifts. */
   readonly drift: string;
+  /** How fast its clock runs, in parts per million: positive is fast, negative slow. */
   readonly ppm: number;
+  /** How long the drift lasts, in ms. */
   readonly ms: number;
 }
 
-/** One fault in a plan, starting at simulation time `at`. */
+/**
+ * One fault in a plan, starting at simulation time `at`. A minor version can add kinds of fault
+ * (decision 0039), so code that reads a plan should skip one it doesn't know.
+ */
 export type Fault =
   | KillFault
   | PauseFault
@@ -155,7 +205,10 @@ export type Fault =
 /** Faults, in order of simulation time. Plain JSON, so it prints, edits and shrinks. */
 export type FaultPlan = readonly Fault[];
 
-/** Every kind of fault, by the name a plan's `only` option uses. */
+/**
+ * Every kind of fault, by the name a plan's `only` option uses. A minor version can add kinds
+ * (decision 0039).
+ */
 export type FaultKind =
   | 'kill'
   | 'pause'

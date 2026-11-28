@@ -11,7 +11,9 @@ export type StillFails = (plan: FaultPlan, untilMs: number) => Promise<Violation
 
 /** A failing run, shrunk. */
 export interface Shrunk {
+  /** The smallest plan found that still fails. */
   readonly plan: FaultPlan;
+  /** Where the shrunk run ends, in ms of simulation time: just past the violation. */
   readonly untilMs: number;
   /** The violation the shrunk run finds. */
   readonly violation: Violation;

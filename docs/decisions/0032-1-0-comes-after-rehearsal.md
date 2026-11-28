@@ -1,6 +1,6 @@
 # 0032. 1.0 comes after milestone 5, not milestone 4
 
-- **Status:** Accepted
+- **Status:** Accepted. What 1.0 promises is [0039](0039-what-1-0-promises.md)
 - **Date:** 2026-11-24
 - **Milestone:** 4
 

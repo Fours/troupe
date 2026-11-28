@@ -7,6 +7,7 @@ import { rehearse, rehearseWith, replay } from '../../src/rehearsal/rehearse.js'
 import { decodeReplay, encodeReplay } from '../../src/rehearsal/replay.js';
 import { scenario, scenarioInfo, scenarioWith } from '../../src/rehearsal/scenario.js';
 import { shrink } from '../../src/rehearsal/shrink.js';
+import { VERSION } from '../../src/version.js';
 
 // Milestone 5, T6 (decision 0034): rehearse, shrinking and the replay line. A failing run is
 // shrunk to the smallest plan that still fails the same invariant, every attempt a whole run from
@@ -105,15 +106,24 @@ describe('the replay line', () => {
     };
     const text = encodeReplay(line);
     expect(text).toMatch(/^eyJzZWVkIjo0MjE3LC[A-Za-z0-9_-]+$/);
-    expect(decodeReplay(text)).toEqual(line);
+    // It carries this version, whatever it was given (decision 0039).
+    expect(decodeReplay(text)).toEqual({ ...line, version: VERSION });
+    expect(decodeReplay(encodeReplay({ ...line, version: '0.9.0' })).version).toBe(VERSION);
     // Every length of input round-trips, whatever its padding would have been.
     for (const seed of [1, 12, 123, 1234]) {
       expect(decodeReplay(encodeReplay({ seed, mode: 'contract', plan: [] }))).toEqual({
         seed,
         mode: 'contract',
         plan: [],
+        version: VERSION,
       });
     }
+    // A line from before 1.0 has no version, and still decodes.
+    expect(decodeReplay(b64('{"seed":1,"mode":"chaos","plan":[]}'))).toEqual({
+      seed: 1,
+      mode: 'chaos',
+      plan: [],
+    });
   });
 
   it.each([
@@ -128,6 +138,7 @@ describe('the replay line', () => {
     [b64('{"seed":1,"mode":"chaos","plan":[],"untilMs":"soon"}'), /untilMs must be an integer/],
     [b64('{"seed":1,"mode":"chaos","plan":[],"plant":4}'), /plant must be a name/],
     [b64('{"seed":1,"mode":"chaos","plan":[],"violation":{"invariant":1}}'), /violation must have/],
+    [b64('{"seed":1,"mode":"chaos","plan":[],"version":1}'), /version must be a string/],
     [b64('{"seed":1,"mode":"chaos","plan":[],"extra":1}'), /unknown key extra/],
   ])('rejects %j', (text, message) => {
     expect(() => decodeReplay(text)).toThrow(message);
@@ -152,6 +163,7 @@ describe('replay', () => {
       mode: 'contract',
       plan: [],
       untilMs: 5_000,
+      version: VERSION,
     });
     const again = await festival.run({ replay: run.replay });
     expect(JSON.stringify(again.history)).toBe(JSON.stringify(run.history));
@@ -196,6 +208,27 @@ describe('replay', () => {
     const fails = await replay(strict, run.replay);
     expect(fails.reproduced).toBe(false);
     expect(fails.message).toMatch(/recorded a run that passed, and this one found test: broke/);
+  });
+
+  it('names the versions when a line from another one doesn’t reproduce', async () => {
+    const run = await festival.run({ seed: 3, plan: [], untilMs: 5_000 });
+    const strict = scenario({
+      ...festivalOptions('contract'),
+      invariants: [{ name: 'never', check: () => [found(1)] }],
+    });
+    const older = b64(JSON.stringify({ ...decodeReplay(run.replay), version: '1.0.0-old' }));
+    expect((await replay(strict, older)).message).toMatch(
+      new RegExp(
+        `found test: broke\\. The line was recorded on 1\\.0\\.0-old, and this is ${VERSION.replace(/\./g, '\\.')}\\. A seed's plan and history can change between versions \\(decision 0039\\)`,
+      ),
+    );
+    // JSON.stringify drops a key whose value is undefined.
+    const unversioned = { ...decodeReplay(run.replay), version: undefined };
+    expect((await replay(strict, b64(JSON.stringify(unversioned)))).message).toMatch(
+      /The line was recorded on a version before 1\.0, and this is/,
+    );
+    // One from another version that does reproduce just says so.
+    expect((await replay(festival, older)).reproduced).toBe(true);
   });
 
   it('throws for a line it can’t run on the scenario, before anything starts', async () => {

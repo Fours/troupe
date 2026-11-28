@@ -6,6 +6,7 @@ import { rehearseWith, replay } from '../../src/rehearsal/rehearse.js';
 import type { History } from '../../src/rehearsal/history.js';
 import { decodeReplay } from '../../src/rehearsal/replay.js';
 import { scenarioWith } from '../../src/rehearsal/scenario.js';
+import { VERSION } from '../../src/version.js';
 import { HUNTS } from './planted.js';
 
 // Milestone 5, T6: the planted bugs. Each is a bug put back on purpose, and each must be caught by
@@ -143,7 +144,10 @@ describe('the planted bugs', () => {
       { baseline: hunt('early-release', false), target: planted('early-release').caughtBy },
     );
     expect(report.failures.map((f) => f.seed)).toEqual([row.seed]);
-    expect(report.failures[0]?.replay).toBe(row.line);
+    // The same line, but for the version it carries: the recorded ones are from before 1.0.
+    const { version, ...shrunk } = decodeReplay(report.failures[0]?.replay ?? '');
+    expect(version).toBe(VERSION);
+    expect(shrunk).toEqual(decodeReplay(row.line));
     expect(report.seeds).toBe(60);
     // Seeds before it broke only what was broken already, which the baseline vouches for.
     expect(report.runs).toBeGreaterThan(row.seed);
