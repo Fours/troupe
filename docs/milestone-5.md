@@ -375,7 +375,7 @@ Do these in order. Each one ends with passing tests.
 | T5. Fault plans, the history and the invariants | Done | 825e281 |
 | T6. `rehearse()`, shrinking, replay and planted bugs | Done | fb778f5 |
 | T7. The hunt | Done | cb6c8cd |
-| T8. The site's `/rehearsal/` page and the write-up | Done but the read-through, which is yours | 3b610be |
+| T8. The site's `/rehearsal/` page and the write-up | Done | 3b610be |
 | T9. API review, README and 1.0.0 | Not started | |
 
 ### T1. Node clocks and the run loop
@@ -515,7 +515,7 @@ Settled in T7 ([0042](decisions/0042-keep-the-majority.md), [0043](decisions/004
 - [x] Playwright covers running seeds, the scrubber, each bug, the phone width, and the frame budget (no frame over 50 ms while seeds run)
 - [x] The site bar links the page, and it has its own title, link preview and pageviews
 - [x] "How Troupe works" has a Rehearsal section citing 0033 to 0040 and every record the hunt added, and the records test passes
-- [ ] Someone non-technical can say what the page shows and why it matters (you check this)
+- [x] Someone non-technical can say what the page shows and why it matters (you check this)
 
 Settled in T8 ([0044](decisions/0044-rehearsal-page-runs-in-a-worker-and-draws-recorded-runs.md)):
 
