@@ -13,26 +13,55 @@ import type { TestNetwork } from './cluster.js';
 /** The secret every test node shares. */
 export const TEST_SECRET = 'test-secret';
 
+/**
+ * `count` different ports nothing listens on now, on 127.0.0.1. Every server stays open until all
+ * are bound: the OS may hand a port it just freed straight back, so ports asked for one at a time,
+ * each closed before the next, can repeat (CI saw two nodes given the same port).
+ */
+export async function freePorts(count: number): Promise<number[]> {
+  const servers = Array.from({ length: count }, () => createServer());
+  try {
+    return await Promise.all(
+      servers.map(
+        (server) =>
+          new Promise<number>((resolve, reject) => {
+            server.once('error', reject);
+            server.listen(0, '127.0.0.1', () => {
+              const bound = server.address();
+              if (typeof bound !== 'object' || bound === null) reject(new Error('no port'));
+              else resolve(bound.port);
+            });
+          }),
+      ),
+    );
+  } finally {
+    await Promise.all(
+      servers.map(
+        (server) =>
+          new Promise<void>((resolve) => {
+            if (!server.listening) resolve();
+            else
+              server.close(() => {
+                resolve();
+              });
+          }),
+      ),
+    );
+  }
+}
+
 /** A port nothing listens on now, on 127.0.0.1. */
 export async function freePort(): Promise<number> {
-  const server = createServer();
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const bound = server.address();
-  await new Promise<void>((resolve) =>
-    server.close(() => {
-      resolve();
-    }),
-  );
-  if (typeof bound !== 'object' || bound === null) throw new Error('no port');
-  return bound.port;
+  const [port] = await freePorts(1);
+  if (port === undefined) throw new Error('no port');
+  return port;
 }
 
 /** A network of TCP transports on loopback, with ports for up to `size` names. */
 export async function tcpTestNetwork(
   size = 10,
 ): Promise<TestNetwork & { node(name: string): TcpNode }> {
-  const ports: number[] = [];
-  for (let i = 0; i < size; i++) ports.push(await freePort());
+  const ports = await freePorts(size);
   const byName = new Map<string, number>();
   const live = new Map<string, TcpNode>();
   const all: TcpNode[] = [];

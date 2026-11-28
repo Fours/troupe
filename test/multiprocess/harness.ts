@@ -9,7 +9,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { resolve } from 'node:path';
 import { desiredOwner, shardOf } from '../../src/cluster/placement.js';
-import { freePort } from '../helpers/tcp-network.js';
+import { freePorts } from '../helpers/tcp-network.js';
 import { dropSchema, freshSchema, postgresUrl, testPool } from '../helpers/postgres.js';
 
 const ROOT = resolve(import.meta.dirname, '../..');
@@ -156,9 +156,11 @@ export class TestCluster {
   /** Starts the nodes, waits for each to be up, then starts the crowd and waits for it too. */
   static async start(opts: Options = {}): Promise<TestCluster> {
     const schema = freshSchema();
-    const ports: number[] = [];
-    for (let i = 0; i < (opts.nodes ?? 3); i++) ports.push(await freePort());
-    const cluster = new TestCluster(schema, ports, await freePort(), opts);
+    // The nodes' ports and the crowd's, picked together so none repeats.
+    const ports = await freePorts((opts.nodes ?? 3) + 1);
+    const crowd = ports.pop();
+    if (crowd === undefined) throw new Error('no port for the crowd');
+    const cluster = new TestCluster(schema, ports, crowd, opts);
     for (const node of cluster.nodes) node.start();
     await Promise.all(cluster.nodes.map((node) => cluster.up(node)));
     cluster.crowd.start();
