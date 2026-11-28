@@ -168,8 +168,9 @@ test/               mirrors src/; helpers/ holds deferred() and test actors (tre
                     demo/ tests the demo's domain on the testkit and its driven clock, festival
                     night's on its in-memory cluster, festival night rehearsed (rehearsal.test.ts,
                     FESTIVAL_SEEDS seeds a mode, 100 by default), the bugs T7's hunt found, each
-                    a regression plan (found.test.ts, with the plans in found.ts), and the
-                    write-up's data and record links
+                    a regression plan (found.test.ts, with the plans in found.ts), the
+                    write-up's data and record links, and the /rehearsal/ page's drawing, log,
+                    runner (rehearsal-drawing.test.ts) and recorded runs (rehearsal-data.test.ts)
                     multiprocess/ runs examples/cluster/ as real processes on TCP and Postgres,
                     against dist/: its own Vitest project, run by test:cluster. harness.ts starts,
                     kills and restarts them and reads their JSON lines, and journal.ts checks the
@@ -192,16 +193,23 @@ demo/               the demo site (Vite, React, plain CSS), with its own tsconfi
                     node, one ManualScheduler, journal and shard store (festival-night.ts), with
                     the log's narration, the cluster map (stage.ts) and the Backstage client for
                     the picked node. It loads none of opening night's page
-  src/rehearsal/    domain/festival.ts, festival night as a Rehearsal scenario, festival({ mode, mix }),
-                    with no React: the tests, npm run rehearse and the /rehearsal/ page share it
+  src/rehearsal/    Rehearsal, the site's fourth page (rehearsal/, 0044). domain/ has no React:
+                    festival.ts, festival night as a Rehearsal scenario, festival({ mode, mix }),
+                    which the tests, npm run rehearse and the page share; drawing.ts, a run's
+                    history as lanes, bars, faults and the moment it broke, and trim(), what a
+                    recorded run keeps; narrate.ts, its log in plain words; runner.ts, seeds and
+                    drawings for the page's worker (worker.ts), which runs them off the main
+                    thread. RunView.tsx draws a run with a scrubber
   src/writeup/      the write-up, "How Troupe works", the site's second page (how-it-works/):
                     the prose in TSX, citing records with <Record id>, and the SVG charts
   src/site/         what every page shares: the base styles, the site bar, the links, and
                     PostHog, which loads on idle and never under automation
   build/            writeup-data.ts reads the charts' numbers from docs/decisions/data/ when the
-                    site builds, and fails the build if a source is missing
+                    site builds, and rehearsal-data.ts the planted bugs' recorded runs, drawn
+                    there, and the hunt's numbers. Either fails the build if a source is missing
 e2e/                Playwright tests of the built demo, run by test:e2e, with its own tsconfig for
-                    the DOM. cluster.spec.ts is festival night's. frames.spec.ts runs in its own
+                    the DOM. cluster.spec.ts is festival night's, rehearsal.spec.ts Rehearsal's,
+                    and each *-phone.spec.ts runs at 375 px. frames.spec.ts runs in its own
                     project, after the others, and server.spec.ts in its own, against
                     examples/backstage on port 7071
 examples/           runnable examples, run by Node with type stripping, against dist/: box-office/
@@ -214,6 +222,7 @@ scripts/            run by Node with type stripping: write-sql.ts ships table SQ
                     check-pack.ts checks the tarball, check-release-tag.ts the release tag,
                     cluster-smoke.ts the Docker Compose demo,
                     rehearse.ts npm run rehearse, across worker processes,
+                    record-runs.ts the planted bugs' failing runs for /rehearsal/ (0044),
                     smoke-published.sh runs the quick start against the published package,
                     probe-macrotask.ts times the ways to yield a macrotask, in Node or Chromium
                     (0033),

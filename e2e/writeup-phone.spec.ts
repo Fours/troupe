@@ -7,7 +7,8 @@ test('fits a phone, with its tables open', async ({ page }) => {
   await page.goto('how-it-works/');
   await expect(page.getByRole('region', { name: 'In short' })).toBeVisible();
   for (const summary of await page.getByText('Show the numbers').all()) await summary.click();
-  await expect(page.getByRole('table')).toHaveCount(5);
+  // The five charts' tables, and Rehearsal's planted bugs.
+  await expect(page.getByRole('table')).toHaveCount(6);
   const width = await page.evaluate(() => document.documentElement.scrollWidth);
   expect(width).toBeLessThanOrEqual(375);
 });

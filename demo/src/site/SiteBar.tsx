@@ -6,6 +6,7 @@ import './site.css';
 const PAGES = {
   demo: { label: 'Opening night', folder: '' },
   cluster: { label: 'Festival night', folder: 'cluster/' },
+  rehearsal: { label: 'Rehearsal', folder: 'rehearsal/' },
   'how-it-works': { label: 'How it works', folder: 'how-it-works/' },
 } as const;
 

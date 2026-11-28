@@ -47,6 +47,7 @@ export const RECORDS = {
   '0041': '0041-a-failure-can-raise-its-backoff-delay',
   '0042': '0042-keep-the-majority',
   '0043': '0043-the-hunt-and-fencing',
+  '0044': '0044-rehearsal-page-runs-in-a-worker-and-draws-recorded-runs',
 } as const;
 
 export type RecordId = keyof typeof RECORDS;

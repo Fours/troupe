@@ -46,7 +46,7 @@ test('opens with a summary, before the first section', async ({ page }) => {
   await expect(summary.locator('code')).toHaveText(['npm install @kylewillett/troupe']);
   const order = await page.locator('article h2').evaluateAll((hs) => hs.map((h) => h.textContent));
   expect(order[0]).toBe('In short');
-  expect(order).toHaveLength(11);
+  expect(order).toHaveLength(12);
   expect(offsite).toEqual([]);
   expect(errors).toEqual([]);
 });
@@ -54,7 +54,7 @@ test('opens with a summary, before the first section', async ({ page }) => {
 test('cites a decision record in every section, and every record somewhere', async ({ page }) => {
   await open(page);
   const sections = page.locator('article section[id]');
-  await expect(sections).toHaveCount(10);
+  await expect(sections).toHaveCount(11);
   for (const section of await sections.all()) {
     await expect(section.locator('a[data-record]').first()).toBeAttached();
   }
@@ -71,7 +71,7 @@ test('cites a decision record in every section, and every record somewhere', asy
 test('the contents link to every section', async ({ page }) => {
   await open(page);
   const contents = page.getByRole('navigation', { name: 'Contents' }).getByRole('link');
-  await expect(contents).toHaveCount(10);
+  await expect(contents).toHaveCount(11);
   for (const link of await contents.all()) {
     const target = (await link.getAttribute('href')) ?? '';
     await expect(page.locator(`section${target}`)).toHaveCount(1);
@@ -108,7 +108,11 @@ test('a chart row shows its median and range on hover', async ({ page }) => {
 test('loads none of the demo', async ({ page }) => {
   const { scripts } = await open(page);
   expect(scripts.some((s) => s.includes('/howItWorks-'))).toBe(true);
-  expect(scripts.filter((s) => s.includes('/demo-') || s.includes('/cluster-'))).toEqual([]);
+  expect(
+    scripts.filter((s) =>
+      ['/demo-', '/cluster-', '/rehearsal-', '/worker-'].some((n) => s.includes(n)),
+    ),
+  ).toEqual([]);
 });
 
 test('the site bar links the pages', async ({ page }) => {

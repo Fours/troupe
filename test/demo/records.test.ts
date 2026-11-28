@@ -42,11 +42,21 @@ describe("the write-up's record links", () => {
     const sections = WRITEUP.split('<section id="').slice(1);
     const listed = [...WRITEUP.matchAll(/^ {2}\['([a-z-]+)', '/gm)].map((m) => m[1]);
     expect(sections.map((s) => s.slice(0, s.indexOf('"')))).toEqual(listed);
-    expect(listed).toHaveLength(10);
+    expect(listed).toHaveLength(11);
     for (const section of sections) {
       const body = section.slice(0, section.indexOf('</section>'));
       expect(cited(body), `section ${body.slice(0, body.indexOf('"'))}`).not.toEqual([]);
     }
+  });
+
+  // Milestone 5, T8: the Rehearsal section cites the records Rehearsal made, 0033 on, and every
+  // record the hunt added. 0039 comes with 1.0, in T9.
+  it('cite every record from 0033 on in the Rehearsal section', () => {
+    const start = WRITEUP.indexOf('<section id="rehearsal"');
+    const body = WRITEUP.slice(start, WRITEUP.indexOf('</section>', start));
+    const later = Object.keys(RECORDS).filter((id) => Number(id) >= 33);
+    expect(later).toContain('0043');
+    expect([...new Set(cited(body))].filter((id) => Number(id) >= 33).sort()).toEqual(later);
   });
 });
 

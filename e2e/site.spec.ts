@@ -10,6 +10,7 @@ const PAGES = [
   { path: '/', url: SITE },
   { path: '/how-it-works/', url: `${SITE}how-it-works/` },
   { path: '/cluster/', url: `${SITE}cluster/` },
+  { path: '/rehearsal/', url: `${SITE}rehearsal/` },
 ];
 
 /** Opens a page with nothing leaving the site, and returns every URL it requested. */
@@ -49,7 +50,7 @@ for (const { path, url } of PAGES) {
       .evaluateAll((els) => els.map((el) => el.getAttribute('src') ?? el.getAttribute('href')));
     expect(scripts.filter((s) => s?.includes('posthog'))).toEqual([]);
 
-    // The chunk both pages share imports it dynamically.
+    // The chunk every page shares imports it dynamically.
     const site = scripts.find((s) => s !== null && /\/assets\/site-[\w-]+\.js$/.test(s));
     expect(site, 'the shared site chunk').toBeDefined();
     const code = await (await request.get(site ?? '')).text();

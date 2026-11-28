@@ -311,7 +311,7 @@ Once Rehearsal finds planted bugs, it runs against the real code at scale: at le
 
 The fourth page, after opening night, the write-up and festival night. Words first, as on the others:
 
-- **Run seeds in the browser.** A button runs festival night's scenario on seed after seed, between animation frames, with a count of runs and runs per second. It's the real code, on the real simulated network and database (0004).
+- **Run seeds in the browser.** A button runs festival night's scenario on seed after seed, between animation frames, with a count of runs and runs per second. It's the real code, on the real simulated network and database (0004). (T8 runs them in a Web Worker instead, to keep the frame budget: [0044](decisions/0044-rehearsal-page-runs-in-a-worker-and-draws-recorded-runs.md).)
 - **One run, drawn.** Simulation time across, one lane per node: up, paused, down, partitioned. Disk faults on a database lane. Each show's instances as bars on the lane of the node they ran on. A scrubber, and the log in plain words, as festival night has.
 - **The bugs it found.** For each planted bug, and each real one, its shrunk failing run, drawn the same way, with the moment the invariant broke marked and a sentence on what went wrong. Recorded histories from `docs/decisions/data/`, read when the site builds, as the write-up's charts are, so the page doesn't ship bugs to replay them.
 - Its own Vite entry, title, link preview and pageviews, and the phone layout the other pages have.
@@ -375,7 +375,7 @@ Do these in order. Each one ends with passing tests.
 | T5. Fault plans, the history and the invariants | Done | 825e281 |
 | T6. `rehearse()`, shrinking, replay and planted bugs | Done | fb778f5 |
 | T7. The hunt | Done | cb6c8cd |
-| T8. The site's `/rehearsal/` page and the write-up | Not started | |
+| T8. The site's `/rehearsal/` page and the write-up | Done but the read-through, which is yours | |
 | T9. API review, README and 1.0.0 | Not started | |
 
 ### T1. Node clocks and the run loop
@@ -510,12 +510,20 @@ Settled in T7 ([0042](decisions/0042-keep-the-majority.md), [0043](decisions/004
 
 **Done when:**
 
-- [ ] `/rehearsal/` runs seeds in the browser, draws a run with a scrubber and a plain-words log, and shows each bug's failing run with the moment it broke marked
-- [ ] The recorded histories come from `docs/decisions/data/` at build time, and the build fails if one is missing
-- [ ] Playwright covers running seeds, the scrubber, each bug, the phone width, and the frame budget (no frame over 50 ms while seeds run)
-- [ ] The site bar links the page, and it has its own title, link preview and pageviews
-- [ ] "How Troupe works" has a Rehearsal section citing 0033 to 0040 and every record the hunt added, and the records test passes
+- [x] `/rehearsal/` runs seeds in the browser, draws a run with a scrubber and a plain-words log, and shows each bug's failing run with the moment it broke marked
+- [x] The recorded histories come from `docs/decisions/data/` at build time, and the build fails if one is missing
+- [x] Playwright covers running seeds, the scrubber, each bug, the phone width, and the frame budget (no frame over 50 ms while seeds run)
+- [x] The site bar links the page, and it has its own title, link preview and pageviews
+- [x] "How Troupe works" has a Rehearsal section citing 0033 to 0040 and every record the hunt added, and the records test passes
 - [ ] Someone non-technical can say what the page shows and why it matters (you check this)
+
+Settled in T8 ([0044](decisions/0044-rehearsal-page-runs-in-a-worker-and-draws-recorded-runs.md)):
+
+- Seeds run in a Web Worker, not between animation frames. A run takes about 55 ms of CPU, and with the runs on the main thread the frame test fails. About 30 runs a second in Chromium.
+- The recorded runs are the planted bugs' hunts, replayed by `scripts/record-runs.ts` into `docs/decisions/data/0040-runs-2026-11-28/`, each history trimmed to what the page draws (460 KB for the six, from 2.4 MB). The build draws them, so the page ships drawings, and fails if a run is missing or isn't the one the planted table found.
+- The hunt's twenty real bugs can't be drawn failing: their fixes landed together in T7, and the code before has them all at once. The page lists each with its fix, and runs its shrunk plan on today's code on request, which heals (answered in review, 2026-11-28).
+- `gossip-backwards` has a row saying why it's no longer found, and no drawing.
+- 0039 isn't written yet, so T9 cites it.
 
 ### T9. API review, README and 1.0.0
 
@@ -568,6 +576,7 @@ The tasks add these records, as Proposed, and accept them once their tests pass.
 | 0039 | What 1.0 promises. Numbered 0038 until 0038 went to the pipe | T9 |
 | 0040 | A planted bug is found by what it breaks, and failover means answering again | T6 |
 | 0041 | A failure can raise its backoff delay (written after T6, for 0.3.2) | — |
+| 0044 | The Rehearsal page runs its seeds in a worker, and draws recorded runs built into the page | T8 |
 
 T7 adds a record for each bug fix that changes a decision, and one for fencing, numbered as they come.
 

@@ -1,0 +1,437 @@
+/* Rehearsal's page. The tokens and base styles every page shares are in site/site.css. The page
+   headings and controls follow festival night's, which this page doesn't load. */
+:root {
+  --up: #eef3ee;
+  --down: #d9d7de;
+  --paused: #f3d58a;
+  --partitioned: #cbb8ea;
+  --bar: #3d6b4f;
+  --network: #5a6fb3;
+  --disk: #b8742e;
+  --quiet: rgba(61, 107, 79, 0.06);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --up: #1f2a22;
+    --down: #2b2a31;
+    --paused: #6e5a1e;
+    --partitioned: #4a3a6b;
+    --bar: #8cc9a1;
+    --network: #8ea1e6;
+    --disk: #e0a764;
+    --quiet: rgba(140, 201, 161, 0.07);
+  }
+}
+
+main {
+  max-width: 72rem;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 3rem;
+}
+
+h1 {
+  margin: 0 0 0.5rem;
+  font-size: 1.75rem;
+}
+
+h2 {
+  font-size: 1.3rem;
+  margin: 2.5rem 0 0.5rem;
+}
+
+h3 {
+  font-size: 1.1rem;
+  margin: 2rem 0 0.5rem;
+}
+
+h4 {
+  font-size: 1rem;
+  margin: 1.5rem 0 0.25rem;
+}
+
+.lede,
+.section-lede {
+  color: var(--muted);
+  max-width: 48rem;
+}
+
+.lede {
+  margin: 0 0 0.75rem;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1.5rem;
+  margin: 1rem 0;
+  padding: 1rem 0;
+  border-block: 1px solid var(--line);
+}
+
+.controls fieldset {
+  display: flex;
+  gap: 0.75rem;
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.controls legend {
+  float: left;
+  margin-right: 0.5rem;
+  color: var(--muted);
+}
+
+.controls input[type='number'] {
+  font: inherit;
+  width: 7rem;
+  padding: 0.3rem 0.4rem;
+}
+
+button {
+  font: inherit;
+  padding: 0.4rem 0.9rem;
+  border-radius: 0.4rem;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--accent-fg);
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+button:focus-visible,
+input:focus-visible,
+summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+  margin: 0;
+}
+
+.counts div {
+  display: flex;
+  flex-direction: column;
+}
+
+.counts dt {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.counts dd {
+  margin: 0;
+  font-size: 1.25rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.problems {
+  padding-left: 1.25rem;
+}
+
+.problems button {
+  padding: 0.1rem 0.5rem;
+  font-size: 0.85rem;
+}
+
+.error {
+  color: var(--error);
+}
+
+.pending {
+  color: var(--muted);
+}
+
+/* A run, drawn. */
+.run {
+  margin: 1rem 0 2rem;
+}
+
+.run-chart {
+  display: grid;
+  grid-template-columns: 7rem 1fr;
+  gap: 3px 0.5rem;
+  align-items: center;
+}
+
+.axis {
+  grid-column: 2;
+  grid-row: 1;
+  position: relative;
+  height: 1.25rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.axis span {
+  position: absolute;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.axis span:first-child {
+  transform: none;
+}
+
+.axis span:last-of-type:not(:first-child) {
+  transform: translateX(-100%);
+}
+
+.axis .axis-mark {
+  position: absolute;
+  top: 0;
+  padding: 0 0.25rem;
+  background: var(--bg);
+  color: var(--error);
+  white-space: nowrap;
+  transform: translateX(-50%);
+}
+
+.axis .axis-mark.at-end {
+  transform: translateX(-100%);
+}
+
+.lane-label {
+  grid-column: 1;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.lane-plot {
+  grid-column: 2;
+  display: block;
+  width: 100%;
+}
+
+/* Spans every lane, under the axis, for the marks drawn across them. Its rows are set inline,
+   since they're the lanes. */
+.overlay {
+  grid-column: 2;
+  align-self: stretch;
+  position: relative;
+  pointer-events: none;
+}
+
+.span-up {
+  fill: var(--up);
+}
+
+.span-down {
+  fill: var(--down);
+}
+
+.span-paused {
+  fill: var(--paused);
+}
+
+.span-partitioned {
+  fill: var(--partitioned);
+}
+
+.bar {
+  fill: var(--bar);
+}
+
+.bar-marked {
+  fill: var(--error);
+}
+
+.fault {
+  fill: var(--network);
+}
+
+.fault-slow,
+.fault-hang,
+.fault-error,
+.fault-lostReplies,
+.fault-cut,
+.fault-jump {
+  fill: var(--disk);
+}
+
+.fault-hang,
+.fault-cut {
+  opacity: 1;
+}
+
+.fault-slow,
+.fault-error,
+.fault-lostReplies {
+  opacity: 0.7;
+}
+
+.quiet {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--quiet);
+  pointer-events: none;
+}
+
+.mark {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: color-mix(in srgb, var(--error) 25%, transparent);
+  border-left: 2px solid var(--error);
+  pointer-events: none;
+}
+
+.scrub {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-left: 1px dashed var(--fg);
+  pointer-events: none;
+}
+
+.scrubber {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  margin-top: 0.5rem;
+  margin-left: 7.5rem;
+}
+
+.scrubber input[type='range'] {
+  flex: 1 1 16rem;
+  accent-color: var(--accent);
+}
+
+.scrubber output {
+  font-variant-numeric: tabular-nums;
+}
+
+.now {
+  margin: 0.25rem 0 0 7.5rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.broke {
+  margin: 0.75rem 0;
+  padding: 0.5rem 0.75rem;
+  border-left: 3px solid var(--error);
+  background: color-mix(in srgb, var(--error) 8%, transparent);
+}
+
+.broke .invariant {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.run-text {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 2rem;
+}
+
+.run-text ol {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.run-text .log ol {
+  max-height: 16rem;
+  overflow-y: auto;
+}
+
+.run-text li {
+  padding: 0.15rem 0;
+}
+
+.run-text time {
+  display: inline-block;
+  min-width: 3.25rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.faults li.ahead {
+  color: var(--muted);
+}
+
+.tone-fault {
+  color: var(--disk);
+}
+
+.tone-broke {
+  color: var(--error);
+  font-weight: 600;
+}
+
+.tone-end {
+  color: var(--muted);
+}
+
+.run figcaption {
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+/* The bugs. */
+.bug {
+  border-top: 1px solid var(--line);
+}
+
+.found-how,
+.plan {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+details pre {
+  overflow-x: auto;
+  padding: 0.5rem;
+  background: var(--down);
+  font-size: 0.8rem;
+}
+
+.found-list {
+  padding-left: 1.5rem;
+}
+
+.found h4 {
+  margin-top: 1.25rem;
+}
+
+.found p {
+  margin: 0.25rem 0;
+  max-width: 48rem;
+}
+
+@media (max-width: 40rem) {
+  .run-chart {
+    grid-template-columns: 4.5rem 1fr;
+  }
+
+  .scrubber,
+  .now {
+    margin-left: 0;
+  }
+
+  .run-text {
+    grid-template-columns: 1fr;
+  }
+
+  .lane-label {
+    font-size: 0.75rem;
+  }
+}

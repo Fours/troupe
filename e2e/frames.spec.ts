@@ -57,3 +57,34 @@ test(`a kill at 4× on festival night keeps every frame under ${String(BUDGET_MS
   );
   expect(long).toEqual([]);
 });
+
+// Rehearsal runs its seeds in a worker, so running them flat out costs the page nothing but
+// drawing the counts, and the recorded runs it draws on the way.
+test(`running seeds on the rehearsal page keeps every frame under ${String(BUDGET_MS)} ms`, async ({
+  page,
+}) => {
+  await page.goto('rehearsal/');
+  await expect(page.getByRole('figure', { name: 'One run: seed 1' })).toBeVisible({
+    timeout: 20_000,
+  });
+  await page.evaluate(() => {
+    const seen: number[] = [];
+    (window as unknown as { longFrames: number[] }).longFrames = seen;
+    new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) seen.push(Math.round(entry.duration));
+    }).observe({ type: 'long-animation-frame' });
+  });
+  await page.getByRole('button', { name: 'Run seeds' }).click();
+  // Scroll through every drawing while the seeds run.
+  for (let i = 0; i < 10; i++) {
+    await page.mouse.wheel(0, 800);
+    await page.waitForTimeout(500);
+  }
+  await expect
+    .poll(async () => Number(await page.getByLabel('Runs', { exact: true }).textContent()))
+    .toBeGreaterThan(10);
+  const long = await page.evaluate(
+    () => (window as unknown as { longFrames: number[] }).longFrames,
+  );
+  expect(long).toEqual([]);
+});

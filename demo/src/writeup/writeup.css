@@ -284,6 +284,35 @@ pre code {
   font-size: 0.75rem;
 }
 
+/* Rehearsal's planted bugs: long names, so they wrap, with the numbers to the right. */
+.wu-planted {
+  margin-bottom: 1rem;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.wu-planted th,
+.wu-planted td {
+  padding: 0.35rem 0.75rem 0.35rem 0;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+.wu-planted tbody th {
+  font-weight: normal;
+}
+
+.wu-planted td:nth-child(n + 3) {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.wu-list li {
+  margin: 0.35rem 0;
+}
+
 .wu-source {
   margin-top: 0.75rem;
   color: var(--muted);

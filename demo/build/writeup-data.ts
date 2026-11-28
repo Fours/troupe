@@ -16,6 +16,7 @@ import {
   type Stat,
   type WriteupData,
 } from '../src/writeup/data.ts';
+import { REHEARSAL_SOURCES, loadHuntData } from './rehearsal-data.ts';
 
 export const DATA_DIR = fileURLToPath(new URL('../../docs/decisions/data/', import.meta.url));
 
@@ -39,9 +40,14 @@ export const SOURCES = {
 } as const satisfies Record<string, Record<NodeLine, string>>;
 
 /** Every file the write-up reads, relative to the data directory, for the dev server to watch. */
-export const SOURCE_FILES: readonly string[] = Object.values(SOURCES).flatMap((byLine) =>
-  Object.values(byLine).flatMap((folder) => [`${folder}/results.json`, `${folder}/setup.json`]),
-);
+export const SOURCE_FILES: readonly string[] = [
+  ...Object.values(SOURCES).flatMap((byLine) =>
+    Object.values(byLine).flatMap((folder) => [`${folder}/results.json`, `${folder}/setup.json`]),
+  ),
+  // Rehearsal's planted table and hunt (0040, 0043), which the /rehearsal/ page reads too.
+  REHEARSAL_SOURCES.planted,
+  REHEARSAL_SOURCES.hunt,
+];
 
 type Json = unknown;
 
@@ -166,5 +172,6 @@ export function loadWriteupData(dir: string = DATA_DIR): WriteupData {
     baseline: { ...baseline, askLatencyUs },
     events: recorded(read, SOURCES.events, EVENTS_SCENARIOS),
     cluster: { ...recorded(read, SOURCES.cluster, CLUSTER_SCENARIOS), failoverMs, remoteAskUs },
+    rehearsal: loadHuntData(dir),
   };
 }

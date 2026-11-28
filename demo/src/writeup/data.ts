@@ -1,6 +1,7 @@
 // The shape of the write-up's chart data. demo/build/writeup-data.ts reads it from
 // docs/decisions/data/ when the site builds, and the page gets it from virtual:writeup-data.
 // Types only, so the page and the loader agree without the page importing Node code.
+import type { RehearsalData } from '../rehearsal/data.ts';
 
 /** The Node lines the benchmark was recorded on (0019). */
 export const NODE_LINES = ['22', '24', '26'] as const;
@@ -86,6 +87,8 @@ export interface WriteupData {
       Record<NodeLine, { readonly p50: number; readonly p99: number }>
     >;
   };
+  /** Rehearsal's planted bugs and the hunt (0040, 0043), as the /rehearsal/ page reads them. */
+  readonly rehearsal: Omit<RehearsalData, 'runs' | 'sources'>;
 }
 
 /** The middle and the worst of a run's timings. */

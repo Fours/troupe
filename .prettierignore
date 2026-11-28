@@ -6,3 +6,5 @@ package-lock.json
 demo/dist
 test-results
 playwright-report
+# Recorded runs, written on one line each by scripts/record-runs.ts, never by hand.
+docs/decisions/data/0040-runs-*

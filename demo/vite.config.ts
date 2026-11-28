@@ -2,6 +2,7 @@ import react from '@vitejs/plugin-react';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
+import { REHEARSAL_FILES, loadRehearsalData } from './build/rehearsal-data.ts';
 import { DATA_DIR, SOURCE_FILES, loadWriteupData } from './build/writeup-data.ts';
 
 const here = (path: string) => fileURLToPath(new URL(path, import.meta.url));
@@ -12,25 +13,32 @@ const here = (path: string) => fileURLToPath(new URL(path, import.meta.url));
 const entry = (name: string, path: string) => ({ find: name, replacement: here(`../src/${path}`) });
 
 // The write-up's charts are read from docs/decisions/data/ when the site builds (milestone 3, T8),
-// so they can't drift from the records. A missing source throws, which fails the build.
-function writeupData(): Plugin {
-  const id = 'virtual:writeup-data';
+// so they can't drift from the records, and so are the /rehearsal/ page's recorded runs, drawn
+// here so the page never ships the bugs that made them (milestone 5, T8). A missing source throws,
+// which fails the build.
+function recordedData(name: string, files: readonly string[], load: () => unknown): Plugin {
+  const id = `virtual:${name}`;
   return {
-    name: 'writeup-data',
+    name,
     resolveId: (source) => (source === id ? `\0${id}` : undefined),
     load(resolved) {
       if (resolved !== `\0${id}`) return undefined;
-      for (const file of SOURCE_FILES) this.addWatchFile(join(DATA_DIR, file));
-      return `export default ${JSON.stringify(loadWriteupData())};`;
+      for (const file of files) this.addWatchFile(join(DATA_DIR, file));
+      return `export default ${JSON.stringify(load())};`;
     },
   };
 }
 
-// Three pages: the demo, the write-up at how-it-works/, which loads none of the demo, and festival
-// night at cluster/, which loads none of opening night's page.
+// Four pages: the demo, the write-up at how-it-works/, which loads none of the demo, festival
+// night at cluster/, which loads none of opening night's page, and Rehearsal at rehearsal/, whose
+// runs happen in a worker of their own.
 export default defineConfig({
   root: here('.'),
-  plugins: [react(), writeupData()],
+  plugins: [
+    react(),
+    recordedData('writeup-data', SOURCE_FILES, loadWriteupData),
+    recordedData('rehearsal-data', REHEARSAL_FILES, loadRehearsalData),
+  ],
   resolve: {
     alias: [
       entry('@kylewillett/troupe/testkit', 'testkit/index.ts'),
@@ -41,6 +49,9 @@ export default defineConfig({
       entry('@kylewillett/troupe', 'index.ts'),
     ],
   },
+  // The /rehearsal/ page's worker imports the package, so it's split into chunks as the pages are,
+  // which takes ES modules.
+  worker: { format: 'es' },
   build: {
     outDir: 'dist',
     emptyOutDir: true,
@@ -49,6 +60,7 @@ export default defineConfig({
         demo: here('index.html'),
         howItWorks: here('how-it-works/index.html'),
         cluster: here('cluster/index.html'),
+        rehearsal: here('rehearsal/index.html'),
       },
       // Named chunks, so the build says what each one is: posthog-js on its own, loaded only when
       // the page is idle (demo/src/site/browser-analytics.ts), what every page shares, and what

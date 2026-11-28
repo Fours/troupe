@@ -61,6 +61,7 @@ const SECTIONS = [
   ['browser', 'Why the demo runs in your browser'],
   ['event-sourcing', 'Event sourcing'],
   ['cluster', 'A cluster of nodes'],
+  ['rehearsal', 'Rehearsal: a thousand bad nights'],
   ['numbers', 'The numbers'],
   ['next', 'What’s next'],
 ] as const;
@@ -68,6 +69,7 @@ const SECTIONS = [
 export function WriteUp({ data }: { data: WriteupData }) {
   const b = data.baseline.scenarios;
   const e = data.events.scenarios;
+  const hunt = data.rehearsal;
   // The loader fills in every line, so a miss is a bug in this page.
   const at = (stats: ByLine) => stats[HEADLINE] ?? zero;
   const m = (stats: ByLine) => at(stats).median;
@@ -169,10 +171,17 @@ export function WriteUp({ data }: { data: WriteupData }) {
               start again on the others within seconds, from their diaries, and two copies of a show
               never run at once.
             </p>
+            <p>
+              And all of it can be rehearsed: a whole cluster, its network and its database, run a
+              minute at a time inside one simulation, with crashes, cut cables and slow disks drawn
+              from a single number. A million such runs found twenty bugs, every one now fixed, and
+              any run can be replayed exactly.
+            </p>
             <p className="wu-cta">
               <a href="../">Watch it in the demo</a>, where a box office sells out on opening night,
-              crashes, and recovers. Then <a href="../cluster/">kill a node at festival night</a>,
-              or install it with <code>npm install @kylewillett/troupe</code>.
+              crashes, and recovers. Then <a href="../cluster/">kill a node at festival night</a>,{' '}
+              <a href="../rehearsal/">rehearse it in your browser</a>, or install it with{' '}
+              <code>npm install @kylewillett/troupe</code>.
             </p>
           </section>
 
@@ -538,6 +547,115 @@ export function WriteUp({ data }: { data: WriteupData }) {
             </p>
           </section>
 
+          <section id="rehearsal" aria-labelledby="rehearsal-h">
+            <h2 id="rehearsal-h">Rehearsal: a thousand bad nights</h2>
+            <p>
+              A cluster’s worst bugs need bad luck: a node that freezes just as its lease renews, a
+              partition that heals while a handoff is halfway done. Tests that wait for bad luck on
+              real machines are slow and never fail the same way twice. Troupe can do better,
+              because nothing in it reads a clock or rolls a dice by itself <Record id="0003" />,
+              and nothing in its core knows it’s on Node <Record id="0004" />. So Rehearsal,{' '}
+              <code>@kylewillett/troupe/rehearsal</code>, runs a whole cluster inside one
+              simulation, on one thread: every node, the network between them, the database behind
+              them and every clock.
+            </p>
+            <h3>Closing time</h3>
+            <p>
+              A run has one simulation clock, and each node a clock of its own made from it, which
+              can run fast or slow, or stop while its process is frozen. Every timer and every call
+              to the network or the database resolves on that clock, so the simulation never waits
+              on real time: when nothing is ready, it jumps straight to the next timer. A minute of
+              festival night takes about 30 ms <Record id="0033" />. The simulated network
+              partitions, resets, delays and reorders. In one mode it keeps TCP’s promises, and in
+              another it breaks them, losing and repeating messages, because whether a show ever
+              runs twice should depend on its lease and its journal, never on the network{' '}
+              <Record id="0035" />. The simulated database can be slow, hang, fail, lose its answers
+              after doing the work, or have its clock jump, and it passes the same contract tests as
+              the real backends. A database that hangs meant every journal and shard store call
+              needed a timeout, and a timed-out write is an unknown: it may have landed, so the
+              entity starts again and reads its journal to find out <Record id="0036" />.
+            </p>
+            <h3>A run is a seed and a plan</h3>
+            <p>
+              A seed draws a plan of faults, plain data that prints, edits and shrinks: kills,
+              freezes, partitions, slow disks, drifting clocks. Each part of a run draws its chance
+              from a stream of its own, so removing one fault changes nothing that happened before
+              it. After a run, invariants are checked against its history: no show ran twice at
+              once, no sale a customer was told about was lost, no customer saw fewer sales than an
+              earlier one had, and the cluster settled once the faults healed. A run that breaks one
+              shrinks itself, with faults coming out and the rest getting shorter, to the smallest
+              plan that still breaks it, which replays exactly from one printed line{' '}
+              <Record id="0034" />. Getting there tightened a few public pieces on the way: the JSON
+              check that events use is now yours to call <Record id="0037" />, a piped ask with a
+              signal ends on the scheduler <Record id="0038" />, and a failure can ask for a longer
+              backoff <Record id="0041" />.
+            </p>
+            <h3>Bugs put back on purpose</h3>
+            <p>
+              A check that never fails proves nothing. So bugs went back into Troupe, one at a time,
+              most of them ones milestone 4 had found by hand, and Rehearsal had to find each from
+              random seeds without being told where to look. It counts a seed only if the same run
+              without the bug passes <Record id="0040" />.
+            </p>
+            <div className="wu-table-wrap">
+              <table className="wu-planted" aria-label="The planted bugs">
+                <thead>
+                  <tr>
+                    <th scope="col">Bug</th>
+                    <th scope="col">Caught by</th>
+                    <th scope="col">First seed</th>
+                    <th scope="col">Faults, shrunk to</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {hunt.planted.map((p) => (
+                    <tr key={p.plant}>
+                      <th scope="row">{p.bug}</th>
+                      <td>{p.invariant ?? 'nothing: harmless now'}</td>
+                      <td>{p.foundAtSeed === undefined ? '–' : whole(p.foundAtSeed)}</td>
+                      <td>
+                        {p.faults === undefined
+                          ? '–'
+                          : `${String(p.faults)} → ${String(p.shrunkTo ?? 0)}`}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p>
+              One of them, a status that gossip let go backwards, can no longer do harm: keeping the
+              majority downs such a member again before anything is checked, and 10,000 seeds with
+              the bug in place all passed <Record id="0043" />.
+            </p>
+            <h3>The hunt</h3>
+            <p>
+              Then Rehearsal ran against the real code: {whole(hunt.hunt.seeds)} seeds, in both
+              network modes and five mixes of faults, with {whole(hunt.hunt.faults)} faults between
+              them, on one {hunt.hunt.machine.split(',')[0]}. It found {hunt.found.length} bugs,
+              from a cluster that split in two for good to a message that lost its place in line
+              after bouncing off a stale owner, and {hunt.hunt.checkBugs} in its own checks. The
+              biggest fix was a split-brain strategy: when the network splits, only the side with
+              more than half the members carries on, and a smaller side stops and rejoins{' '}
+              <Record id="0042" />. Every bug’s shrunk plan is now a test, and the fixed code passed
+              all {whole(hunt.hunt.seeds)} seeds. The journal’s own sequence check refused{' '}
+              {whole(hunt.hunt.fenced.refused)} stale writes, in {whole(hunt.hunt.fenced.seeds)}{' '}
+              seeds, and none got past it, so the journal stays free of leases <Record id="0043" />.
+            </p>
+            <ul className="wu-list">
+              {hunt.found.map((b) => (
+                <li key={b.name}>
+                  <strong>{b.name}.</strong> {b.what}.
+                </li>
+              ))}
+            </ul>
+            <p className="wu-cta">
+              <a href="../rehearsal/">Rehearse it yourself</a>: run seeds in your browser, in a
+              worker of their own so the page never stutters, and step through each planted bug’s
+              recorded failing run to the moment it broke <Record id="0044" />.
+            </p>
+          </section>
+
           <section id="numbers" aria-labelledby="numbers-h">
             <h2 id="numbers-h">The numbers</h2>
             <p>
@@ -680,46 +798,25 @@ export function WriteUp({ data }: { data: WriteupData }) {
           <section id="next" aria-labelledby="next-h">
             <h2 id="next-h">What’s next</h2>
             <p>
-              <strong>Rehearsal</strong>, in milestone 5: deterministic simulation testing. Run a
-              whole cluster on virtual time from a seed, with the network and the shard store
-              replaced by simulated ones that drop, delay and reorder messages, cut nodes off, and
-              skew and pause their clocks. Then check, from the events every node published, that no
-              entity ever had two live copies, and replay any failure exactly from its seed. It’s
-              possible because every clock and coin flip is already injected <Record id="0003" />,
-              the transport and the store are interfaces that know nothing of Node{' '}
-              <Record id="0026" />, and every lease is timed on its holder’s own clock{' '}
-              <Record id="0029" />. The first pieces are in: each node runs on a clock of its own,
-              which can drift or stop, all on one simulation clock, and a run never waits on real
-              time <Record id="0033" />. And a simulated network partitions, resets, delays and
-              reorders. In one mode it keeps TCP’s promises, and in the other it breaks them on
-              purpose, losing and repeating frames, since whether an entity ever has two copies
-              should depend on the lease and the journal, never on the network <Record id="0035" />.
-              A simulated database can hang, so every journal and shard store call now gives up
-              after a timeout. A timed-out write gets no reply, since it may or may not have landed,
-              and the entity’s restart reads the journal to find out <Record id="0036" />. A run is
-              now a seed and a list of faults: kills, pauses, partitions, slow and hanging disks,
-              clocks that drift. The list is plain data, so a failure can be printed, edited and
-              shrunk, and each part of a run draws its chance from a stream of its own, so taking
-              one fault out changes nothing that happened before it <Record id="0034" />. A minute
-              of festival night under faults takes 30 ms to simulate, and across a thousand of them
-              no show ran twice and no sale was lost, in either mode. A run that breaks something
-              now shrinks itself: faults come out, the rest get shorter, and what’s left replays
-              exactly from one printed line. To prove the checks catch what they’re for, seven bugs
-              went back in one at a time, most of them ones milestone 4 found by hand. Each was
-              found within 10,000 seeds and shrunk to three faults or fewer, counted only where the
-              same run without the bug passed <Record id="0040" />. Then it hunted in the real code,
-              over a million seeds and five mixes of faults. It found twenty bugs, from a cluster
-              that split in two for good to a message that lost its place in line after bouncing off
-              a stale owner, and two in its own checks. Each is fixed and replayed on every test
-              run. No stale write ever got past the journal’s own check, so the journal stays free
-              of leases <Record id="0043" />.
-            </p>
-            <p>
               Troupe is <a href={NPM_URL}>on npm</a>, published from CI with provenance, which ties
-              each release to the commit and the run that built it <Record id="0024" />. It stays at
-              0.x until Rehearsal has tried the cluster’s interfaces against faults, and 1.0 comes
-              after it <Record id="0032" />. The code, the specs and every record are{' '}
-              <a href={REPO_URL}>on GitHub</a>.
+              each release to the commit and the run that built it <Record id="0024" />. It stayed
+              at 0.x until Rehearsal had tried the cluster’s interfaces against faults, and 1.0
+              comes next, once every export has been reviewed <Record id="0032" />. After that, the
+              roadmap’s later ideas, none of them scheduled:
+            </p>
+            <ul className="wu-list">
+              <li>A dispatcher on worker threads, for actors that are heavy on CPU.</li>
+              <li>
+                OpenTelemetry tracing across <code>tell</code> and <code>ask</code>.
+              </li>
+              <li>Durable timers and reminders for persistent entities.</li>
+              <li>Routers and pools.</li>
+              <li>
+                A transport from the browser to a server, so the same actors run on both ends.
+              </li>
+            </ul>
+            <p>
+              The code, the specs and every record are <a href={REPO_URL}>on GitHub</a>.
             </p>
           </section>
         </article>

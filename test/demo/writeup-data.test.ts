@@ -74,6 +74,19 @@ describe("the write-up's data", () => {
     expect(cluster.remoteAskUs['24'].p50).toBeCloseTo(29.31, 2);
   });
 
+  it("gives Rehearsal's planted table and the hunt 0043 records", () => {
+    const { rehearsal } = loadWriteupData();
+    expect(rehearsal.hunt.seeds).toBe(1_000_000);
+    expect(rehearsal.found).toHaveLength(20);
+    expect(rehearsal.hunt.checkBugs).toBe(2);
+    expect(rehearsal.hunt.fenced.refused).toBe(15_052);
+    const lateDeadline = rehearsal.planted.find((p) => p.plant === 'late-deadline');
+    expect(lateDeadline).toMatchObject({ foundAtSeed: 165, faults: 19, shrunkTo: 3 });
+    const gossip = rehearsal.planted.find((p) => p.plant === 'gossip-backwards');
+    expect(gossip?.foundAtSeed).toBeUndefined();
+    expect(gossip?.tolerated).toMatch(/keep-the-majority/);
+  });
+
   it('reads each recorded run from its own folder', () => {
     const data = loadWriteupData();
     for (const line of NODE_LINES) {
@@ -81,7 +94,8 @@ describe("the write-up's data", () => {
       expect(data.events.setup[line].folder).toBe(SOURCES.events[line]);
       expect(data.cluster.setup[line].folder).toBe(SOURCES.cluster[line]);
     }
-    expect(SOURCE_FILES).toHaveLength(18);
+    // Three recorded runs on three Node lines, two files each, and Rehearsal's two (0040, 0043).
+    expect(SOURCE_FILES).toHaveLength(20);
   });
 
   it.each(SOURCE_FILES)('fails, naming the file, when %s is missing', (file) => {
