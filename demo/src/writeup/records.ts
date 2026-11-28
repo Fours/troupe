@@ -45,6 +45,8 @@ export const RECORDS = {
   '0038': '0038-a-pipe-with-a-signal-ends-on-the-scheduler',
   '0040': '0040-planted-bugs-are-found-by-what-they-break',
   '0041': '0041-a-failure-can-raise-its-backoff-delay',
+  '0042': '0042-keep-the-majority',
+  '0043': '0043-the-hunt-and-fencing',
 } as const;
 
 export type RecordId = keyof typeof RECORDS;

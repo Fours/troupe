@@ -35,9 +35,11 @@ describe('npm run rehearse', () => {
       'recovers,orderPerPair,failoverWithin',
       '--determinism-every',
       '10',
+      '--mix',
+      'nodes',
     );
     expect(out).toMatch(
-      /^40 seeds in contract mode: [\d,]+ runs in [\d.]+ s on 2 workers, [\d,]+ runs\/s, Node v\d+\.\d+\.\d+$/m,
+      /^40 seeds in contract mode on the nodes mix: [\d,]+ runs in [\d.]+ s on 2 workers, [\d,]+ runs\/s, Node v\d+\.\d+\.\d+$/m,
     );
     expect(out).toMatch(/^ {2}[\d,]+ faults; seeds with violations: /m);
     expect(out).toMatch(/^ {2}ignored: recovers, orderPerPair, failoverWithin$/m);

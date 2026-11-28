@@ -403,7 +403,11 @@ describe('reconnecting', () => {
         await new Promise<void>((resolve) => setImmediate(resolve));
         const dialing = [...n2.connections].some((c) => c.state !== 'open');
         const next = scheduler.nextTimerAt();
-        if (!dialing && next !== undefined) scheduler.advanceTo(next);
+        // Only the backoffs, at most 200 ms off: remoting's 5 s wait for a hello must never fire
+        // while a real hello is on its way.
+        if (!dialing && next !== undefined && next - scheduler.now() <= 1_000) {
+          scheduler.advanceTo(next);
+        }
       }
     };
 

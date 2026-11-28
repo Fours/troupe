@@ -753,7 +753,8 @@ export interface FailoverOptions {
 /**
  * After a kill, every entity that was running on the dead node, and is asked for, runs again on
  * another node incarnation within a bound. Only kills with no other fault under way before the
- * bound is up are checked, since another fault can stretch failover by design.
+ * bound is up, or ended within a bound before the kill, are checked, since another fault, or the
+ * cluster still settling from one, can stretch failover by design.
  */
 function failoverWithin(opts: FailoverOptions = {}): Invariant {
   const name = 'failoverWithin';
@@ -787,7 +788,9 @@ function failoverWithin(opts: FailoverOptions = {}): Invariant {
         const t = kill.from;
         // A run cut short before the bound was up can't say yet (T6).
         if (run.untilMs !== undefined && t + bound > end) continue;
-        const others = faults.filter((f) => f !== kill && f.from <= t + bound && f.to >= t);
+        // Near it: under way in the bound after it, or ended within a bound before it, when the
+        // cluster may still be settling from it, such as nodes a partition made restart (T7).
+        const others = faults.filter((f) => f !== kill && f.from <= t + bound && f.to >= t - bound);
         if (others.length > 0) continue;
         const dead = all.filter((i) => i.node === kill.kill && i.from <= t && i.to >= t);
         for (const instance of dead) {
@@ -853,19 +856,28 @@ export const invariants = {
 };
 
 /**
- * Whether a run's clocks went past what a lease's margin covers (decision 0029): a node's clock
- * drifting enough over one TTL, or the database's clock jumping more than the margin.
+ * Whether a run's clocks went past what a lease's margin covers (decision 0029): how far a node's
+ * clock can drift over one TTL, plus how far the database's clock jumped within any one TTL,
+ * more than the margin. Jumps add up: two that are each inside the margin can outrun it
+ * together, as the hunt found (T7).
  */
 export function pastTheMargin(history: History): boolean {
   const { leases, plan } = runOf(history);
-  const beyond = (ppm: number): boolean =>
-    (Math.abs(ppm) * leases.ttlMs) / 1_000_000 > leases.marginMs;
-  for (const e of history) if (e.kind === 'start' && beyond(e.driftPpm)) return true;
-  for (const fault of plan) {
-    if ('drift' in fault && beyond(fault.ppm)) return true;
-    if ('jump' in fault && fault.jump > leases.marginMs) return true;
+  let ppm = 0;
+  for (const e of history) if (e.kind === 'start') ppm = Math.max(ppm, Math.abs(e.driftPpm));
+  for (const fault of plan) if ('drift' in fault) ppm = Math.max(ppm, Math.abs(fault.ppm));
+  const drift = (ppm * leases.ttlMs) / 1_000_000;
+  const jumps = plan.flatMap((f) => ('jump' in f ? [f] : [])).sort((a, b) => a.at - b.at);
+  let worst = 0;
+  for (const [i, first] of jumps.entries()) {
+    let sum = 0;
+    for (const next of jumps.slice(i)) {
+      if (next.at - first.at >= leases.ttlMs) break;
+      sum += next.jump;
+    }
+    worst = Math.max(worst, sum);
   }
-  return false;
+  return drift + worst > leases.marginMs;
 }
 
 /**

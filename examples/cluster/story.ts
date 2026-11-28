@@ -167,7 +167,7 @@ export class Story {
       case 'left':
         return [`${service} has handed off its shows, and stopped.`];
       case 'downed':
-        return [`${service} learned it was marked down, and restarts as a new node.`];
+        return [`${service} is marked down, and restarts as a new node.`];
       case 'failed':
         return [`${String(line['path'])} failed on ${service}.`];
       case 'log':

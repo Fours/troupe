@@ -87,6 +87,12 @@ export interface Remoting {
   /** Gives the codec sharding's entity refs (decision 0030). Once. */
   setEntities(refs: EntityRefs): void;
   /**
+   * How membership settles a split (decision 0042): `side` says what this node's side of the
+   * cluster is, sent in every hello, and `lost` is called when a node this one has downed, and
+   * that has downed this one, turns out to have the larger side. Once.
+   */
+  onSplit(hooks: SplitHooks): void;
+  /**
    * Closes the transport. Everything sent afterwards is a `terminated` dead letter. Runs by
    * itself once the system has terminated.
    */
@@ -98,6 +104,9 @@ const BACKOFF_MIN_MS = 100;
 const BACKOFF_MAX_MS = 5_000;
 const UID_RANGE = 2 ** 32;
 const DOWNED_FRAME = JSON.stringify({ t: 'downed' });
+// How long a connection may go without the peer's hello, as long as the TCP transport gives a
+// peer to prove the secret. Without it, a dial whose hello was lost waits for good (T7, 0042).
+const HELLO_TIMEOUT_MS = 5_000;
 
 /** A connection, and what this node knows about it. */
 interface Link {
@@ -110,6 +119,8 @@ interface Link {
   gotHello: boolean;
   /** Closed on purpose by this node, so its close starts nothing. */
   abandoned: boolean;
+  /** Calls off the wait for the peer's hello. */
+  cancelHello: (() => void) | undefined;
 }
 
 /** A message waiting for a connection, with what its dead letter needs. */
@@ -145,6 +156,57 @@ interface Hello {
   readonly protocol: number;
   readonly address: string;
   readonly uid: number;
+  /** The uid at the hearer's address that the sender has down, if any (0042). */
+  readonly down?: number;
+  /** The uid at the hearer's address that the sender has as a member, if any (0042). */
+  readonly up?: number;
+  /** The sender's side of the cluster, as membership sees it (0042). */
+  readonly side?: Side;
+}
+
+/**
+ * One side of a split cluster: how many members are up on it, where its first seed is in the
+ * seed list every node shares, if it has one, and its lowest address.
+ */
+export interface Side {
+  readonly size: number;
+  readonly seed?: number;
+  readonly lowest: string;
+}
+
+/** What membership gives remoting to settle a split with (decision 0042). */
+export interface SplitHooks {
+  /** This node's side: its up and leaving members, as it sees them. */
+  side(): Side;
+  /** The uid of the member at `address` this node has up or leaving, if any. */
+  member(address: string): number | undefined;
+  /** `peer`, in another cluster than this node's, has the larger side. */
+  lost(peer: PeerId): void;
+}
+
+/**
+ * Whether side `a` keeps the cluster over side `b` when two clusters meet: the larger, then at
+ * the same size the one holding the earlier seed, then the one with the lower lowest address.
+ * Both ends of a hello compute it, from opposite ends, so exactly one side gives way.
+ */
+export function beats(a: Side, b: Side): boolean {
+  if (a.size !== b.size) return a.size > b.size;
+  const sa = a.seed ?? Infinity;
+  const sb = b.seed ?? Infinity;
+  if (sa !== sb) return sa < sb;
+  return a.lowest < b.lowest;
+}
+
+function isSide(value: unknown): value is Side {
+  return (
+    isRecord(value) &&
+    typeof value.size === 'number' &&
+    Number.isSafeInteger(value.size) &&
+    value.size >= 0 &&
+    (value.seed === undefined ||
+      (typeof value.seed === 'number' && Number.isSafeInteger(value.seed) && value.seed >= 0)) &&
+    typeof value.lowest === 'string'
+  );
 }
 
 /**
@@ -189,8 +251,10 @@ class Node {
   readonly #bufferSize: number;
   readonly #maxFrameBytes: number;
   readonly #codec: Codec;
-  readonly #helloFrame: string;
+  #split: SplitHooks | undefined;
   readonly #peers = new Map<string, Peer>();
+  // Connections still waiting for their hello, so closing can call off every wait.
+  readonly #awaitingHello = new Set<Link>();
   // The address behind every remote ref this node made, so watching one finds its node.
   readonly #remoteRefs = new WeakMap<object, RefAddress>();
   // Remote actors this node's actors and probes watch, by URI.
@@ -221,13 +285,7 @@ class Node {
       remote: (uri, address) => this.#remoteRef(uri, address),
       entities: () => this.#entities,
     });
-    this.#helloFrame = JSON.stringify({
-      t: 'hello',
-      cluster: self.cluster,
-      protocol: PROTOCOL,
-      address: self.address,
-      uid: self.uid,
-    });
+
     hooks.setWatchResolver((ref) => this.#watchTarget(ref));
     const whenListening = transport.listen(
       (connection) => {
@@ -262,6 +320,10 @@ class Node {
         if (this.#onPeer !== undefined) throw new Error('remoting: onPeer is already set');
         this.#onPeer = handler;
       },
+      onSplit: (hooks: SplitHooks) => {
+        if (this.#split !== undefined) throw new Error('remoting: onSplit is already set');
+        this.#split = hooks;
+      },
       setEntities: (refs: EntityRefs) => {
         if (this.#entities !== undefined) throw new Error('remoting: entities are already set');
         this.#entities = refs;
@@ -280,13 +342,13 @@ class Node {
 
   #remoteRef(uri: string, address: RefAddress): AnyRef {
     const ref = this.#hooks.makeRef<unknown>(uri, (message) => {
-      this.#tell(address.address, uri, message);
+      this.#tell(address.address, uri, message, address.uid);
     });
     this.#remoteRefs.set(ref, address);
     return ref;
   }
 
-  #tell(address: string, uri: string, message: unknown): void {
+  #tell(address: string, uri: string, message: unknown, uid?: number): void {
     const hooks = this.#hooks;
     if (this.#closed) {
       hooks.deadLetter(uri, message, 'terminated');
@@ -308,7 +370,7 @@ class Node {
       );
       return;
     }
-    this.#send(this.#peer(address), frame, { recipient: uri, message });
+    this.#send(this.#peer(address), frame, { recipient: uri, message }, uid);
   }
 
   #unserializable(uri: string, message: unknown, problem: string): void {
@@ -340,13 +402,17 @@ class Node {
     return peer;
   }
 
-  /** Sends a frame now, or buffers it until the peer has a connection. */
-  #send(peer: Peer, frame: string, letter: Waiting['letter']): void {
-    if (peer.down) {
+  /**
+   * Sends a frame now, or buffers it until the peer has a connection. `uid` is the incarnation
+   * the frame is for, when its ref names one: a frame for another incarnation than the one that
+   * was downed at the address waits for it, and dials, rather than being dropped (T7).
+   */
+  #send(peer: Peer, frame: string, letter: Waiting['letter'], uid?: number): void {
+    if (peer.down && (uid === undefined || uid === peer.downUid)) {
       this.#drop(letter, 'unreachable');
       return;
     }
-    if (peer.link !== undefined) {
+    if (peer.link !== undefined && !peer.down) {
       peer.link.connection.send(frame);
       return;
     }
@@ -355,18 +421,20 @@ class Node {
       return;
     }
     peer.waiting.push({ frame, letter });
-    this.#dialSoon(peer);
+    this.#dialSoon(peer, peer.down);
   }
 
   #signal(address: string, frame: Readonly<Record<string, unknown>>): boolean {
     if (this.#closed) return false;
     const peer = this.#peer(address);
-    if (peer.down) return false;
-    if (peer.link !== undefined) {
+    if (peer.link !== undefined && !peer.down) {
       peer.link.connection.send(JSON.stringify(frame));
       return true;
     }
-    this.#dialSoon(peer);
+    // Membership signals an address only for a member it thinks is live, so it dials even an
+    // address remoting has down: the down incarnation may be an old one this node never reached,
+    // and only a hello says which uid answers. A downed one is refused at its hello (T7).
+    this.#dialSoon(peer, true);
     return false;
   }
 
@@ -374,8 +442,8 @@ class Node {
     if (letter !== undefined) this.#hooks.deadLetter(letter.recipient, letter.message, reason);
   }
 
-  #dialSoon(peer: Peer): void {
-    if (this.#closed || peer.down) return;
+  #dialSoon(peer: Peer, evenIfDown = false): void {
+    if (this.#closed || (peer.down && !evenIfDown)) return;
     if (peer.link !== undefined || peer.dialing !== undefined || peer.cancelRetry !== undefined) {
       return;
     }
@@ -389,10 +457,36 @@ class Node {
     peer.cancelRetry = this.#hooks.scheduler.setTimer(() => {
       peer.cancelRetry = undefined;
       // A retry that finds the peer connected, or down, has nothing to do.
-      if (peer.dialing === undefined && peer.link === undefined && !this.#closed && !peer.down) {
+      if (
+        peer.dialing === undefined &&
+        peer.link === undefined &&
+        !this.#closed &&
+        (evenIfDown || !peer.down)
+      ) {
         this.#dial(peer);
       }
     }, delay);
+  }
+
+  /**
+   * This node's hello to `peer`: who it is, and for settling a split (0042), the uid it has down
+   * at the peer's address and its side of the cluster.
+   */
+  #hello(peer: Peer | undefined): string {
+    const self = this.#self;
+    const hello: Record<string, unknown> = {
+      t: 'hello',
+      cluster: self.cluster,
+      protocol: PROTOCOL,
+      address: self.address,
+      uid: self.uid,
+    };
+    if (peer?.down === true && peer.downUid !== undefined) hello.down = peer.downUid;
+    const up = peer === undefined ? undefined : this.#split?.member(peer.address);
+    if (up !== undefined) hello.up = up;
+    const side = this.#split?.side();
+    if (side !== undefined) hello.side = side;
+    return JSON.stringify(hello);
   }
 
   #dial(peer: Peer): void {
@@ -404,10 +498,11 @@ class Node {
       peer,
       gotHello: false,
       abandoned: false,
+      cancelHello: undefined,
     };
     peer.dialing = link;
     this.#wire(link);
-    connection.send(this.#helloFrame);
+    connection.send(this.#hello(peer));
   }
 
   #accept(connection: Connection): void {
@@ -423,11 +518,20 @@ class Node {
       peer: undefined,
       gotHello: false,
       abandoned: false,
+      cancelHello: undefined,
     };
     this.#wire(link);
   }
 
   #wire(link: Link): void {
+    this.#awaitingHello.add(link);
+    link.cancelHello = this.#hooks.scheduler.setTimer(() => {
+      link.cancelHello = undefined;
+      this.#awaitingHello.delete(link);
+      if (!link.gotHello && !link.abandoned) {
+        this.#refuse(link, `no hello within ${String(HELLO_TIMEOUT_MS)} ms`);
+      }
+    }, HELLO_TIMEOUT_MS);
     link.connection.onFrame((text) => {
       this.#onFrame(link, text);
     });
@@ -436,9 +540,16 @@ class Node {
     });
   }
 
+  #stopWaitingForHello(link: Link): void {
+    link.cancelHello?.();
+    link.cancelHello = undefined;
+    this.#awaitingHello.delete(link);
+  }
+
   /** Closes a link on purpose, so its close doesn't count as a failure or start a dial. */
   #abandon(link: Link): void {
     link.abandoned = true;
+    this.#stopWaitingForHello(link);
     const peer = link.peer;
     if (peer?.link === link) peer.link = undefined;
     if (peer?.dialing === link) peer.dialing = undefined;
@@ -448,6 +559,7 @@ class Node {
   #onClose(link: Link, error: unknown): void {
     if (link.abandoned) return;
     link.abandoned = true;
+    this.#stopWaitingForHello(link);
     const peer = link.peer;
     if (peer === undefined) return;
     if (peer.link === link) {
@@ -544,11 +656,12 @@ class Node {
 
   #onHello(link: Link, frame: Record<string, unknown>): void {
     link.gotHello = true;
+    this.#stopWaitingForHello(link);
     const hello = frame as Partial<Hello>;
     const problem = this.#checkHello(link, hello);
     if (problem !== undefined) {
       // An inbound peer hears this node's hello first, so it can log the mismatch too.
-      if (!link.outbound) link.connection.send(this.#helloFrame);
+      if (!link.outbound) link.connection.send(this.#hello(undefined));
       this.#refuse(link, problem, hello.address);
       return;
     }
@@ -560,14 +673,14 @@ class Node {
     }
     if (peer.down && peer.downUid === uid) {
       // Told before it's refused, so a node that was downed while it was still running learns
-      // that it's down, and leaves (decision 0028).
-      if (!link.outbound) {
-        link.connection.send(this.#helloFrame);
-        link.connection.send(DOWNED_FRAME);
-      }
+      // that it's down, and leaves (decision 0028), whichever of the two dialed.
+      if (!link.outbound) link.connection.send(this.#hello(peer));
+      link.connection.send(DOWNED_FRAME);
       this.#refuse(link, `${address}#${String(uid)} was downed, and can rejoin only as a new uid`);
+      this.#settleSplit(hello as Hello, true);
       return;
     }
+    this.#settleSplit(hello as Hello, false);
     if (peer.uid !== undefined && peer.uid !== uid) {
       this.#incarnationGone(peer, `restarted as uid ${String(uid)}`, link);
     }
@@ -587,8 +700,27 @@ class Node {
       }
       this.#abandon(rival);
     }
-    if (!link.outbound) link.connection.send(this.#helloFrame);
+    if (!link.outbound) link.connection.send(this.#hello(peer));
     this.#establish(peer, link);
+  }
+
+  /**
+   * Settles a split at a hello (0042). The two nodes are in different clusters if either has the
+   * other down while the other doesn't count it a member: after a split their views disagreed
+   * on, or after one side restarted. The smaller side gives way, and its nodes rejoin the larger
+   * as new incarnations. A node downed by one that it still counts a member is no split: it's
+   * told it's down, and leaves (0028).
+   */
+  #settleSplit(hello: Hello, downed: boolean): void {
+    const split = this.#split;
+    if (split === undefined || !isSide(hello.side)) return;
+    const self = this.#self.uid;
+    const separate =
+      (downed && hello.up !== self) ||
+      (hello.down === self && split.member(hello.address) !== hello.uid);
+    if (separate && beats(hello.side, split.side())) {
+      split.lost({ address: hello.address, uid: hello.uid });
+    }
   }
 
   #checkHello(link: Link, hello: Partial<Hello>): string | undefined {
@@ -778,6 +910,7 @@ class Node {
   #close(): Promise<void> {
     if (this.#closing !== undefined) return this.#closing;
     this.#closed = true;
+    for (const link of [...this.#awaitingHello]) this.#stopWaitingForHello(link);
     for (const peer of this.#peers.values()) {
       peer.cancelRetry?.();
       peer.cancelRetry = undefined;

@@ -171,9 +171,220 @@ describe('leaseKeeper', () => {
     await t.advanceTo(11_500);
     expect(t.keeper.holds('show/1')).toBe(false);
     expect(t.lost).toEqual([['show/1', 1]]);
-    // Only acquire can make it this node's again.
-    expect(await t.keeper.acquire('show/1')).toEqual({ acquired: true, token: 1 });
+    // The late answer extended it in the store, which keeps it until 16,000. Holding nothing
+    // else, the keeper renews nothing, so it expires there.
+    expect((await t.store.holders('')).map((h) => h.lease)).toEqual(['show/1']);
+    t.setMode('ok');
+    await t.advanceTo(17_000);
+    expect(await t.store.holders('')).toEqual([]);
+    // Only acquire can make it this node's again, as a new holding.
+    expect(await t.keeper.acquire('show/1')).toEqual({ acquired: true, token: 2 });
     expect(t.keeper.holds('show/1')).toBe(true);
+  });
+
+  it('gives a lease back only a TTL after it let go, so a write sent before then lands first', async () => {
+    // Found by the hunt (contract seed 37,436 on the nodes mix): a lease lost at its deadline,
+    // while its shard was still persisting, was given back at once. Another node took the shard
+    // and recovered before the old write landed, and answered a read from before it.
+    const t = setup();
+    await t.keeper.acquire('show/9');
+    await t.keeper.acquire('show/1');
+    await t.advanceTo(4_000);
+    // Renewals of show/1 stop answering in time: renewAll still extends both in the store.
+    t.setMode('held');
+    await t.advanceTo(11_000);
+    expect(t.lost.map(([lease]) => lease)).toEqual(['show/9', 'show/1']);
+    t.setMode('ok');
+    for (const reply of t.held.splice(0)) reply.resolve();
+    await t.keeper.acquire('show/9');
+    // Still the keeper's in the store, renewed with show/9, until a TTL after it was lost...
+    await t.advanceTo(20_500);
+    expect((await t.store.holders('show/1')).map((h) => h.holder)).toEqual(['a#1']);
+    // ...and given back with the first renewal after that.
+    await t.advanceTo(24_000);
+    expect(await t.store.holders('show/1')).toEqual([]);
+  });
+
+  it('gives back a lease whose release failed, so it isn’t renewed for good', async () => {
+    const t = setup();
+    let failRelease = true;
+    const keeper = leaseKeeper({
+      store: {
+        ...t.store,
+        release: (lease, holder, token) =>
+          failRelease
+            ? Promise.reject(new Error('store unreachable'))
+            : t.store.release(lease, holder, token),
+      },
+      holder: 'b#2',
+      scheduler: t.scheduler,
+      ttlMs: TTL,
+      renewMs: RENEW,
+      marginMs: MARGIN,
+      onLost: () => {},
+    });
+    // It holds another, so it goes on renewing: with none, the lease would simply expire.
+    await keeper.acquire('show/9');
+    await keeper.acquire('show/2');
+    await expect(keeper.release('show/2')).rejects.toThrow('store unreachable');
+    expect(keeper.holds('show/2')).toBe(false);
+    // Renewed with the rest while the store can't hear the release...
+    await t.advanceTo(12_000);
+    expect(await t.store.holders('show/2')).toEqual([
+      expect.objectContaining({ lease: 'show/2', holder: 'b#2' }),
+    ]);
+    // ...and given back by the first renewal after it can.
+    failRelease = false;
+    await t.advanceTo(15_000);
+    expect(await t.store.holders('show/2')).toEqual([]);
+    expect((await t.store.acquire('show/2', 'c#3', TTL)).acquired).toBe(true);
+  });
+
+  it('waits for a give-back to finish before acquiring the lease again', async () => {
+    // Found by the hunt (contract seed 9,886): the give-back learned the token and sent its
+    // release, then the region's acquire landed first and got the same token back, and the
+    // release freed the lease the region now held. Another node took it while it still ran.
+    const t = setup();
+    const releasing = deferred();
+    let holdRelease = false;
+    const keeper = leaseKeeper({
+      store: {
+        ...t.store,
+        renewAll: async (holder, ttlMs) => {
+          const renewed = await t.store.renewAll(holder, ttlMs);
+          // The store still has show/5 as this node's, which the keeper doesn't hold.
+          return [...renewed, 'show/5'].sort();
+        },
+        release: async (lease, holder, token) => {
+          if (holdRelease) await releasing.promise;
+          await t.store.release(lease, holder, token);
+        },
+      },
+      holder: 'b#2',
+      scheduler: t.scheduler,
+      ttlMs: TTL,
+      renewMs: RENEW,
+      marginMs: MARGIN,
+      onLost: () => {},
+    });
+    await keeper.acquire('show/9');
+    await t.store.acquire('show/5', 'b#2', TTL);
+    holdRelease = true;
+    // The renewal at 3,000 finds show/5 and starts giving it back; its release waits.
+    await t.advanceTo(3_000);
+    const acquiring = keeper.acquire('show/5');
+    await t.advanceTo(3_100);
+    releasing.resolve();
+    const result = await acquiring;
+    expect(result.acquired).toBe(true);
+    expect(keeper.holds('show/5')).toBe(true);
+    // Held in the store too, under the token the keeper has.
+    expect(await t.store.holders('show/5')).toEqual([
+      expect.objectContaining({ lease: 'show/5', holder: 'b#2' }),
+    ]);
+    expect((await t.store.acquire('show/5', 'c#3', TTL)).acquired).toBe(false);
+  });
+
+  it('waits for its own release to land before acquiring the lease again', async () => {
+    // Found by the hunt (contract seed 48,788 on the heavy mix): a node handed a shard off on a
+    // slow disk and, alone in a partition, took it straight back. The acquire landed before the
+    // release and kept the token, then the release freed the lease it had just taken, and
+    // another node ran the shard alongside it.
+    const t = setup();
+    const landing = deferred();
+    let holdRelease = false;
+    const keeper = leaseKeeper({
+      store: {
+        ...t.store,
+        release: async (lease, holder, token) => {
+          if (holdRelease) await landing.promise;
+          await t.store.release(lease, holder, token);
+        },
+      },
+      holder: 'b#2',
+      scheduler: t.scheduler,
+      ttlMs: TTL,
+      renewMs: RENEW,
+      marginMs: MARGIN,
+      onLost: () => {},
+    });
+    expect(await keeper.acquire('show/7')).toEqual({ acquired: true, token: 1 });
+    holdRelease = true;
+    const releasing = keeper.release('show/7');
+    const acquiring = keeper.acquire('show/7');
+    await t.advanceTo(500);
+    landing.resolve();
+    await releasing;
+    // A new holding, after the release: the store has it as this node's, under that token.
+    expect(await acquiring).toEqual({ acquired: true, token: 2 });
+    expect(keeper.holds('show/7')).toBe(true);
+    expect((await t.store.acquire('show/7', 'c#3', TTL)).acquired).toBe(false);
+  });
+
+  it('won’t take a lease again under the token of a release that never answered', async () => {
+    // Found by the hunt (contract seed 48,788 on the heavy mix): the release timed out on a slow
+    // disk and landed later, after the node had taken the lease back under the same token, so
+    // it freed the lease the node then held.
+    const t = setup();
+    const landing = deferred();
+    const keeper = leaseKeeper({
+      store: {
+        ...t.store,
+        release: (lease, holder, token) => {
+          // Applied only when landing resolves; the caller gives up at once, as a timeout would.
+          void landing.promise.then(() => t.store.release(lease, holder, token));
+          return Promise.reject(new Error('timed out'));
+        },
+      },
+      holder: 'b#2',
+      scheduler: t.scheduler,
+      ttlMs: TTL,
+      renewMs: RENEW,
+      marginMs: MARGIN,
+      onLost: () => {},
+    });
+    expect(await keeper.acquire('show/8')).toEqual({ acquired: true, token: 1 });
+    await expect(keeper.release('show/8')).rejects.toThrow('timed out');
+    // The store still has it as this node's, token 1: taking it now would be undone by the release.
+    await expect(keeper.acquire('show/8')).rejects.toThrow('has had no answer');
+    expect(keeper.holds('show/8')).toBe(false);
+    landing.resolve();
+    await t.advanceTo(10);
+    // Landed: the lease is free, and taken again under a new token, which no late release matches.
+    expect(await keeper.acquire('show/8')).toEqual({ acquired: true, token: 2 });
+    expect(keeper.holds('show/8')).toBe(true);
+  });
+
+  it('gives nothing back while its own acquire of it is on the way', async () => {
+    const t = setup();
+    const answer = deferred();
+    let holdAcquire = false;
+    const keeper = leaseKeeper({
+      store: {
+        ...t.store,
+        acquire: async (lease, holder, ttlMs) => {
+          const result = await t.store.acquire(lease, holder, ttlMs);
+          if (holdAcquire) await answer.promise;
+          return result;
+        },
+      },
+      holder: 'b#2',
+      scheduler: t.scheduler,
+      ttlMs: TTL,
+      renewMs: RENEW,
+      marginMs: MARGIN,
+      onLost: () => {},
+    });
+    await keeper.acquire('show/9');
+    holdAcquire = true;
+    // Applied in the store at once, answered only after a renewal has seen it.
+    const acquiring = keeper.acquire('show/3');
+    await t.advanceTo(3_500);
+    answer.resolve();
+    expect(await acquiring).toEqual({ acquired: true, token: 1 });
+    await t.advanceTo(7_000);
+    expect(keeper.holds('show/3')).toBe(true);
+    expect((await t.store.holders('show/3')).map((h) => h.holder)).toEqual(['b#2']);
   });
 
   it('lets go at once when the store no longer has the lease as its own', async () => {

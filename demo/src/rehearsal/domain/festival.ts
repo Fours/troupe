@@ -7,6 +7,7 @@ import { supervise } from '@kylewillett/troupe';
 import {
   invariants,
   scenario,
+  type FaultOptions,
   type Invariant,
   type NetworkMode,
   type Scenario,
@@ -91,16 +92,67 @@ export function festivalInvariants(mode: NetworkMode): Invariant[] {
   return list;
 }
 
-/** Festival night's scenario, with the network in `mode`. */
-export function festival(opts: { readonly mode?: NetworkMode } = {}): Scenario {
-  return scenario(festivalOptions(opts.mode ?? 'contract'));
+/**
+ * The fault mixes the hunt (T7) varies: `all`, every kind at the default rate; `nodes`, kills,
+ * pauses, leaves and joins with disk faults; `network`, the network's faults alone; `clocks`,
+ * drift and the database's clock jumping, with disk faults; and `heavy`, every kind at twice the
+ * rate, three at once.
+ */
+export const MIXES = ['all', 'nodes', 'network', 'clocks', 'heavy'] as const;
+
+/** One of {@link MIXES}. */
+export type Mix = (typeof MIXES)[number];
+
+/** Whether `name` is a mix's. */
+export function isMix(name: unknown): name is Mix {
+  return (MIXES as readonly unknown[]).includes(name);
+}
+
+const NODE_FAULTS = ['kill', 'pause', 'leave', 'join'] as const;
+const DISK_FAULTS = ['slow', 'hang', 'error', 'lostReplies', 'cut'] as const;
+
+/** The faults `mix` draws, with the network in `mode`. */
+export function faultsOf(mode: NetworkMode, mix: Mix): FaultOptions {
+  switch (mix) {
+    case 'all':
+      return { nodes: true, clocks: true, network: mode, disks: true };
+    case 'nodes':
+      return { only: [...NODE_FAULTS, ...DISK_FAULTS], network: mode };
+    case 'network':
+      return {
+        only: [
+          'partition',
+          'reset',
+          'delay',
+          'reorder',
+          ...(mode === 'chaos' ? (['lose', 'duplicate'] as const) : []),
+        ],
+        network: mode,
+      };
+    case 'clocks':
+      return { only: ['drift', 'jump', ...DISK_FAULTS], network: mode };
+    case 'heavy':
+      return {
+        nodes: true,
+        clocks: true,
+        network: mode,
+        disks: true,
+        perMinute: 12,
+        concurrent: 3,
+      };
+  }
+}
+
+/** Festival night's scenario, with the network in `mode`, drawing faults from `mix`. */
+export function festival(opts: { readonly mode?: NetworkMode; readonly mix?: Mix } = {}): Scenario {
+  return scenario(festivalOptions(opts.mode ?? 'contract', opts.mix ?? 'all'));
 }
 
 /**
- * Festival night's scenario options, with the network in `mode`: for the tests and
- * `npm run rehearse`, which plant bugs in it through the package's internals.
+ * Festival night's scenario options, with the network in `mode` and faults from `mix`: for the
+ * tests and `npm run rehearse`, which plant bugs in it through the package's internals.
  */
-export function festivalOptions(mode: NetworkMode): ScenarioOptions {
+export function festivalOptions(mode: NetworkMode, mix: Mix = 'all'): ScenarioOptions {
   return {
     nodes: NODES,
     spares: SPARES,
@@ -141,7 +193,7 @@ export function festivalOptions(mode: NetworkMode): ScenarioOptions {
         );
       });
     },
-    faults: { nodes: true, clocks: true, network: mode, disks: true },
+    faults: faultsOf(mode, mix),
     invariants: festivalInvariants(mode),
   };
 }

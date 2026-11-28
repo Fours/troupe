@@ -150,7 +150,7 @@ describe('the story', () => {
       "   2.0s  node-2 stopped answering heartbeats. Its shows can't be reached.",
       '   2.5s  node-2 is answering heartbeats again.',
       '   3.0s  node-2 is back, as a new incarnation. Shows will move to it, a few at a time.',
-      '   4.0s  node-2 learned it was marked down, and restarts as a new node.',
+      '   4.0s  node-2 is marked down, and restarts as a new node.',
     ]);
   });
 

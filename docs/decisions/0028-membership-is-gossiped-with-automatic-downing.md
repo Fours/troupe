@@ -1,6 +1,6 @@
 # 0028. Membership is gossiped with no leader, and downing is automatic, because ownership doesn't depend on it
 
-- **Status:** Accepted
+- **Status:** Accepted. Its downing, and what a node does about being downed, are superseded by [0042](0042-keep-the-majority.md)
 - **Date:** 2026-11-23
 - **Milestone:** 4
 

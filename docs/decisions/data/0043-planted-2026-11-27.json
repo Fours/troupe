@@ -1,0 +1,198 @@
+{
+  "what": "Each planted bug's hunt on the code T7 fixed: npm run rehearse -- --seeds 1..10000 --plant <bug> --json <file>, in contract mode, stopping at the first seed whose run broke an invariant that catches the bug while the same seed and plan passed it without the bug, then shrinking it. hunt is the fault mix and timings in place of festival night's, where the row has its own",
+  "machine": "Apple M5 Pro, darwin 25.4.0, 17 worker processes",
+  "node": "v26.12.1",
+  "date": "2026-11-27",
+  "bugs": [
+    {
+      "plant": "late-deadline",
+      "bug": "The holder notes its deadline after the renewal returns, not before it is sent",
+      "hunt": {
+        "faults": {
+          "only": ["slow", "cut", "partition"],
+          "perMinute": 30,
+          "concurrent": 3
+        },
+        "cluster": {
+          "downAfterMs": 60000,
+          "leases": {
+            "marginMs": 250
+          }
+        }
+      },
+      "foundAtSeed": 165,
+      "invariant": "oneLiveInstance",
+      "violation": "show/the-tempest ran on node-1#196846785 and node-2#3151400810 from 8,468 to 8,489",
+      "faults": 19,
+      "shrunkTo": 3,
+      "shrinkRuns": 168,
+      "untilMs": 8490,
+      "shrunkPlan": [
+        {
+          "at": 1313,
+          "disk": "slow",
+          "latencyMs": [292, 622],
+          "ms": 7134
+        },
+        {
+          "at": 2594,
+          "partition": [
+            ["node-2", "node-3"],
+            ["node-1", "crowd"]
+          ],
+          "ms": 7723
+        },
+        {
+          "at": 5196,
+          "cut": "node-1",
+          "ms": 4040
+        }
+      ],
+      "replay": "eyJzZWVkIjoxNjUsIm1vZGUiOiJjb250cmFjdCIsInBsYW4iOlt7ImF0IjoxMzEzLCJkaXNrIjoic2xvdyIsImxhdGVuY3lNcyI6WzI5Miw2MjJdLCJtcyI6NzEzNH0seyJhdCI6MjU5NCwicGFydGl0aW9uIjpbWyJub2RlLTIiLCJub2RlLTMiXSxbIm5vZGUtMSIsImNyb3dkIl1dLCJtcyI6NzcyM30seyJhdCI6NTE5NiwiY3V0Ijoibm9kZS0xIiwibXMiOjQwNDB9XSwidW50aWxNcyI6ODQ5MCwicGxhbnQiOiJsYXRlLWRlYWRsaW5lIiwidmlvbGF0aW9uIjp7ImludmFyaWFudCI6Im9uZUxpdmVJbnN0YW5jZSIsIm1lc3NhZ2UiOiJzaG93L3RoZS10ZW1wZXN0IHJhbiBvbiBub2RlLTEjMTk2ODQ2Nzg1IGFuZCBub2RlLTIjMzE1MTQwMDgxMCBmcm9tIDgsNDY4IHRvIDgsNDg5In19",
+      "seedsRun": 165,
+      "runs": 334,
+      "ms": 5861
+    },
+    {
+      "plant": "early-release",
+      "bug": "A handoff releases the lease before its entities stop",
+      "hunt": "festival night as it is",
+      "foundAtSeed": 51,
+      "invariant": "oneLiveInstance",
+      "violation": "show/othello ran on node-1#2090943571 and node-3#1310400293 from 10,012 to 19,542",
+      "faults": 4,
+      "shrunkTo": 1,
+      "shrinkRuns": 51,
+      "untilMs": 19543,
+      "shrunkPlan": [
+        {
+          "at": 9336,
+          "disk": "lostReplies",
+          "rate": 0.34,
+          "ms": 161
+        }
+      ],
+      "replay": "eyJzZWVkIjo1MSwibW9kZSI6ImNvbnRyYWN0IiwicGxhbiI6W3siYXQiOjkzMzYsImRpc2siOiJsb3N0UmVwbGllcyIsInJhdGUiOjAuMzQsIm1zIjoxNjF9XSwidW50aWxNcyI6MTk1NDMsInBsYW50IjoiZWFybHktcmVsZWFzZSIsInZpb2xhdGlvbiI6eyJpbnZhcmlhbnQiOiJvbmVMaXZlSW5zdGFuY2UiLCJtZXNzYWdlIjoic2hvdy9vdGhlbGxvIHJhbiBvbiBub2RlLTEjMjA5MDk0MzU3MSBhbmQgbm9kZS0zIzEzMTA0MDAyOTMgZnJvbSAxMCwwMTIgdG8gMTksNTQyIn19",
+      "seedsRun": 71,
+      "runs": 123,
+      "ms": 2858
+    },
+    {
+      "plant": "grants-held",
+      "bug": "The store grants a lease that is still held",
+      "hunt": "festival night as it is",
+      "foundAtSeed": 3,
+      "invariant": "oneLiveInstance",
+      "violation": "show/three-sisters ran on node-1#2742392791 and node-2#4231692619 from 1,017 to 2,004",
+      "faults": 6,
+      "shrunkTo": 0,
+      "shrinkRuns": 6,
+      "untilMs": 2005,
+      "shrunkPlan": [],
+      "replay": "eyJzZWVkIjozLCJtb2RlIjoiY29udHJhY3QiLCJwbGFuIjpbXSwidW50aWxNcyI6MjAwNSwicGxhbnQiOiJncmFudHMtaGVsZCIsInZpb2xhdGlvbiI6eyJpbnZhcmlhbnQiOiJvbmVMaXZlSW5zdGFuY2UiLCJtZXNzYWdlIjoic2hvdy90aHJlZS1zaXN0ZXJzIHJhbiBvbiBub2RlLTEjMjc0MjM5Mjc5MSBhbmQgbm9kZS0yIzQyMzE2OTI2MTkgZnJvbSAxLDAxNyB0byAyLDAwNCJ9fQ",
+      "seedsRun": 13,
+      "runs": 21,
+      "ms": 2269
+    },
+    {
+      "plant": "greets-once",
+      "bug": "A region greets each member only once",
+      "hunt": {
+        "faults": {
+          "only": ["kill", "join", "leave", "reset"],
+          "perMinute": 30,
+          "concurrent": 3
+        }
+      },
+      "foundAtSeed": 2244,
+      "invariant": "recovers",
+      "violation": "at 59,114, shard show/16 was on node-2, and belongs on node-3",
+      "faults": 12,
+      "shrunkTo": 3,
+      "shrinkRuns": 110,
+      "untilMs": 59115,
+      "shrunkPlan": [
+        {
+          "at": 33003,
+          "reset": ["node-3", "node-1"]
+        },
+        {
+          "at": 33489,
+          "kill": "node-3",
+          "restartAfterMs": 5616
+        },
+        {
+          "at": 39114,
+          "reset": ["node-2", "node-3"]
+        }
+      ],
+      "replay": "eyJzZWVkIjoyMjQ0LCJtb2RlIjoiY29udHJhY3QiLCJwbGFuIjpbeyJhdCI6MzMwMDMsInJlc2V0IjpbIm5vZGUtMyIsIm5vZGUtMSJdfSx7ImF0IjozMzQ4OSwia2lsbCI6Im5vZGUtMyIsInJlc3RhcnRBZnRlck1zIjo1NjE2fSx7ImF0IjozOTExNCwicmVzZXQiOlsibm9kZS0yIiwibm9kZS0zIl19XSwidW50aWxNcyI6NTkxMTUsInBsYW50IjoiZ3JlZXRzLW9uY2UiLCJ2aW9sYXRpb24iOnsiaW52YXJpYW50IjoicmVjb3ZlcnMiLCJtZXNzYWdlIjoiYXQgNTksMTE0LCBzaGFyZCBzaG93LzE2IHdhcyBvbiBub2RlLTIsIGFuZCBiZWxvbmdzIG9uIG5vZGUtMyJ9fQ",
+      "seedsRun": 2261,
+      "runs": 2372,
+      "ms": 15396
+    },
+    {
+      "plant": "routes-unreachable",
+      "bug": "A region routes to a holder it cannot reach",
+      "hunt": {
+        "cluster": {
+          "heartbeatMs": 1000,
+          "unreachableAfterMs": 5000,
+          "downAfterMs": 10000
+        }
+      },
+      "foundAtSeed": 66,
+      "invariant": "failoverWithin",
+      "violation": "show/the-tempest, on node-1#2837860813 when it was killed at 32,322, ran again on node-2#3580101524 from 38,019, and none of the 1 operations begun on it by 39,222 answered",
+      "faults": 3,
+      "shrunkTo": 1,
+      "shrinkRuns": 34,
+      "untilMs": 60000,
+      "shrunkPlan": [
+        {
+          "at": 32322,
+          "kill": "node-1",
+          "restartAfterMs": 7677
+        }
+      ],
+      "replay": "eyJzZWVkIjo2NiwibW9kZSI6ImNvbnRyYWN0IiwicGxhbiI6W3siYXQiOjMyMzIyLCJraWxsIjoibm9kZS0xIiwicmVzdGFydEFmdGVyTXMiOjc2Nzd9XSwicGxhbnQiOiJyb3V0ZXMtdW5yZWFjaGFibGUiLCJ2aW9sYXRpb24iOnsiaW52YXJpYW50IjoiZmFpbG92ZXJXaXRoaW4iLCJtZXNzYWdlIjoic2hvdy90aGUtdGVtcGVzdCwgb24gbm9kZS0xIzI4Mzc4NjA4MTMgd2hlbiBpdCB3YXMga2lsbGVkIGF0IDMyLDMyMiwgcmFuIGFnYWluIG9uIG5vZGUtMiMzNTgwMTAxNTI0IGZyb20gMzgsMDE5LCBhbmQgbm9uZSBvZiB0aGUgMSBvcGVyYXRpb25zIGJlZ3VuIG9uIGl0IGJ5IDM5LDIyMiBhbnN3ZXJlZCJ9fQ",
+      "seedsRun": 131,
+      "runs": 166,
+      "ms": 2488
+    },
+    {
+      "plant": "gossip-backwards",
+      "bug": "Gossip merge lets a status go backwards",
+      "hunt": "festival night as it is",
+      "found": false,
+      "tolerated": "since keep-the-majority (0042), a member whose status goes backwards is unreachable, and is downed again before recovery is checked",
+      "seedsRun": 10000,
+      "runs": 10000,
+      "ms": 38619
+    },
+    {
+      "plant": "early-reply",
+      "bug": "A persistent actor replies before its append settles",
+      "hunt": "festival night as it is",
+      "foundAtSeed": 1,
+      "invariant": "acknowledgedWritesKept",
+      "violation": "show/hamlet acknowledged buy 231 from crowd at 35,438, and the journal doesn't have it",
+      "faults": 3,
+      "shrunkTo": 1,
+      "shrinkRuns": 56,
+      "untilMs": 35439,
+      "shrunkPlan": [
+        {
+          "at": 35430,
+          "disk": "error",
+          "rate": 0.11,
+          "ms": 31
+        }
+      ],
+      "replay": "eyJzZWVkIjoxLCJtb2RlIjoiY29udHJhY3QiLCJwbGFuIjpbeyJhdCI6MzU0MzAsImRpc2siOiJlcnJvciIsInJhdGUiOjAuMTEsIm1zIjozMX1dLCJ1bnRpbE1zIjozNTQzOSwicGxhbnQiOiJlYXJseS1yZXBseSIsInZpb2xhdGlvbiI6eyJpbnZhcmlhbnQiOiJhY2tub3dsZWRnZWRXcml0ZXNLZXB0IiwibWVzc2FnZSI6InNob3cvaGFtbGV0IGFja25vd2xlZGdlZCBidXkgMjMxIGZyb20gY3Jvd2QgYXQgMzUsNDM4LCBhbmQgdGhlIGpvdXJuYWwgZG9lc24ndCBoYXZlIGl0In19",
+      "seedsRun": 24,
+      "runs": 81,
+      "ms": 3200
+    }
+  ]
+}

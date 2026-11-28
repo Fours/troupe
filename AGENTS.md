@@ -46,7 +46,8 @@ npm run build       # tsc → dist/
 npm run bench       # the benchmark, against dist/ (build first); --quick for a smoke run
 npm run rehearse    # builds, then festival night rehearsed on seeds across worker processes:
                     # --seeds a..b, --mode contract|chaos, --plant <bug>, --replay '<line>',
-                    # --ignore, --determinism-every n (scripts/rehearse.ts has them all)
+                    # --mix all|nodes|network|clocks|heavy, --ignore, --determinism-every n
+                    # (scripts/rehearse.ts has them all)
 npm run postgres:down
 npm run demo:dev    # the demo site on Vite's dev server; demo:build builds it into demo/dist/
 npm run example:backstage  # opening night in Node with serveBackstage; prints the URL
@@ -96,7 +97,8 @@ src/
   testkit/          the /testkit entry point: ManualScheduler, seededRandom, createTestKit, TestProbe
   cluster/          the /cluster entry point (any runtime): wire.ts, the wire format (0025);
                     transport.ts, memory.ts (the in-memory network) and remoting.ts (0026);
-                    table.ts, the member table, and membership.ts, joinCluster (0028);
+                    table.ts, the member table, and membership.ts, joinCluster (0028), with
+                    downing.ts, keep the majority (0042);
                     shard-store.ts (ShardStore and its checks), shard-memory.ts (the in-memory
                     store) and leases.ts, the holder's side of a lease (0029); placement.ts
                     (entity to shard, rendezvous owners), sharding.ts (init, entity refs),
@@ -165,8 +167,9 @@ test/               mirrors src/; helpers/ holds deferred() and test actors (tre
                     integration/ needs Postgres: its own Vitest project, run by test:integration
                     demo/ tests the demo's domain on the testkit and its driven clock, festival
                     night's on its in-memory cluster, festival night rehearsed (rehearsal.test.ts,
-                    FESTIVAL_SEEDS seeds a mode, 100 by default), and the write-up's data and
-                    record links
+                    FESTIVAL_SEEDS seeds a mode, 100 by default), the bugs T7's hunt found, each
+                    a regression plan (found.test.ts, with the plans in found.ts), and the
+                    write-up's data and record links
                     multiprocess/ runs examples/cluster/ as real processes on TCP and Postgres,
                     against dist/: its own Vitest project, run by test:cluster. harness.ts starts,
                     kills and restarts them and reads their JSON lines, and journal.ts checks the
@@ -189,7 +192,7 @@ demo/               the demo site (Vite, React, plain CSS), with its own tsconfi
                     node, one ManualScheduler, journal and shard store (festival-night.ts), with
                     the log's narration, the cluster map (stage.ts) and the Backstage client for
                     the picked node. It loads none of opening night's page
-  src/rehearsal/    domain/festival.ts, festival night as a Rehearsal scenario, festival({ mode }),
+  src/rehearsal/    domain/festival.ts, festival night as a Rehearsal scenario, festival({ mode, mix }),
                     with no React: the tests, npm run rehearse and the /rehearsal/ page share it
   src/writeup/      the write-up, "How Troupe works", the site's second page (how-it-works/):
                     the prose in TSX, citing records with <Record id>, and the SVG charts

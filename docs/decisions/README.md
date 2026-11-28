@@ -47,7 +47,7 @@ When you change a decision, update its record in the same commit as the code.
 | [0025](0025-messages-on-the-wire-are-json-plus-refs.md) | Messages on the wire are JSON plus refs, refs travel as an address and a path, and messages to entities are always encoded | Accepted | 4 |
 | [0026](0026-remoting-is-at-most-once-behind-a-transport.md) | Remoting is at most once and ordered per pair of nodes, behind a `Transport` interface, and remote asks settle through the asker | Accepted | 4 |
 | [0027](0027-nodes-talk-tcp-with-a-shared-secret.md) | Nodes talk over TCP on `node:net` with length-prefixed JSON frames and a challenge-response on a shared secret | Accepted | 4 |
-| [0028](0028-membership-is-gossiped-with-automatic-downing.md) | Membership is gossiped with no leader, and downing is automatic, because ownership doesn't depend on it | Accepted | 4 |
+| [0028](0028-membership-is-gossiped-with-automatic-downing.md) | Membership is gossiped with no leader, and downing is automatic, because ownership doesn't depend on it | Accepted, downing superseded by 0042 | 4 |
 | [0029](0029-a-shard-is-owned-by-whoever-holds-its-lease.md) | A shard is owned by whoever holds its lease, and the store and the holder each time the lease on their own clock | Accepted | 4 |
 | [0030](0030-shards-are-placed-by-rendezvous-hashing.md) | Shards are placed by rendezvous hashing over the reachable members, and move only by handoff or an expired lease | Accepted, routing superseded by 0031 | 4 |
 | [0031](0031-failover-waits-for-the-lease-not-for-downing.md) | Failover waits for the lease, not for downing: a region routes only to a holder it can reach | Accepted | 4 |
@@ -60,3 +60,5 @@ When you change a decision, update its record in the same commit as the code.
 | [0038](0038-a-pipe-with-a-signal-ends-on-the-scheduler.md) | A pipe with a signal ends when the signal aborts, so it isn't busy work for `settle` | Accepted | 5 |
 | [0040](0040-planted-bugs-are-found-by-what-they-break.md) | A planted bug is found by what it breaks, and failover means answering again | Accepted | 5 |
 | [0041](0041-a-failure-can-raise-its-backoff-delay.md) | A failure can raise its backoff delay, through the strategy's `minDelayFor`, past `maxMs` | Accepted | 5 |
+| [0042](0042-keep-the-majority.md) | Keep the majority: only the larger side of a split downs the rest, and two clusters settle it when they meet | Accepted | 5 |
+| [0043](0043-the-hunt-and-fencing.md) | The hunt: a million seeds pass on the fixed code, and the journal stays unfenced | Accepted | 5 |

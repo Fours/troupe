@@ -4,7 +4,7 @@ import type { Connection, Transport } from '../../src/cluster/transport.js';
 import { persistentActor } from '../../src/persistence/actor.js';
 import type { Persistence } from '../../src/persistence/types.js';
 import type { EventEntry, History, HistoryEntry } from '../../src/rehearsal/history.js';
-import { invariants, type Invariant } from '../../src/rehearsal/invariants.js';
+import { invariants, pastTheMargin, type Invariant } from '../../src/rehearsal/invariants.js';
 import type { FaultPlan } from '../../src/rehearsal/plan.js';
 import {
   scenarioWith,
@@ -80,6 +80,7 @@ function bank(
     bug?: 'forgets' | 'stale';
     invariants?: readonly Invariant[];
     leases?: { ttlMs: number; renewMs: number; marginMs: number };
+    downAfterMs?: number;
     extra?: Partial<ScenarioOptions>;
   } = {},
   internals: ScenarioInternals = {},
@@ -93,7 +94,7 @@ function bank(
       cluster: {
         heartbeatMs: 200,
         unreachableAfterMs: 1_000,
-        downAfterMs: 1_000,
+        downAfterMs: opts.downAfterMs ?? 1_000,
         seedTimeoutMs: 500,
         leases: opts.leases ?? { ttlMs: 2_000, renewMs: 500, marginMs: 500 },
       },
@@ -377,6 +378,19 @@ describe('the built-in invariants', () => {
     expect(invariants.failoverWithin().check(run.history)).toEqual([]);
   });
 
+  it('failoverWithin: checks no kill while the cluster may still be settling from another fault', async () => {
+    // Traced in the hunt (chaos seed 28,596): a partition made two nodes restart, and a kill came
+    // as they rejoined, before the crowd had heard of them. Another fault under way, or ended
+    // within a bound before the kill, can stretch failover by design.
+    const s = bank({ invariants: [invariants.failoverWithin({ withinMs: 1_000 })] });
+    const before = (endsAt: number): FaultPlan => [
+      { at: 1_000, disk: 'slow', node: 'node-3', latencyMs: [1, 2], ms: endsAt - 1_000 },
+      ...KILL,
+    ];
+    expect((await s.run({ seed: 1, plan: before(4_600) })).violations).toEqual([]);
+    expect((await s.run({ seed: 1, plan: before(3_800) })).violations.length).toBeGreaterThan(0);
+  });
+
   it('failoverWithin: fails when a killed node’s entities run again but don’t answer', async () => {
     // Downing slower than the lease, and a region that routes to a holder it can't reach
     // (planted, T6): node-2's ledgers start elsewhere once its lease runs out, but the crowd's
@@ -437,13 +451,57 @@ describe('the built-in invariants', () => {
     expect(strict.check(recovering.history).length).toBeGreaterThan(0);
   });
 
+  it('adds up the jumps and the drift within one TTL when it judges a run past the margin', () => {
+    const past = (plan: FaultPlan, driftPpm = 0): boolean =>
+      pastTheMargin([
+        {
+          kind: 'run',
+          time: 0,
+          seed: 1,
+          mode: 'contract',
+          nodes: ['node-1'],
+          spares: [],
+          clients: [],
+          durationMs: 60_000,
+          quietFrom: 40_000,
+          leases: { ttlMs: 4_000, renewMs: 1_000, marginMs: 1_000 },
+          plan,
+        },
+        { kind: 'start', time: 0, node: 'node-1', inc: 0, uid: 1, driftPpm },
+      ]);
+    expect(past([])).toBe(false);
+    expect(past([{ at: 7_905, jump: 1_001 }])).toBe(true);
+    expect(past([{ at: 7_905, jump: 991 }])).toBe(false);
+    // Found by the hunt (contract seed 1,002 on the heavy mix): two jumps 86 ms apart, each
+    // inside the margin, outran it together, and the overlap was reported as a violation.
+    expect(
+      past([
+        { at: 7_905, jump: 991 },
+        { at: 7_991, jump: 566 },
+      ]),
+    ).toBe(true);
+    // A TTL apart, the lease has been renewed between them.
+    expect(
+      past([
+        { at: 7_905, jump: 991 },
+        { at: 11_905, jump: 566 },
+      ]),
+    ).toBe(false);
+    // 900 ms of jump and 30,000 ppm over 4 s, 120 ms: 1,020 ms in all.
+    expect(past([{ at: 7_905, jump: 900 }], 30_000)).toBe(true);
+    expect(past([], 250_000)).toBe(false);
+    expect(past([], 250_001)).toBe(true);
+  });
+
   it('reports drift past the lease margin as expected, not as a violation, while the journal holds', async () => {
     // A 10 s lease with a 100 ms margin, and node-1's clock running 10% slow, cut off from the
     // others and the database: by its clock its lease lasts a second past the store's expiry, so
     // the others start its ledgers while it still runs them. Decision 0029 doesn't promise
-    // against that, and the journal's sequence check must hold.
+    // against that, and the journal's sequence check must hold. Downing waits a minute here:
+    // alone on its side of the partition, node-1 would otherwise down itself first (0042).
     const s = bank({
       leases: { ttlMs: 10_000, renewMs: 1_000, marginMs: 100 },
+      downAfterMs: 60_000,
       extra: { durationMs: 60_000, quietMs: 20_000 },
       invariants: [invariants.oneLiveInstance(), kept, fresh],
     });
@@ -462,6 +520,7 @@ describe('the built-in invariants', () => {
     // The same overlaps, without the journal invariants to vouch for them, are violations.
     const unvouched = await bank({
       leases: { ttlMs: 10_000, renewMs: 1_000, marginMs: 100 },
+      downAfterMs: 60_000,
       extra: { durationMs: 60_000, quietMs: 20_000 },
       invariants: [invariants.oneLiveInstance()],
     }).run({ seed: 1, plan });

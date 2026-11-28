@@ -84,6 +84,16 @@ export function leaseKeeper(opts: LeaseKeeperOptions): LeaseKeeper {
   }
 
   const held = new Map<string, Held>();
+  // Leases with an acquire of this node's on its way, and how many.
+  const acquiring = new Map<string, number>();
+  // Releases and give-backs under way. An acquire waits for one to finish: an acquire of a lease
+  // this node still has in the store keeps its token, so a release sent before it but landing
+  // after would free the lease it had just taken (T7).
+  const lettingGo = new Map<string, Promise<void>>();
+  // When this node let each lease go, by losing it or releasing it, for a TTL afterwards.
+  const letGo = new Map<string, number>();
+  // The token of each lease whose release has had no answer: it may still land (T7).
+  const unanswered = new Map<string, number>();
   let closed = false;
 
   /** Moves a lease's deadline to `noted + ttlMs - marginMs`, if that's later. */
@@ -104,6 +114,7 @@ export function leaseKeeper(opts: LeaseKeeperOptions): LeaseKeeper {
     if (held.get(lease) !== entry) return;
     entry.cancel();
     held.delete(lease);
+    letGo.set(lease, scheduler.now());
     onLost(lease, entry.token);
   }
 
@@ -127,6 +138,47 @@ export function leaseKeeper(opts: LeaseKeeperOptions): LeaseKeeper {
       // released it, or the store's clock ran fast. Losing it early is always safe.
       else if (entry.since < noted) lose(lease, entry);
     }
+    // The store renews every lease it has as ours, so one this node let go of without the store
+    // hearing, a release that failed, a lease lost at its deadline while a renewal was still on
+    // its way, or an acquire that timed out after it was applied, would be renewed for good and
+    // its shard never find another home (T7). Each is given back.
+    for (const lease of renewed) {
+      if (held.has(lease) || acquiring.has(lease)) continue;
+      // Not before a TTL has passed since this node let it go, as the store would have kept it
+      // had its renewals stopped: a write its shard sent before then may still land, and the
+      // next owner must recover after it (T7, contract seed 37,436 on the nodes mix).
+      const since = letGo.get(lease);
+      if (since !== undefined && scheduler.now() - since < ttlMs) continue;
+      letGo.delete(lease);
+      void giveBack(lease);
+    }
+    for (const [lease, since] of letGo) {
+      if (scheduler.now() - since >= ttlMs && !renewed.includes(lease)) letGo.delete(lease);
+    }
+  }
+
+  // Gives back a lease the store has as this node's and this node doesn't hold. Only the store
+  // knows its token, so it's acquired again, which keeps the token, to learn it.
+  function giveBack(lease: string): Promise<void> {
+    const pending = lettingGo.get(lease);
+    if (pending !== undefined) return pending;
+    const giving = (async () => {
+      try {
+        const result = await store.acquire(lease, holder, ttlMs);
+        // An acquire of this node's that began meanwhile wants the lease: it keeps it.
+        if (result.acquired && !held.has(lease) && !acquiring.has(lease)) {
+          unanswered.set(lease, result.token);
+          await store.release(lease, holder, result.token);
+          if (unanswered.get(lease) === result.token) unanswered.delete(lease);
+        }
+      } catch {
+        // The next renewal finds it again, or it expires in the store.
+      }
+    })().finally(() => {
+      if (lettingGo.get(lease) === giving) lettingGo.delete(lease);
+    });
+    lettingGo.set(lease, giving);
+    return giving;
   }
 
   const cancelTick = (() => {
@@ -144,9 +196,34 @@ export function leaseKeeper(opts: LeaseKeeperOptions): LeaseKeeper {
   return {
     async acquire(lease) {
       checkId(lease, 'acquire: lease');
-      const noted = scheduler.now();
-      const result = await store.acquire(lease, holder, ttlMs);
+      let noted = scheduler.now();
+      acquiring.set(lease, (acquiring.get(lease) ?? 0) + 1);
+      let result: AcquireResult;
+      try {
+        const letting = lettingGo.get(lease);
+        if (letting !== undefined) {
+          await letting;
+          noted = scheduler.now();
+        }
+        result = await store.acquire(lease, holder, ttlMs);
+      } finally {
+        const left = (acquiring.get(lease) ?? 1) - 1;
+        if (left === 0) acquiring.delete(lease);
+        else acquiring.set(lease, left);
+      }
       if (!result.acquired) return result;
+      const tainted = unanswered.get(lease);
+      if (tainted !== undefined) {
+        // A release of this holding has no answer: it may land yet, and free the lease this
+        // acquire just kept. Not until the token has changed, once the release lands, or a give-
+        // back frees the lease (T7, contract seed 48,788 on the heavy mix).
+        if (tainted === result.token) {
+          throw new Error(
+            `${lease}'s release with token ${String(tainted)} has had no answer, so it isn't taken again under that token`,
+          );
+        }
+        unanswered.delete(lease);
+      }
       if (closed) {
         // Nobody will renew it, so hand it straight back rather than leave it to expire.
         await store.release(lease, holder, result.token).catch(() => {});
@@ -170,7 +247,22 @@ export function leaseKeeper(opts: LeaseKeeperOptions): LeaseKeeper {
       if (entry === undefined) return;
       entry.cancel();
       held.delete(lease);
-      await store.release(lease, holder, entry.token);
+      letGo.set(lease, scheduler.now());
+      const releasing = store.release(lease, holder, entry.token);
+      // Until it answers, an acquire must not take the lease under this token: see acquire.
+      unanswered.set(lease, entry.token);
+      const settled = releasing.then(
+        () => {
+          if (unanswered.get(lease) === entry.token) unanswered.delete(lease);
+        },
+        () => {},
+      );
+      lettingGo.set(lease, settled);
+      try {
+        await releasing;
+      } finally {
+        if (lettingGo.get(lease) === settled) lettingGo.delete(lease);
+      }
     },
 
     holds(lease) {

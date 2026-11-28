@@ -54,7 +54,7 @@ Out of scope:
 | Testing TCP and Postgres themselves | Not Rehearsal's job. The multi-process test, the contract suites and the Docker smoke test keep doing it. Rehearsal's fidelity rests on its simulated pieces passing the same suites |
 | Shrinking the workload as well as the faults | Stretch, below |
 | Checking a full linearizability model of each entity (Knossos-style) | Stretch. The stale-read checker covers the case that matters here |
-| A split-brain strategy, Understudy, phi-accrual | Still milestone 4's stretch goals. Rehearsal can measure them if they're built later |
+| Understudy, phi-accrual | Still milestone 4's stretch goals. Rehearsal can measure them if they're built later. The split-brain strategy, keep the majority, came in with T7, since the hunt showed `recovers` can't pass without one ([0042](decisions/0042-keep-the-majority.md)) |
 | Removing the Postgres journal lock ([0016](decisions/0016-postgres-appends-take-a-journal-lock.md)) | Later |
 | Simulating actors that do their own real I/O, such as a `fetch` in `receive` | Not planned. Rehearsal says which actor stalled the run |
 | A browser-to-server transport, worker-thread dispatcher, OpenTelemetry | Roadmap, later ideas |
@@ -373,8 +373,8 @@ Do these in order. Each one ends with passing tests.
 | T3. The simulated database | Done | 683985d |
 | T4. Timeouts | Done | bea8541 |
 | T5. Fault plans, the history and the invariants | Done | 825e281 |
-| T6. `rehearse()`, shrinking, replay and planted bugs | Done | |
-| T7. The hunt | Not started | |
+| T6. `rehearse()`, shrinking, replay and planted bugs | Done | fb778f5 |
+| T7. The hunt | Done | |
 | T8. The site's `/rehearsal/` page and the write-up | Not started | |
 | T9. API review, README and 1.0.0 | Not started | |
 
@@ -489,10 +489,19 @@ Leads from T5, where the checks found real behaviour on the way (see [0035](deci
 
 **Done when:**
 
-- [ ] The runs are recorded: seeds, modes, mixes, runs, violations found, and the machine, with the exact commands
-- [ ] Every violation found has a fix, a regression test replaying its shrunk plan, and an entry for the write-up, or a written reason it's expected (such as drift past the margin)
-- [ ] Fencing is decided, with the hunt's numbers, and the decision recorded
-- [ ] The full 1,000,000 seeds pass on the fixed code
+- [x] The runs are recorded: seeds, modes, mixes, runs, violations found, and the machine, with the exact commands
+- [x] Every violation found has a fix, a regression test replaying its shrunk plan, and an entry for the write-up, or a written reason it's expected (such as drift past the margin)
+- [x] Fencing is decided, with the hunt's numbers, and the decision recorded
+- [x] The full 1,000,000 seeds pass on the fixed code
+
+Settled in T7 ([0042](decisions/0042-keep-the-majority.md), [0043](decisions/0043-the-hunt-and-fencing.md)):
+
+- Keep the majority, which the scope table had left to milestone 4's stretch goals: four in five of the first failures were split brain, and `recovers` can't pass without a split-brain strategy. With it come the rules the hunt showed it needs: no newcomer while a member is unreachable, members greet the seeds they lack, a side of one never keeps the cluster, ties go to the first seed, and two clusters settle it at their hello whenever one has the other down and the other doesn't count it.
+- Twenty bugs in the real code and two in Rehearsal's checks, each with a regression plan in `test/demo/found.ts`. Fault mixes, `--mix all|nodes|network|clocks|heavy`, vary the hunt.
+- Fencing stays off: no stale write or read got past the sequence check in a million seeds.
+- Two planted bugs get hunts of their own. `late-deadline`'s pushes downing past the run, since a cut-off holder now downs itself before its stretched deadline can overlap anyone, and narrows the margin to 250 ms, since the store timeout caps how far the bug stretches a deadline, and festival's margin equals it. `greets-once`'s draws kills, joins, leaves and resets, since members now greet the seeds they lack.
+- `gossip-backwards` is tolerated now: statuses still go backwards, and keep the majority downs each ghost again before `recovers` checks, so six hunts of 10,000 seeds found nothing. Its row says so, its test shows the bug fires and breaks nothing, and the Definition of done reads "found and shrunk, or shown harmless since a fix" (answered in review, 2026-11-25).
+- CI fails on every invariant: `--ignore` is gone.
 
 ### T8. The site's `/rehearsal/` page and the write-up
 
@@ -540,7 +549,7 @@ Only after T9, and only if the milestone is otherwise done.
 - [ ] Line coverage is at least 90% for `src/`.
 - [ ] There are no runtime dependencies, and no peer dependencies.
 - [ ] Everything outside `src/node/` builds with no Node types and imports no Node built-ins.
-- [ ] Every planted bug is found and shrunk, and 1,000,000 seeds pass on the fixed code.
+- [ ] Every planted bug is found and shrunk, or shown harmless since a fix, and 1,000,000 seeds pass on the fixed code. (`gossip-backwards` is the one shown harmless: T7, [0043](decisions/0043-the-hunt-and-fencing.md).)
 - [ ] `/rehearsal/` is live on the site.
 - [ ] `@kylewillett/troupe` 1.0.0 is on npm with provenance.
 

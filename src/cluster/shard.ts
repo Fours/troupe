@@ -30,7 +30,14 @@ type ShardInternalMsg =
   | { readonly t: 'drain' }
   | { readonly t: 'idle'; readonly id: string }
   | { readonly t: 'remembered'; readonly result: Result<readonly string[]> }
-  | { readonly t: 'recall' };
+  | { readonly t: 'recall' }
+  | {
+      readonly t: 'written';
+      readonly op: 'remember' | 'forget';
+      readonly id: string;
+      readonly result: Result<void>;
+    }
+  | { readonly t: 'rewrite'; readonly id: string };
 
 /** A message only this node can send a shard: none decodes from the wire as one. */
 export class ShardInternal {
@@ -118,6 +125,8 @@ class Shard {
   #writes: Promise<void> = Promise.resolve();
   #draining = false;
   #recallAttempt = 0;
+  // Remember writes that failed, by entity, and how many times.
+  readonly #rewrites = new Map<string, number>();
 
   constructor(env: ShardEnv, lease: string, ctx: ActorContext<ShardMsg>) {
     this.#env = env;
@@ -139,6 +148,15 @@ class Shard {
         return;
       case 'recall':
         this.#recall();
+        return;
+      case 'written':
+        this.#onWritten(msg.op, msg.id, msg.result);
+        return;
+      case 'rewrite':
+        // Still running, still remembered, and the shard staying: try the write again.
+        if (!this.#draining && this.#remembered.has(msg.id) && this.#entities.has(msg.id)) {
+          this.#write('remember', msg.id);
+        }
         return;
     }
   }
@@ -317,17 +335,37 @@ class Shard {
   }
 
   #write(op: 'remember' | 'forget', id: string): void {
-    const { store, hooks } = this.#env;
+    const { store } = this.#env;
     const lease = this.#lease;
-    this.#writes = this.#writes
-      .then(() => (op === 'remember' ? store.remember(lease, id) : store.forget(lease, id)))
-      .catch((error: unknown) => {
-        hooks.log.warn(`sharding: could not ${op} ${entityPath(this.#env.type, id)}`, {
-          id,
-          error,
-        });
-      });
+    const step = this.#writes.then(() =>
+      op === 'remember' ? store.remember(lease, id) : store.forget(lease, id),
+    );
+    this.#writes = step.catch(() => {});
     internalsOf(this.#ctx).track(this.#writes);
+    this.#ctx.pipeToSelf(step, (result) => new ShardInternal({ t: 'written', op, id, result }));
+  }
+
+  /**
+   * A remember that failed is tried again, with backoff, while its entity runs here (T7, chaos
+   * seed 120,717): otherwise it stays unremembered, and after a failover nothing starts it
+   * until it's sent a message. A forget that fails leaves an entity remembered, which starts it
+   * once more after a failover: harmless, so it isn't retried.
+   */
+  #onWritten(op: 'remember' | 'forget', id: string, result: Result<void>): void {
+    if (result.ok) {
+      this.#rewrites.delete(id);
+      return;
+    }
+    this.#env.hooks.log.warn(`sharding: could not ${op} ${entityPath(this.#env.type, id)}`, {
+      id,
+      error: result.error,
+    });
+    if (op !== 'remember' || this.#draining || !this.#entities.has(id)) return;
+    const attempt = (this.#rewrites.get(id) ?? 0) + 1;
+    this.#rewrites.set(id, attempt);
+    const ceiling = Math.min(RECALL_MAX_MS, RECALL_MIN_MS * 2 ** (attempt - 1));
+    const delay = Math.round(ceiling * (0.5 + this.#env.hooks.random() / 2));
+    this.#ctx.timers.startSingle(`rewrite-${id}`, new ShardInternal({ t: 'rewrite', id }), delay);
   }
 }
 

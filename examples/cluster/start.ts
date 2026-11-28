@@ -66,8 +66,9 @@ export async function startNode(env: NodeEnv, opts: { host: boolean }): Promise<
     ...env.shardingTimings,
   });
 
-  // A node that learns it was downed has already left (decision 0028). It can only come back as
-  // a new incarnation, so the process ends, and whatever runs it starts it again.
+  // A node that learns it was downed, or downs itself on the smaller side of a partition, has
+  // already left (decisions 0028 and 0042). It can only come back as a new incarnation, so the
+  // process ends, and whatever runs it starts it again.
   system.events.subscribe((event) => {
     if (
       event.type === 'memberDown' &&

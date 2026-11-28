@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { actor } from '../../src/actor.js';
-import { startRemoting, utf8Bytes, PROTOCOL } from '../../src/cluster/remoting.js';
+import { startRemoting, type Side, utf8Bytes, PROTOCOL } from '../../src/cluster/remoting.js';
 import type { Connection, Transport } from '../../src/cluster/transport.js';
 import { AskTimeoutError } from '../../src/errors.js';
 import { hooksOf } from '../../src/internal.js';
@@ -648,6 +648,153 @@ export function remotingSuite(
       expect(warnings(a)).toContainEqual(
         expect.stringContaining('was downed, and can rejoin only as a new uid'),
       );
+    });
+
+    it('gives up on a connection whose hello doesn’t come within 5 s, either way, and dials again', async () => {
+      // Found by the hunt (chaos seed 73): a dial across a partition had its open held and its
+      // hello lost, so the connection opened with no hello, and the node waited on it for good.
+      const c = await cluster({ addresses: ['node-1'] });
+      const a = c.node(0);
+      const silent = c.network.transport('node-2');
+      let accepted = 0;
+      await silent.listen(() => {
+        accepted += 1;
+      });
+      const ref = a.remoting.ref(`troupe://test@${silent.address}#5/user/x`) as ActorRef<number>;
+      ref.tell(1);
+      await c.advance(4_999);
+      expect(accepted).toBe(1);
+      expect(warnings(a)).toEqual([]);
+      await c.advance(1);
+      expect(warnings(a)).toEqual([
+        `remoting: refused the connection with ${silent.address}: no hello within 5000 ms`,
+      ]);
+      // What waits is still waiting, so it dials again, after its backoff.
+      await c.advance(200);
+      expect(accepted).toBe(2);
+      // A connection to it that never says hello is closed too.
+      const raw = c.network.transport('raw').connect(a.address);
+      let closed = false;
+      raw.onClose(() => {
+        closed = true;
+      });
+      await c.advance(5_050);
+      expect(closed).toBe(true);
+      expect(warnings(a)).toContainEqual(
+        'remoting: refused the connection with a peer: no hello within 5000 ms',
+      );
+    });
+
+    it('dials an address for a control frame even while an old incarnation there is down', async () => {
+      // Found by the hunt (contract seed 1,970): a node learned of an incarnation it had never
+      // connected to only as down, marked the address down, and never dialed it again, while the
+      // node's new incarnation, which it was told was up, waited to be dialed.
+      const c = await cluster({ addresses: ['node-1', 'node-2'] });
+      const [a, b] = [c.node(0), c.node(1)];
+      a.remoting.nodeDown(b.address, b.remoting.self.uid + 1);
+      // A message for the downed incarnation still won't wait for it...
+      b.system.spawn(collector([]), 'target');
+      (
+        a.remoting.ref(
+          `troupe://test@${b.address}#${String(b.remoting.self.uid + 1)}/user/target`,
+        ) as ActorRef<number>
+      ).tell(1);
+      await c.advance(50);
+      expect(deadLetters(a)).toEqual([expect.objectContaining({ reason: 'unreachable' })]);
+      // ...but a control frame dials, and the uid that answers isn't the one that was downed.
+      expect(a.remoting.signal(b.address, { t: 'ping' })).toBe(false);
+      await c.advance(50);
+      expect(a.remoting.signal(b.address, { t: 'ping' })).toBe(true);
+      await c.advance(50);
+      expect(warnings(b)).toContainEqual(`remoting: ignored a "ping" frame from ${a.address}`);
+    });
+
+    it('delivers a message for a newer incarnation at an address downed for an old one', async () => {
+      // Found by the hunt (contract seed 70,628): a restarted node learned the crowd's old
+      // incarnation only as removed, marked the address down, and dropped its replies to the
+      // crowd's new one as unreachable.
+      const c = await cluster({ addresses: ['node-1', 'node-2'] });
+      const [a, b] = [c.node(0), c.node(1)];
+      a.remoting.nodeDown(b.address, b.remoting.self.uid + 1);
+      const log: unknown[] = [];
+      const target = remoteRef(a, b, b.system.spawn(collector(log), 'target')) as ActorRef<number>;
+      target.tell(1);
+      target.tell(2);
+      await c.advance(100);
+      expect(log).toEqual([1, 2]);
+      expect(deadLetters(a)).toEqual([]);
+    });
+
+    it('tells the downed incarnation it dialed that it was downed', async () => {
+      const c = await cluster({ addresses: ['node-1', 'node-2'] });
+      const [a, b] = [c.node(0), c.node(1)];
+      a.remoting.nodeDown(b.address, b.remoting.self.uid);
+      a.remoting.signal(b.address, { t: 'ping' });
+      await c.advance(50);
+      expect(warnings(a)).toContainEqual(
+        expect.stringContaining('was downed, and can rejoin only as a new uid'),
+      );
+      // Membership would leave on it: here, with no membership, remoting says what it got.
+      expect(warnings(b)).toContainEqual(`remoting: ignored a "downed" frame from ${a.address}`);
+    });
+
+    it('settles a split at the hello between two clusters: the smaller side gives way', async () => {
+      // Found by the hunt (chaos seeds 7,270 and 162,500): a partition came while a join was
+      // still spreading, or one side had restarted, so the two sides counted different members.
+      // Neither listens to a node it has downed, so only the hello is left to settle it.
+      const c = await cluster({ addresses: ['node-1', 'node-2', 'node-3'] });
+      const [a, b, d] = [c.node(0), c.node(1), c.node(2)];
+      const lost: string[] = [];
+      const sides = new Map<string, Side>([
+        [a.name, { size: 3, lowest: 'crowd' }],
+        [b.name, { size: 2, lowest: 'node-2' }],
+        [d.name, { size: 3, seed: 0, lowest: 'node-1' }],
+      ]);
+      // Whom each node counts a member, by address.
+      const members = new Map<string, Map<string, number>>();
+      for (const n of [a, b, d]) {
+        members.set(n.name, new Map());
+        n.remoting.onSplit({
+          side: () => sides.get(n.name) ?? { size: 0, lowest: '' },
+          member: (address) => members.get(n.name)?.get(address),
+          lost: (peer) => {
+            lost.push(`${n.name} gave way to ${peer.address}`);
+          },
+        });
+      }
+      expect(() => {
+        a.remoting.onSplit({
+          side: () => ({ size: 0, lowest: '' }),
+          member: () => undefined,
+          lost: () => {},
+        });
+      }).toThrow('onSplit is already set');
+      // a and b downed each other: b's side is smaller, so b gives way, whoever dials.
+      a.remoting.nodeDown(b.address, b.remoting.self.uid);
+      b.remoting.nodeDown(a.address, a.remoting.self.uid);
+      a.remoting.signal(b.address, { t: 'ping' });
+      await c.advance(50);
+      expect(lost).toEqual([`node-2 gave way to ${a.address}`]);
+      // a and d: the same size. d's side holds the first seed, so a gives way, though a's lowest
+      // address is lower.
+      lost.length = 0;
+      a.remoting.nodeDown(d.address, d.remoting.self.uid);
+      d.remoting.nodeDown(a.address, a.remoting.self.uid);
+      d.remoting.signal(a.address, { t: 'ping' });
+      await c.advance(50);
+      expect(lost).toEqual([`node-1 gave way to ${d.address}`]);
+      // b downs d, which still counts b a member: no split. d is told it's down, and leaves.
+      lost.length = 0;
+      members.get(d.name)?.set(b.address, b.remoting.self.uid);
+      b.remoting.nodeDown(d.address, d.remoting.self.uid);
+      b.remoting.signal(d.address, { t: 'ping' });
+      await c.advance(50);
+      expect(lost).toEqual([]);
+      // But if d doesn't count b at all, they're in two clusters: b's is smaller, so b gives way.
+      members.get(d.name)?.delete(b.address);
+      b.remoting.signal(d.address, { t: 'ping' });
+      await c.advance(6_000);
+      expect(lost).toEqual([`node-2 gave way to ${d.address}`]);
     });
 
     it('checks its options where they are passed in', () => {

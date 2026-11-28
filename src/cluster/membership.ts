@@ -12,7 +12,8 @@ import { checkInt, checkKeys, describe } from '../checks.js';
 import type { EventBody } from '../events.js';
 import { hooksOf, plantOf, type Plant, type SystemHooks } from '../internal.js';
 import type { ActorSystem } from '../types.js';
-import { isTransport, startRemoting, type PeerId, type Remoting } from './remoting.js';
+import { decideDowning } from './downing.js';
+import { isTransport, startRemoting, type PeerId, type Remoting, type Side } from './remoting.js';
 import type { ShardStore } from './shard-store.js';
 import {
   checkLeases,
@@ -315,6 +316,18 @@ class Membership {
     remoting.onPeer((peer) => {
       this.#onPeer(peer);
     });
+    remoting.onSplit({
+      side: () => this.#side(),
+      member: (address) => {
+        for (const entry of this.#table.values()) {
+          if (entry.address === address && !isAfter(entry.status, 'leaving')) return entry.uid;
+        }
+        return undefined;
+      },
+      lost: (peer) => {
+        this.#lostSplit(peer);
+      },
+    });
     remoting.whenListening.then(
       () => {
         this.#start();
@@ -544,6 +557,20 @@ class Membership {
       .map(([, e]) => e);
   }
 
+  /**
+   * Whether this node hears every member it talks to. Only then does it let a new member in or
+   * greet a seed it lacks, so the members each side counts when it decides who to down are the
+   * ones it had when the trouble began (0042), as Akka admits members only on convergence.
+   * Members at `except` don't count: a joiner there replaces them.
+   */
+  #settled(except?: string): boolean {
+    for (const peer of this.#peers()) {
+      if (peer.address === except) continue;
+      if (this.#local.get(keyOf(peer.address, peer.uid))?.reachable === false) return false;
+    }
+    return true;
+  }
+
   /** Whether a member is one this node still listens to: up or leaving. */
   #trusts(from: PeerId): boolean {
     const entry = this.#table.get(keyOf(from.address, from.uid));
@@ -563,12 +590,39 @@ class Membership {
       this.#sendJoins();
       return;
     }
-    if (this.#phase !== 'up') return;
+    if (this.#phase !== 'up' && this.#phase !== 'leaving') return;
     const peers = this.#peers();
+    // A leaving node still heartbeats and gossips while it hands its shards off, or the others
+    // would find it unreachable and down it halfway (T7). It downs nobody itself.
     for (const peer of peers) this.#remoting.signal(peer.address, { t: 'hb' });
-    this.#checkReachability(peers);
+    // It still marks who it can't hear, so its handoffs don't wait on them (T7), but downs no one.
+    this.#checkReachability(peers, this.#phase === 'up');
+    if (this.#phase === 'leaving') {
+      this.#gossipToOne();
+      return;
+    }
     this.#gossipToOne();
+    this.#greetMissingSeeds();
     this.#prune();
+  }
+
+  /**
+   * A member keeps greeting the seeds it has no live member at (0042). A node that restarts on
+   * the far side of a partition can form a cluster of its own as the first seed, and nothing
+   * else would ever bring the two together: whichever side hears the other's join lets it in,
+   * and its answer merges the tables.
+   */
+  #greetMissingSeeds(): void {
+    if (!this.#settled()) return;
+    const address = this.#remoting.self.address;
+    for (const seed of this.#opts.seeds) {
+      if (seed === address) continue;
+      let live = false;
+      for (const entry of this.#table.values()) {
+        if (entry.address === seed && !isAfter(entry.status, 'leaving')) live = true;
+      }
+      if (!live) this.#remoting.signal(seed, { t: 'join' });
+    }
   }
 
   #sendJoins(): void {
@@ -578,9 +632,10 @@ class Membership {
     }
   }
 
-  #checkReachability(peers: readonly Entry[]): void {
+  #checkReachability(peers: readonly Entry[], downs: boolean): void {
     const now = this.#hooks.scheduler.now();
     const { unreachableAfterMs, downAfterMs } = this.#opts;
+    const due: Entry[] = [];
     for (const peer of peers) {
       const local = this.#local.get(keyOf(peer.address, peer.uid));
       if (local === undefined) continue;
@@ -595,14 +650,89 @@ class Membership {
           reachable: false,
         });
       }
-      if (!local.reachable && now - local.unreachableAt >= downAfterMs) {
-        this.#hooks.log.warn(
-          `cluster: downed ${peer.address}, unreachable for ${String(now - local.unreachableAt)} ms`,
-          { address: peer.address },
-        );
-        this.#apply(advance(this.#table, { ...peer, status: 'down' }));
-      }
+      if (!local.reachable && now - local.unreachableAt >= downAfterMs) due.push(peer);
     }
+    if (due.length === 0 || !downs) return;
+    // Keep the majority (0042): only the side with more than half the members downs the rest.
+    // A smaller side downs itself, and its nodes come back as new incarnations once they can.
+    const side = [
+      { address: this.#remoting.self.address, reachable: true },
+      ...peers.map((p) => ({
+        address: p.address,
+        reachable: this.#local.get(keyOf(p.address, p.uid))?.reachable !== false,
+      })),
+    ];
+    const seeds = this.#opts.seeds;
+    const onlySeed = seeds.length === 1 && seeds[0] === this.#remoting.self.address;
+    const first = seeds.find((seed) => side.some((m) => m.address === seed));
+    if (decideDowning(side, onlySeed, first) === 'self') {
+      this.#downSelf(side.filter((m) => m.reachable).length, side.length);
+      return;
+    }
+    let next = this.#table;
+    for (const peer of due) {
+      const local = this.#local.get(keyOf(peer.address, peer.uid));
+      this.#hooks.log.warn(
+        `cluster: downed ${peer.address}, unreachable for ${String(now - (local?.unreachableAt ?? now))} ms`,
+        { address: peer.address },
+      );
+      next = advance(next, { ...peer, status: 'down' });
+    }
+    this.#apply(next);
+  }
+
+  /** This node is on the smaller side of a partition: it downs itself and leaves. */
+  #downSelf(reachable: number, of: number): void {
+    this.#hooks.log.warn(
+      `cluster: this node reaches only ${String(reachable)} of ${String(of)} members, not a majority, so it downed itself`,
+      { address: this.#remoting.self.address },
+    );
+    this.#goDown();
+  }
+
+  /** This node's side of the cluster, for settling a split: its up and leaving members. */
+  #side(): Side {
+    let size = 0;
+    let lowest: string | undefined;
+    let seed: number | undefined;
+    const seeds = this.#opts.seeds;
+    for (const entry of this.#table.values()) {
+      if (isAfter(entry.status, 'leaving')) continue;
+      size += 1;
+      if (lowest === undefined || entry.address < lowest) lowest = entry.address;
+      const i = seeds.indexOf(entry.address);
+      if (i !== -1 && (seed === undefined || i < seed)) seed = i;
+    }
+    return {
+      size,
+      ...(seed === undefined ? {} : { seed }),
+      lowest: lowest ?? this.#remoting.self.address,
+    };
+  }
+
+  /**
+   * `peer` is in another cluster than this node's, and its side is the larger (0042). This one
+   * gives way, and rejoins as a new uid.
+   */
+  #lostSplit(peer: PeerId): void {
+    if (this.#phase !== 'up') return;
+    this.#hooks.log.warn(
+      `cluster: ${peer.address} is in another cluster, which has downed this node or which it has downed, and its side is the larger, so this node downed itself`,
+      { address: this.#remoting.self.address, by: peer.address },
+    );
+    this.#goDown();
+  }
+
+  /** Downs this node, telling every member it still talks to, and leaves. */
+  #goDown(): void {
+    const { address, uid } = this.#remoting.self;
+    const next = advance(this.#table, { address, uid, status: 'down' });
+    // Told to every member it still talks to, so one that still hears it needn't wait to down it.
+    const members = encodeTable(next);
+    for (const peer of this.#peers()) {
+      this.#remoting.signal(peer.address, { t: 'gossip', members });
+    }
+    this.#apply(next);
   }
 
   #gossipToOne(): void {
@@ -672,6 +802,16 @@ class Membership {
         this.#onGossip(from, frame);
         return;
       case 'downed':
+        // Still joining, it was let in but never heard so, and has been downed since: this uid
+        // will never get in, so it gives up, to come back as a new one (T7).
+        if (this.#phase === 'joining') {
+          this.#hooks.log.warn(
+            `cluster: ${from.address} says this node was downed before it heard it was in, so it gave up joining`,
+            { address: this.#remoting.self.address, by: from.address },
+          );
+          void this.#shutdown(new Error(`${from.address} downed this node while it joined`));
+          return;
+        }
         // Only from a member this node still trusts: a node this one has downed can't make it
         // leave, so two sides of a partition that down each other leave two clusters, not none.
         if (this.#trusts(from)) this.#downed(from.address);
@@ -705,6 +845,10 @@ class Membership {
     const known = this.#table.get(key);
     if (known !== undefined && isAfter(known.status, 'leaving')) return;
     if (known === undefined) {
+      // Not while a member is unreachable (0042): the newcomer would count towards this side's
+      // majority and not the far side's, and both sides could then think they're the larger.
+      // It asks again every tick. Its own old incarnation, which it retires, doesn't count.
+      if (!this.#settled(from.address)) return;
       this.#apply(this.#retire(advance(this.#table, { ...from, status: 'up' }), from));
     }
     this.#gossip(from.address, true);

@@ -19,7 +19,12 @@ export interface PlantedBug {
    */
   readonly faults?: Omit<FaultOptions, 'network'>;
   /** Membership timings its hunt uses in place of the scenario's, merged over them. */
-  readonly cluster?: Omit<ScenarioCluster, 'leases' | 'name'>;
+  readonly cluster?: Omit<ScenarioCluster, 'name'>;
+  /**
+   * Why a later fix made the bug harmless, so its hunt is expected to find nothing: the code now
+   * tolerates it, and its test shows the bug still fires and breaks no invariant (T7).
+   */
+  readonly tolerated?: string;
 }
 
 /** Every planted bug, in the spec's order. */
@@ -28,8 +33,14 @@ export const PLANTED: readonly PlantedBug[] = [
     name: 'late-deadline',
     what: "the holder notes its deadline after the renewal returns, not before it's sent",
     caughtBy: ['oneLiveInstance'],
-    // A renewal in flight when its node pauses, which a slow disk makes likely.
+    // A renewal in flight when its node pauses, which a slow disk makes likely. Downing waits
+    // past the run: since 0042, a holder cut off from the others downs itself and exits, which
+    // ends its shards before a stretched deadline could overlap the next owner. And the margin is
+    // 250 ms: the bug stretches a deadline by the renewal's round trip, which the store timeout
+    // caps, so it overlaps the next owner only when the reply alone takes longer than the margin.
+    // Festival's margin equals its store timeout, and 200,000 seeds didn't find it there (T7).
     faults: { only: ['slow', 'cut', 'partition'], perMinute: 30, concurrent: 3 },
+    cluster: { downAfterMs: 60_000, leases: { marginMs: 250 } },
   },
   {
     name: 'early-release',
@@ -45,6 +56,9 @@ export const PLANTED: readonly PlantedBug[] = [
     name: 'greets-once',
     what: 'a region greets each member only once',
     caughtBy: ['recovers'],
+    // New incarnations, and resets that lose the hellos between them. Since members greet the
+    // seeds they lack (0042), festival's own mix took 36,233 seeds to lose a hello both ways (T7).
+    faults: { only: ['kill', 'join', 'leave', 'reset'], perMinute: 30, concurrent: 3 },
   },
   {
     name: 'routes-unreachable',
@@ -58,6 +72,8 @@ export const PLANTED: readonly PlantedBug[] = [
     name: 'gossip-backwards',
     what: 'gossip merge lets a status go backwards',
     caughtBy: ['recovers'],
+    tolerated:
+      'since keep-the-majority (0042), a member whose status goes backwards is unreachable, and is downed again before recovery is checked (0043)',
   },
   {
     name: 'early-reply',
@@ -84,7 +100,15 @@ export function huntOptions(options: ScenarioOptions, bug: Plant): ScenarioOptio
   return {
     ...options,
     ...(row.faults === undefined ? {} : { faults: { ...row.faults, network: mode } }),
-    ...(row.cluster === undefined ? {} : { cluster: { ...options.cluster, ...row.cluster } }),
+    ...(row.cluster === undefined
+      ? {}
+      : {
+          cluster: {
+            ...options.cluster,
+            ...row.cluster,
+            leases: { ...options.cluster?.leases, ...row.cluster.leases },
+          },
+        }),
   };
 }
 

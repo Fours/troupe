@@ -460,7 +460,12 @@ export function WriteUp({ data }: { data: WriteupData }) {
               silent too long is marked down automatically. In Akka that’s unsafe: a node marked
               down while it’s still running would keep its shards, and two copies of an entity could
               run. Here, membership only decides where to send messages and where a shard should go.
-              It never decides who owns one <Record id="0028" />.
+              It never decides who owns one <Record id="0028" />. What it did cost was availability.
+              When a partition cut the cluster in two, each half marked the other down, and they
+              never spoke again. Now only the side with most of the members marks the rest down. A
+              smaller side marks itself down and rejoins once it can, and two halves that each
+              thought themselves the larger settle it the moment they meet again{' '}
+              <Record id="0042" />.
             </p>
 
             <h3>Who owns a shard</h3>
@@ -702,7 +707,12 @@ export function WriteUp({ data }: { data: WriteupData }) {
               exactly from one printed line. To prove the checks catch what they’re for, seven bugs
               went back in one at a time, most of them ones milestone 4 found by hand. Each was
               found within 10,000 seeds and shrunk to three faults or fewer, counted only where the
-              same run without the bug passed <Record id="0040" />.
+              same run without the bug passed <Record id="0040" />. Then it hunted in the real code,
+              over a million seeds and five mixes of faults. It found twenty bugs, from a cluster
+              that split in two for good to a message that lost its place in line after bouncing off
+              a stale owner, and two in its own checks. Each is fixed and replayed on every test
+              run. No stale write ever got past the journal’s own check, so the journal stays free
+              of leases <Record id="0043" />.
             </p>
             <p>
               Troupe is <a href={NPM_URL}>on npm</a>, published from CI with provenance, which ties

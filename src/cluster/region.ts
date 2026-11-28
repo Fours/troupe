@@ -200,6 +200,11 @@ interface Slot {
   waiters: AnyRef[];
   /** The holder that last sent messages back, which the store may still name for a while. */
   refusedBy: string | undefined;
+  /**
+   * How many envelopes at the head of `buffer` came back with `notOwner`. They were sent, so
+   * they're older than any that never left the buffer, and go back in ahead of those (T7).
+   */
+  bounced: number;
 }
 
 /** What a region knows of the same type's region on another node, from its hello. */
@@ -351,7 +356,10 @@ class Region {
   #route(shard: number, envelope: Envelope, begin: boolean): void {
     if (this.#deliverLocally(shard, envelope)) return;
     const holder = this.#holders.get(shard);
-    if (holder !== undefined && holder !== this.#self.key && this.#usable(holder)) {
+    // Never past messages already waiting for the shard (T7): a lookup for another shard can
+    // name this one's holder while they wait, and what's sent next would overtake them.
+    const waiting = (this.#slots.get(shard)?.buffer.length ?? 0) > 0;
+    if (!waiting && holder !== undefined && holder !== this.#self.key && this.#usable(holder)) {
       const region = this.#regionOf(holder);
       if (region !== undefined) {
         region.tell({ t: 'deliver', ...envelope, back: this.#ctx.self });
@@ -374,20 +382,34 @@ class Region {
     return true;
   }
 
-  #enqueue(shard: number, envelope: Envelope, begin: boolean): void {
+  #enqueue(shard: number, envelope: Envelope, begin: boolean, bounced = false): void {
     const slot = this.#slot(shard);
     if (slot.buffer.length >= this.#env.bufferSize) {
       this.#deadLetter(envelope, 'unreachable');
       return;
     }
-    slot.buffer.push(envelope);
+    if (bounced) {
+      // Ahead of what never left the buffer, which was sent after it: it would overtake them
+      // otherwise (T7).
+      slot.buffer.splice(slot.bounced, 0, envelope);
+      slot.bounced += 1;
+    } else {
+      slot.buffer.push(envelope);
+    }
     if (begin && slot.phase === 'idle') this.#begin(shard, slot);
   }
 
   #slot(shard: number): Slot {
     let slot = this.#slots.get(shard);
     if (slot === undefined) {
-      slot = { buffer: [], phase: 'idle', attempt: 0, waiters: [], refusedBy: undefined };
+      slot = {
+        buffer: [],
+        phase: 'idle',
+        attempt: 0,
+        waiters: [],
+        refusedBy: undefined,
+        bounced: 0,
+      };
       this.#slots.set(shard, slot);
     }
     return slot;
@@ -527,6 +549,18 @@ class Region {
     } else {
       this.#flush(shard, slot);
     }
+    // An acquire sent before the node began leaving, answered after (T7): what waited has gone to
+    // the shard, and the shard goes on to its next owner, as the others did.
+    const local = this.#local.get(shard);
+    if (
+      this.#leaving &&
+      holder === this.#self.key &&
+      local !== undefined &&
+      local.ending === undefined
+    ) {
+      this.#handOff(shard, local, 'leaving');
+    }
+    this.#checkLeft();
   }
 
   #startShard(shard: number, token: number): void {
@@ -550,6 +584,7 @@ class Region {
   #flush(shard: number, slot: Slot): void {
     const waiting = slot.buffer;
     slot.buffer = [];
+    slot.bounced = 0;
     slot.phase = 'idle';
     for (const envelope of waiting) this.#route(shard, envelope, false);
     if (slot.buffer.length > 0) {
@@ -632,7 +667,7 @@ class Region {
         this.#deadLetter(item, 'unreachable');
         continue;
       }
-      this.#enqueue(shard, { ...item, bounces }, true);
+      this.#enqueue(shard, { ...item, bounces }, true, true);
     }
     if (slot.buffer.length === 0 && slot.phase === 'idle' && slot.waiters.length === 0) {
       this.#dropSlot(shard);
@@ -670,6 +705,9 @@ class Region {
       }
       const slot = this.#slots.get(shard);
       if (slot?.phase === 'waiting') this.#begin(shard, slot);
+      // A shard that lost its lease while the node was leaving may be the last one it waited
+      // for (T7).
+      this.#checkLeft();
       return;
     }
   }
@@ -810,9 +848,14 @@ class Region {
     this.#checkLeft();
   }
 
-  /** A leaving region stops once every shard it held has gone, with its messages. */
+  /**
+   * A leaving region stops once every shard it held has gone, with its messages, and every
+   * acquire it sent has its answer: one granted after the leave began is handed on too (T7).
+   */
   #checkLeft(): void {
-    if (this.#leaving && this.#local.size === 0 && this.#handoffs.size === 0) this.#ctx.stop();
+    if (!this.#leaving || this.#local.size > 0 || this.#handoffs.size > 0) return;
+    for (const slot of this.#slots.values()) if (slot.phase === 'acquiring') return;
+    this.#ctx.stop();
   }
 
   // ---- members and peers ----

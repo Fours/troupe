@@ -11,6 +11,7 @@
 //   --seeds a..b             the seeds, both included (default 1..1000)
 //   --workers n              worker processes (default the number of cores less one)
 //   --mode contract|chaos    the network's mode (default contract)
+//   --mix <mix>              the fault mix: all, nodes, network, clocks or heavy (default all)
 //   --plant <bug>            plants a bug and hunts for it: stops at the first seed whose run
 //                            breaks an invariant that catches the bug and passes it without the
 //                            bug, and shrinks that seed's plan the same way
@@ -30,7 +31,13 @@ import { availableParallelism } from 'node:os';
 import { resolve } from 'node:path';
 import process from 'node:process';
 import { pathToFileURL } from 'node:url';
-import { DURATION_MS, festivalOptions } from '../demo/src/rehearsal/domain/festival.ts';
+import {
+  DURATION_MS,
+  festivalOptions,
+  isMix,
+  MIXES,
+  type Mix,
+} from '../demo/src/rehearsal/domain/festival.ts';
 import type { Plant } from '../src/internal.ts';
 import type { Violation } from '../src/rehearsal/invariants.ts';
 import type { NetworkMode } from '../src/rehearsal/network.ts';
@@ -40,7 +47,7 @@ import type * as ReplayModule from '../src/rehearsal/replay.ts';
 import type { ReplayLine } from '../src/rehearsal/replay.ts';
 import type { Failure, SeedResult } from '../src/rehearsal/rehearse.ts';
 import type * as ScenarioModule from '../src/rehearsal/scenario.ts';
-import type { Scenario } from '../src/rehearsal/scenario.ts';
+import type { Run, Scenario } from '../src/rehearsal/scenario.ts';
 
 const ROOT = resolve(import.meta.dirname, '..');
 // The package's internals, from dist/: planting bugs is never public API, so it isn't exported.
@@ -57,9 +64,24 @@ type ToWorker =
   | { readonly t: 'shrink'; readonly seed: number; readonly failing: readonly Violation[] }
   | { readonly t: 'exit' };
 
+/**
+ * The writes the journal's sequence check refused in one run (decision 0013): appends that found
+ * another writer had got there first, from the `failed` events they caused, and whether the run's
+ * plan paused a node. Counted for T7's fencing decision.
+ */
+interface Fenced {
+  readonly refused: number;
+  readonly paused: boolean;
+}
+
 /** What a worker answers. */
 type FromWorker =
-  | { readonly t: 'seed'; readonly result: SeedResult; readonly runs: number }
+  | {
+      readonly t: 'seed';
+      readonly result: SeedResult;
+      readonly runs: number;
+      readonly fenced: Fenced;
+    }
   | { readonly t: 'batched' }
   | { readonly t: 'shrunk'; readonly failure: Failure };
 
@@ -68,6 +90,7 @@ interface Settings {
   readonly to: number;
   readonly workers: number;
   readonly mode: NetworkMode;
+  readonly mix: Mix;
   readonly plant: Plant | undefined;
   readonly ignore: readonly string[];
   readonly determinismEvery: number;
@@ -93,6 +116,7 @@ function parse(argv: readonly string[]): Settings {
     '--seeds',
     '--workers',
     '--mode',
+    '--mix',
     '--plant',
     '--ignore',
     '--determinism-every',
@@ -121,6 +145,8 @@ function parse(argv: readonly string[]): Settings {
   const mode = value('--mode') ?? 'contract';
   if (mode !== 'contract' && mode !== 'chaos')
     fail(`--mode must be contract or chaos, got ${mode}`);
+  const mix = value('--mix') ?? 'all';
+  if (!isMix(mix)) fail(`--mix must be one of ${MIXES.join(', ')}, got ${mix}`);
   const plant = value('--plant');
   if (plant !== undefined && !isPlant(plant)) {
     fail(`--plant must be one of ${PLANTED.map((p) => p.name).join(', ')}, got ${plant}`);
@@ -131,6 +157,7 @@ function parse(argv: readonly string[]): Settings {
     to,
     workers: int('--workers', Math.max(1, availableParallelism() - 1), 1),
     mode,
+    mix,
     plant,
     ignore: ignore === undefined ? [] : ignore.split(',').filter((name) => name !== ''),
     determinismEvery: int('--determinism-every', 0, 0),
@@ -140,9 +167,11 @@ function parse(argv: readonly string[]): Settings {
   };
 }
 
-function scenarios(mode: NetworkMode, plant: Plant | undefined) {
+function scenarios(mode: NetworkMode, plant: Plant | undefined, mix: Mix = 'all') {
   const options =
-    plant === undefined ? festivalOptions(mode) : huntOptions(festivalOptions(mode), plant);
+    plant === undefined
+      ? festivalOptions(mode, mix)
+      : huntOptions(festivalOptions(mode, mix), plant);
   const s: Scenario = scenarioWith(options, plant === undefined ? {} : { plant });
   const baseline = plant === undefined ? undefined : scenarioWith(options, {});
   const target = plant === undefined ? undefined : planted(plant).caughtBy;
@@ -155,10 +184,21 @@ function scenarios(mode: NetworkMode, plant: Plant | undefined) {
 
 const thousands = (n: number): string => Math.round(n).toLocaleString('en-US');
 
+function fencedIn(run: Run | undefined): Fenced {
+  if (run === undefined) return { refused: 0, paused: false };
+  let refused = 0;
+  for (const e of run.history) {
+    if (e.kind !== 'event' || e.event.type !== 'failed') continue;
+    const error = e.event.error as { error?: unknown } | undefined;
+    if (error?.error === 'JournalConflictError') refused++;
+  }
+  return { refused, paused: run.plan.some((f) => 'pause' in f) };
+}
+
 // ---- a worker ----
 
 async function worker(settings: Settings): Promise<void> {
-  const { s, internals } = scenarios(settings.mode, settings.plant);
+  const { s, internals } = scenarios(settings.mode, settings.plant, settings.mix);
   const send = (msg: FromWorker): void => {
     process.send?.(msg);
   };
@@ -179,13 +219,13 @@ async function worker(settings: Settings): Promise<void> {
     if (msg.t === 'batch') {
       for (let seed = msg.from; seed < msg.from + msg.count; seed++) {
         const twice = settings.determinismEvery > 0 && seed % settings.determinismEvery === 0;
-        const { result, runs } = await runSeed(
+        const { result, run, runs } = await runSeed(
           s,
           seed,
           { ignore: settings.ignore, twice },
           internals,
         );
-        send({ t: 'seed', result, runs });
+        send({ t: 'seed', result, runs, fenced: fencedIn(run) });
       }
       send({ t: 'batched' });
     } else {
@@ -205,6 +245,7 @@ async function worker(settings: Settings): Promise<void> {
 
 interface Summary {
   readonly mode: NetworkMode;
+  readonly mix: Mix;
   readonly plant: Plant | undefined;
   readonly seeds: { readonly from: number; readonly to: number };
   readonly ran: number;
@@ -217,6 +258,8 @@ interface Summary {
   readonly failing: Record<string, number>;
   readonly expected: number;
   readonly checkedTwice: number;
+  /** Writes the journal's sequence check refused, the seeds they were in, and those paused. */
+  readonly fenced: { readonly refused: number; readonly seeds: number; readonly paused: number };
   readonly nondeterministic: number[];
   readonly failures: Failure[];
 }
@@ -244,6 +287,7 @@ async function main(settings: Settings): Promise<number> {
   let faults = 0;
   let expected = 0;
   let checkedTwice = 0;
+  const fenced = { refused: 0, seeds: 0, paused: 0 };
   const failing: Record<string, number> = {};
   const nondeterministic: number[] = [];
   const failed = new Map<number, readonly Violation[]>();
@@ -275,6 +319,11 @@ async function main(settings: Settings): Promise<number> {
       faults += result.faults;
       if (result.expected > 0) expected++;
       if (result.deterministic !== undefined) checkedTwice++;
+      if (msg.fenced.refused > 0) {
+        fenced.refused += msg.fenced.refused;
+        fenced.seeds++;
+        if (msg.fenced.paused) fenced.paused++;
+      }
       if (result.deterministic === false) nondeterministic.push(result.seed);
       for (const name of new Set(result.violations.map((v) => v.invariant))) {
         failing[name] = (failing[name] ?? 0) + 1;
@@ -345,6 +394,7 @@ async function main(settings: Settings): Promise<number> {
   const runsPerSecond = Math.round((runs / ms) * 1000);
   const summary: Summary = {
     mode: settings.mode,
+    mix: settings.mix,
     plant: settings.plant,
     seeds: { from: settings.from, to: settings.to },
     ran,
@@ -357,6 +407,7 @@ async function main(settings: Settings): Promise<number> {
     failing,
     expected,
     checkedTwice,
+    fenced,
     nondeterministic: nondeterministic.sort((a, b) => a - b),
     failures,
   };
@@ -368,12 +419,17 @@ async function main(settings: Settings): Promise<number> {
     .map(([name, n]) => `${name} ${String(n)}`)
     .join(', ');
   console.log(
-    `${thousands(ran)} seeds in ${settings.mode} mode${settings.plant === undefined ? '' : ` with ${settings.plant} planted`}: ${thousands(runs)} runs in ${(ms / 1000).toFixed(1)} s on ${String(children.length)} workers, ${thousands(runsPerSecond)} runs/s, Node ${process.version}`,
+    `${thousands(ran)} seeds in ${settings.mode} mode on the ${settings.mix} mix${settings.plant === undefined ? '' : ` with ${settings.plant} planted`}: ${thousands(runs)} runs in ${(ms / 1000).toFixed(1)} s on ${String(children.length)} workers, ${thousands(runsPerSecond)} runs/s, Node ${process.version}`,
   );
   console.log(
     `  ${thousands(faults)} faults; seeds with violations: ${counts === '' ? 'none' : counts}`,
   );
   if (settings.ignore.length > 0) console.log(`  ignored: ${settings.ignore.join(', ')}`);
+  if (fenced.refused > 0) {
+    console.log(
+      `  the journal's sequence check refused ${thousands(fenced.refused)} writes from a second writer, in ${thousands(fenced.seeds)} seed${fenced.seeds === 1 ? '' : 's'}, ${thousands(fenced.paused)} of them with a pause`,
+    );
+  }
   if (expected > 0)
     console.log(`  ${String(expected)} seeds with overlaps expected past the lease's margin`);
   if (checkedTwice > 0) {
@@ -387,10 +443,11 @@ async function main(settings: Settings): Promise<number> {
     writeFileSync(settings.json, `${JSON.stringify(summary, null, 2)}\n`);
   if (plantHunt) {
     if (failures.length === 0) {
+      const tolerated = planted(settings.plant).tolerated;
       console.log(
-        `✗ ${settings.plant} wasn't found in seeds ${String(settings.from)} to ${String(settings.to)}`,
+        `${tolerated === undefined ? '✗' : '✓'} ${settings.plant} wasn't found in seeds ${String(settings.from)} to ${String(settings.to)}${tolerated === undefined ? '' : `, as expected: ${tolerated}`}`,
       );
-      return 1;
+      return tolerated === undefined ? 1 : 0;
     }
     console.log(`✓ ${settings.plant} found at seed ${String(failures[0]?.seed)}`);
     return nondeterministic.length > 0 ? 1 : 0;

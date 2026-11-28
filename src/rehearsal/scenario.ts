@@ -19,7 +19,7 @@ import type { ShardStore } from '../cluster/shard-store.js';
 import type { Transport } from '../cluster/transport.js';
 import { checkLeases, type EntityType, type LeaseOptions } from '../cluster/sharding.js';
 import { plant, type Plant } from '../internal.js';
-import { silentLogger } from '../logger.js';
+import { silentLogger, type Logger } from '../logger.js';
 import type { Persistence } from '../persistence/types.js';
 import { createSystem, type SystemHandle } from '../system.js';
 import { ManualScheduler } from '../testkit/manual-scheduler.js';
@@ -220,6 +220,11 @@ export interface ScenarioInternals {
   wrapTransport?: (transport: Transport, node: string) => Transport;
   /** A bug to plant on every node incarnation (T6). */
   plant?: Plant;
+  /**
+   * Each node incarnation's logger, given its node, incarnation and the simulation's time, for
+   * following a run while hunting (T7). Default silent.
+   */
+  logger?: (node: string, inc: number, now: () => number) => Logger;
 }
 
 const OPTIONS = new Set([
@@ -640,7 +645,7 @@ class World {
       name: 'node',
       scheduler: clock,
       random: stream(this.#seed, `node ${name} ${String(inc)}`),
-      logger: silentLogger,
+      logger: this.#internals.logger?.(name, inc, () => this.#sim.now()) ?? silentLogger,
     });
     const bug = this.#internals.plant;
     if (bug !== undefined) plant(handle.system, bug);

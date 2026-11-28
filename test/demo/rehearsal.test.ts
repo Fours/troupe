@@ -2,8 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   CAPACITY,
   DURATION_MS,
+  faultsOf,
   festival,
   festivalInvariants,
+  isMix,
+  MIXES,
   soldIn,
 } from '../../demo/src/rehearsal/domain/festival.js';
 
@@ -11,11 +14,6 @@ import {
 // crowd that buys seats and asks how many are sold, under faults drawn from each seed.
 
 const SEEDS = Number(process.env.FESTIVAL_SEEDS ?? 100);
-
-// What decision 0035 says rests on the lease and the journal, never on the network: checked in
-// both modes. `recovers`, `failoverWithin` since it checks that entities answer (0040), and order
-// per pair in contract mode, fail on some seeds today, and are T7's hunt.
-const SAFETY = ['oneLiveInstance', 'acknowledgedWritesKept', 'noStaleReads'];
 
 describe('festival night, rehearsed', () => {
   it.each(['contract', 'chaos'] as const)(
@@ -35,18 +33,15 @@ describe('festival night, rehearsed', () => {
   );
 
   it.each(['contract', 'chaos'] as const)(
-    `keeps one live instance, every acknowledged sale and fresh reads over ${String(SEEDS)} seeds, in %s mode`,
+    `passes every invariant over ${String(SEEDS)} seeds, in %s mode`,
     async (mode) => {
+      // Since T7's hunt: recovering, failing over and keeping order too, not only safety.
       const s = festival({ mode });
       const kinds = new Set<string>();
       for (let seed = 1; seed <= SEEDS; seed++) {
         const run = await s.run({ seed });
         for (const fault of run.plan) kinds.add(Object.keys(fault)[1] ?? '');
-        const safety = run.violations.filter(
-          (v) =>
-            SAFETY.includes(v.invariant) || (mode === 'contract' && v.invariant === 'atMostOnce'),
-        );
-        expect(safety, `seed ${String(seed)}`).toEqual([]);
+        expect(run.violations, `seed ${String(seed)}`).toEqual([]);
         expect(run.expected).toEqual([]);
       }
       // Every group of faults turned up: nodes, clocks, the network and the database.
@@ -82,6 +77,44 @@ describe('festival night, rehearsed', () => {
     const second = await s.run({ seed: 5 });
     expect(JSON.stringify(second.history)).toBe(JSON.stringify(first.history));
     expect(first.plan).toEqual(plan);
+  });
+
+  it('draws each fault mix’s own kinds, at its own rate, in both modes', () => {
+    expect(MIXES).toEqual(['all', 'nodes', 'network', 'clocks', 'heavy']);
+    expect(isMix('heavy')).toBe(true);
+    expect(isMix('everything')).toBe(false);
+    const kindsOf = (mode: 'contract' | 'chaos', mix: (typeof MIXES)[number]): string[] => {
+      const s = festival({ mode, mix });
+      const kinds = new Set<string>();
+      for (let seed = 1; seed <= 200; seed++) {
+        for (const fault of s.plan(seed)) {
+          const key = Object.keys(fault)[1] ?? '';
+          kinds.add(key === 'disk' ? 'disk' : key);
+        }
+      }
+      return [...kinds].sort();
+    };
+    expect(kindsOf('contract', 'nodes')).toEqual(['cut', 'disk', 'join', 'kill', 'leave', 'pause']);
+    expect(kindsOf('contract', 'network')).toEqual(['delay', 'partition', 'reorder', 'reset']);
+    expect(kindsOf('chaos', 'network')).toEqual([
+      'delay',
+      'duplicate',
+      'lose',
+      'partition',
+      'reorder',
+      'reset',
+    ]);
+    expect(kindsOf('contract', 'clocks')).toEqual(['cut', 'disk', 'drift', 'jump']);
+    expect(kindsOf('chaos', 'all')).toEqual(kindsOf('chaos', 'heavy'));
+    // The heavy mix: twice the rate, three at once.
+    expect(faultsOf('chaos', 'heavy')).toMatchObject({ perMinute: 12, concurrent: 3 });
+    const count = (mix: (typeof MIXES)[number]): number => {
+      const s = festival({ mix });
+      let n = 0;
+      for (let seed = 1; seed <= 200; seed++) n += s.plan(seed).length;
+      return n;
+    };
+    expect(count('heavy')).toBeGreaterThan(count('all') * 1.5);
   });
 
   it('reads a position from confirms and statuses, and nothing else', () => {

@@ -69,13 +69,14 @@ describe('shrinking', () => {
 
   it('shrinks a real failing run: early-release on festival night, to one fault', async () => {
     const s = scenarioWith(festivalOptions('contract'), { plant: 'early-release' });
+    // The seed its hunt found it at (test/rehearsal/planted.ts).
     const report = await rehearseWith(
       s,
-      { seeds: { from: 28, count: 1 } },
+      { seeds: { from: 51, count: 1 } },
       { target: ['oneLiveInstance'] },
     );
     const [failure] = report.failures;
-    expect(failure?.seed).toBe(28);
+    expect(failure?.seed).toBe(51);
     expect(failure?.plan.length).toBeGreaterThan(1);
     expect(failure?.shrunk.plan.length).toBeLessThan(failure?.plan.length ?? 0);
     expect(failure?.shrunk.violation.invariant).toBe('oneLiveInstance');
@@ -179,9 +180,9 @@ describe('replay', () => {
     );
     // A line from a run that failed, replayed where the run passes.
     const failing = await scenarioWith(festivalOptions('contract'), { plant: 'grants-held' }).run({
-      seed: 1,
+      seed: 3,
       plan: [],
-      untilMs: 2_006,
+      untilMs: 2_005,
     });
     expect(failing.violations.length).toBeGreaterThan(0);
     const unplanted = encodeReplay({ ...decodeReplay(failing.replay), plant: undefined } as never);
@@ -244,7 +245,7 @@ describe('rehearse', () => {
   it('counts ignored invariants without failing on them, and stops at maxFailures', async () => {
     const s = scenarioWith(festivalOptions('contract'), { plant: 'grants-held' });
     const ignored = await rehearse(s, {
-      seeds: { from: 1, count: 2 },
+      seeds: { from: 3, count: 2 },
       ignore: ['oneLiveInstance', 'acknowledgedWritesKept', 'noStaleReads', 'recovers'],
       maxShrinkRuns: 0,
     });
@@ -261,7 +262,7 @@ describe('rehearse', () => {
 
   it('counts a violation only where the baseline passes that invariant', async () => {
     const s = scenarioWith(festivalOptions('contract'), { plant: 'grants-held' });
-    const opts = { seeds: { from: 1, count: 2 }, maxShrinkRuns: 0 } as const;
+    const opts = { seeds: { from: 3, count: 2 }, maxShrinkRuns: 0 } as const;
     // A baseline with the same bug breaks the same invariants, so nothing is the bug's doing.
     const same = await rehearseWith(s, opts, { baseline: s });
     expect(same.failing.oneLiveInstance).toBeGreaterThan(0);

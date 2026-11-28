@@ -148,6 +148,15 @@ function oneIdPerShard(shardCount: number): string[] {
   return ids as string[];
 }
 
+/** An id whose shard of `type` belongs on `address`, of the cluster's three nodes. */
+function idOn(c: TestCluster, type: string, address: string): string {
+  const addresses = c.nodes.map((n) => n.address);
+  for (let i = 0; ; i++) {
+    const id = `${type}-${String(i)}`;
+    if (desiredOwner(`${type}/${String(shardOf(id, 16))}`, addresses) === address) return id;
+  }
+}
+
 describe('passivation', () => {
   it('stops an entity that has had no message for idleMs, and its next message starts it again', async () => {
     const c = await cluster({ addresses: ['node-1'] });
@@ -474,6 +483,138 @@ describe('leaving', () => {
     }
   });
 
+  /** Accounts on every node, with one journal whose appends a test can hold. */
+  async function accounts(c: TestCluster) {
+    const store = inMemoryPersistence({ clock: () => c.scheduler.now() });
+    const journal = faultyJournal(store.journal);
+    const persistence: Persistence = { journal };
+    const types = c.nodes.map((n) =>
+      clusterOf(n).sharding.init<AccountCmd, unknown>({
+        type: 'account',
+        shardCount: 16,
+        entity: (id) => account(persistence, { id }),
+      }),
+    );
+    await c.advance(500);
+    const id = idOn(c, 'account', 'node-3');
+    const t = types[0] as EntityType<AccountCmd>;
+    const deposit = (amount: number) =>
+      t.ref(id).ask<Receipt>((replyTo) => ({ type: 'deposit', amount, replyTo }), {
+        timeoutMs: 30_000,
+      });
+    return { journal, id, deposit };
+  }
+
+  it('keeps heartbeating while it leaves, so a handoff longer than downing isn’t cut short', async () => {
+    // Found by the hunt (contract seed 1,914): a leaving node stopped heartbeating, so a handoff
+    // that took longer than unreachableAfterMs plus downAfterMs got it downed halfway.
+    const c = await cluster();
+    const { journal, deposit } = await accounts(c);
+    expect(await ask(c, () => deposit(10))).toEqual({ ok: true, balance: 10 });
+    const hold = journal.holdNextAppend();
+    const unhold = c.hold();
+    const second = deposit(5);
+    await c.advance(100);
+    const third = c.node(2);
+    const left = clusterOf(third).leave();
+    let done = false;
+    void left.then(() => (done = true));
+    // Four seconds of handoff: twice what downing takes here.
+    await c.advance(4_000);
+    expect(done).toBe(false);
+    hold.resolve();
+    unhold();
+    expect(await ask(c, () => second)).toEqual({ ok: true, balance: 15 });
+    await ask(c, () => left);
+    for (const n of [c.node(0), c.node(1)]) {
+      const about = n.events.filter((e) => 'address' in e && e.address === 'node-3');
+      expect(about.map((e) => e.type)).toEqual(['memberUp', 'memberLeaving', 'memberRemoved']);
+    }
+  });
+
+  it('hands on a shard whose acquire is answered after the leave began', async () => {
+    // Found by the hunt (contract seed 1,914): an acquire sent during a database hang came back
+    // once the node was leaving, and the region waited on that shard for good.
+    const holding = deferred();
+    let holdAcquires = false;
+    const c = await cluster({
+      sharding: {
+        ...FAST.sharding,
+        wrapStore: (store) => ({
+          ...store,
+          acquire: async (lease, holder, ttlMs) => {
+            const result = await store.acquire(lease, holder, ttlMs);
+            if (holdAcquires && holder.startsWith('node-3#')) await holding.promise;
+            return result;
+          },
+        }),
+      },
+    });
+    const types = c.nodes.map((n) => init(n));
+    await c.advance(500);
+    const id = idOn(c, 'counter', 'node-3');
+    holdAcquires = true;
+    const unhold = c.hold();
+    const answer = types[0]?.ref(id).ask<Count>((replyTo) => ({ type: 'get', replyTo }), {
+      timeoutMs: 10_000,
+    });
+    answer?.catch(() => {});
+    await c.advance(200);
+    const left = clusterOf(c.node(2)).leave();
+    await c.advance(200);
+    holding.resolve();
+    unhold();
+    await ask(c, () => left);
+    const shard = shardOf(id, 16);
+    expect(
+      released(c.node(2))
+        .filter((e) => e.shard === shard)
+        .map((e) => e.reason),
+    ).toEqual(['leaving']);
+    // What waited went to the shard where it was granted, and the shard went on from there.
+    expect((await ask(c, () => answer as Promise<Count>)).count).toBe(0);
+    const taken = [0, 1].flatMap((i) => acquired(c.node(i))).filter((e) => e.shard === shard);
+    expect(taken).toHaveLength(1);
+  });
+
+  it('finishes leaving when the last shard it waits for lost its lease instead', async () => {
+    // Found by the hunt (contract seed 1,914): a shard that lost its lease during a database
+    // hang was still stopping when the leave began, and its stop never told the region it was
+    // done.
+    let failing = false;
+    const c = await cluster({
+      sharding: {
+        ...FAST.sharding,
+        wrapStore: (store) => ({
+          ...store,
+          renewAll: (holder, ttlMs) =>
+            failing && holder.startsWith('node-3#')
+              ? Promise.reject(new Error('store unreachable'))
+              : store.renewAll(holder, ttlMs),
+        }),
+      },
+    });
+    const { journal, deposit } = await accounts(c);
+    expect(await ask(c, () => deposit(10))).toEqual({ ok: true, balance: 10 });
+    const third = c.node(2);
+    const hold = journal.holdNextAppend();
+    const unhold = c.hold();
+    const second = deposit(5);
+    failing = true;
+    // Past the lease's deadline: the shard stops, but its entity is still persisting.
+    await c.advance(2_000);
+    expect(released(third).map((e) => e.reason)).toContain('leaseLost');
+    const left = clusterOf(third).leave();
+    await c.advance(500);
+    hold.resolve();
+    unhold();
+    await ask(c, () => second.catch(() => undefined));
+    let done = false;
+    void left.then(() => (done = true));
+    await c.advance(2_000);
+    expect(done).toBe(true);
+  });
+
   it('releases what it can’t hand off when no other node hosts the type', async () => {
     const c = await cluster({ addresses: ['node-1'] });
     const t = init(c.node(0));
@@ -537,7 +678,7 @@ describe('remembering entities', () => {
 });
 
 describe('remembering, when the store fails', () => {
-  it('retries reading what a shard remembers, and logs a write that fails', async () => {
+  it('retries reading what a shard remembers, and a remember write that fails', async () => {
     let failReads = 2;
     let failWrites = 1;
     const c = await cluster({
@@ -571,6 +712,11 @@ describe('remembering, when the store fails', () => {
     // Every shard starts with remember: true, so yorick's shard came up and started yorick.
     expect(spawns(c.node(0)).map((s) => s.id)).toContain('yorick');
     expect(spawns(c.node(0)).map((s) => s.id)).toContain('hamlet');
+    // And the remember that failed was tried again, so a failover would start hamlet too (T7,
+    // chaos seed 120,717: a show whose remember failed wasn't started after its node was killed).
+    expect(await c.store.remembered(`counter/${String(shardOf('hamlet', 16))}`)).toContain(
+      'hamlet',
+    );
   });
 });
 
